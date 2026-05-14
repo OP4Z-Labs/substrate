@@ -2,7 +2,7 @@
 
 > Repeatable automation patterns for codebases. Audits, scaffolds, standards, and a Claude Code bridge — scaffolded into your repo where you own them.
 
-**Status:** v0.1 (skeleton). Local development only; not yet published to npm.
+**Status:** v0.3 (content layer). Local development only; not yet published to npm.
 
 Cadence is the public extraction of a `./exc + /run` automation system
 that grew up inside a private monorepo. It separates the **framework**
@@ -13,27 +13,33 @@ click: install once, own forever.
 
 ---
 
-## What ships in v0.1
+## What ships in v0.3
 
-| Capability                                                              | Status |
-| ----------------------------------------------------------------------- | ------ |
-| `cadence init` — scaffold `auto/`, `cadence.config.json`, manifest stub | yes    |
-| `cadence init --with-claude` — also scaffold the Claude Code bridge     | yes    |
-| Three default audit instruction templates (pre-merge, deps, dead-code)  | yes    |
-| Two scaffold templates (`package-ts`, `package-python`)                 | yes    |
-| `cadence audit --list` — enumerate scaffolded audits                    | yes    |
-| `cadence audit --type <name>` — load instruction + stub report          | yes    |
-| `cadence create --template <name> --name <foo>` — scaffold a package   | yes    |
-| Unit tests covering scaffolding contracts (23 tests)                    | yes    |
+| Capability                                                                          | Status |
+| ----------------------------------------------------------------------------------- | ------ |
+| `cadence init` — scaffold `auto/`, `cadence.config.json`, manifest stub             | yes    |
+| Stack auto-detection (Python / TypeScript / Go / Rust)                              | yes    |
+| `cadence init --with-claude` — also scaffold the Claude Code bridge                 | yes    |
+| 15-audit catalog scaffold-able via `cadence add audit <name>`                       | yes    |
+| 21 standards docs scaffold-able via `cadence add standard <scope/area>`             | yes    |
+| `cadence add scaffold|command|workflow` — incremental item scaffolding              | yes    |
+| `auto/.cadence-manifest.json` tracks every scaffold (sha256 + template version)     | yes    |
+| `cadence audit --list` / `--type <name>` (instruction-file aware stub)              | yes    |
+| `cadence create --template <name> --name <foo>` — scaffold a package                | yes    |
+| `cadence knowledge refresh` — auto-discover services + env from docker-compose      | yes    |
+| `cadence knowledge show [--section <name>]` — print or section the generated doc    | yes    |
+| `cadence doctor` — diagnostic command (config, manifest, stack, bridge)             | yes    |
+| Unit tests (84 tests across 10 files; lint + tsc + build all clean)                 | yes    |
 
-**Explicitly NOT in v0.1.** See the [roadmap](#roadmap) for when each
-arrives. Calling a deferred command exits with code 2 and a hint.
+**Explicitly NOT in v0.3.** See the [roadmap](#roadmap) for when each
+arrives. Calling a still-deferred command (`review`, `standards`,
+`config`, `upgrade`) exits with code 2 and a hint.
 
 ---
 
 ## Install
 
-v0.1 is local-only — no npm publish yet. To try it inside this repo:
+v0.3 is local-only — no npm publish yet. To try it inside this repo:
 
 ```bash
 git clone <this-repo>
@@ -54,85 +60,150 @@ cadence init
 
 ---
 
-## Usage
+## Quick tour
+
+```bash
+# 1. Scaffold the auto/ tree, config, and (optionally) the Claude bridge
+cadence init --with-claude
+
+# 2. Cadence auto-detects your stack from pyproject.toml, package.json, etc.,
+#    and pre-enables the appropriate audits + standards. Inspect the config:
+cat cadence.config.json | jq '.defaults'
+
+# 3. Add additional audits as you need them
+cadence add audit security
+cadence add audit performance
+cadence add audit api-contract
+
+# 4. Add standards docs to your repo
+cadence add standard backend/architecture
+cadence add standard frontend/react
+
+# 5. Auto-discover your local stack from docker-compose
+cadence knowledge refresh
+cadence knowledge show --section services
+
+# 6. Verify the install is healthy
+cadence doctor
+```
+
+---
+
+## Commands
 
 ### `cadence init`
 
-Scaffold the auto/ directory, root config, and (optionally) the
+Scaffold the `auto/` directory, root config, and (optionally) the
 Claude Code bridge.
 
 ```bash
-cadence init                              # use directory name as project name
+cadence init                              # auto-detect stack from markers
 cadence init --name my-app --short-code MA
 cadence init --with-claude                # also scaffold .claude/commands/cadence.md
-cadence init --stack python               # narrow the stacks list
+cadence init --stack python               # explicit override
 ```
+
+**Stack auto-detection.** Cadence looks for marker files at the repo
+root and pre-enables appropriate defaults:
+
+| Stack      | Markers (any one)                                              |
+| ---------- | -------------------------------------------------------------- |
+| python     | `pyproject.toml`, `poetry.lock`, `requirements.txt`, `setup.py` |
+| typescript | `package.json`, `tsconfig.json`                                |
+| go         | `go.mod`                                                       |
+| rust       | `Cargo.toml`                                                   |
+
+Multiple matches → all are recorded, and the audit / standards set is
+the union for the detected stacks. Pass `--stack <a>,<b>` to override.
 
 After running, your repo gains:
 
 ```
 auto/
-├── commands/                # (empty — for your slash-command surface)
+├── commands/                # your slash-command surface
 ├── instructions/main/       # audit playbooks (yours to edit)
 │   ├── audit-pre-merge.md
 │   ├── audit-dependencies.md
 │   └── audit-dead-code.md
-├── scripts/                 # (empty — for your local scripts)
-├── config/
-│   └── project.yaml
-├── standards/               # (empty — for your team's standards)
+├── scripts/                 # local scripts
+├── config/                  # project + scaffolds + workflows registries
+├── standards/               # standards docs (added via `cadence add standard`)
 ├── audits/                  # audit report output
-├── docs/                    # decisions, knowledge
-├── README.md
-└── .cadence-manifest.json   # tracked-scaffolds manifest (for v0.5 upgrade)
+├── docs/                    # decisions + KNOWLEDGE.md (generated)
+└── .cadence-manifest.json   # tracked-scaffolds manifest
 cadence.config.json
 .claude/commands/cadence.md  # only with --with-claude
 ```
 
-Re-running `cadence init` is safe: existing files are skipped, not
-overwritten. The framework reads from your copy at runtime.
+### `cadence add <category> <item>`
 
-### `cadence audit --list`
-
-List the audit instructions scaffolded under
-`auto/instructions/main/audit-*.md`.
-
-```bash
-$ cadence audit --list
-
-Audits available (3)
-
-  dead-code     Unreachable code, unused exports, orphan files...
-  dependencies  Outdated packages, known CVEs, license compliance...
-  pre-merge     Diff-only fast gate. Audits files changed in...
-
-  Run: cadence audit --type <name>
-```
-
-Pass `--json` to emit machine-readable output for CI / scripts.
-
-### `cadence audit --type <name>`
-
-Load the matching instruction file and emit a structured stub report.
+Single-item scaffolding parallel to `shadcn add`. Each invocation
+updates `auto/.cadence-manifest.json` with the template version + a
+SHA-256 of the scaffolded contents so the v0.5 upgrade flow can diff
+your edits against future template releases.
 
 ```bash
-$ cadence audit --type pre-merge
-
-Audit: pre-merge
-  instruction: /path/to/auto/instructions/main/audit-pre-merge.md
-  description: Diff-only fast gate...
-
-⚠ v0.1 stub: no detectors executed.
-  In v0.1, cadence reads the instruction file and confirms it is
-  well-formed. The detector runtime (RULES.yaml + ripgrep / vulture /
-  pip-audit / knip wrappers) ships in v0.3.
-
-Findings: 0 (stub)
+cadence add audit backend
+cadence add audit security
+cadence add standard backend/architecture
+cadence add standard frontend/react
+cadence add scaffold package-ts
+cadence add command audit
+cadence add workflow new-service
 ```
 
-In v0.1 this is a stub — the detector runtime ships in v0.3. The
-contract (where instructions live, what front-matter they carry) is
-stable now so AI assistants can lean on it.
+Existing files are preserved by default (shadcn-style). Pass
+`--overwrite` to replace.
+
+#### Audit catalog (15 audits)
+
+| Audit                  | What it covers                                                |
+| ---------------------- | ------------------------------------------------------------- |
+| `pre-merge`            | Fast diff-only PR gate                                        |
+| `dependencies`         | Outdated, CVEs, licenses, abandoned, lockfile drift           |
+| `dead-code`            | Unreachable code, unused exports, orphan files                |
+| `backend`              | Service layering, async hygiene, error handling, observability |
+| `frontend`             | Component patterns, hooks, accessibility, data layer          |
+| `package`              | Shared-package exports, deps, tests, README                   |
+| `security`             | SAST + secret scanning + CVEs + isolation patterns            |
+| `service-consistency`  | Pattern drift across services in the same repo                |
+| `reusability`          | Duplicated logic that should be a shared package              |
+| `extensibility`        | Magic numbers, hardcoded paths, closed-for-extension hotspots |
+| `performance`          | N+1 queries, missing indices, render thrash, bundle bloat     |
+| `api-contract`         | Endpoint diffs, breaking changes, schema drift                |
+| `functionality-gaps`   | TODO density, untested critical paths, flag rot               |
+| `trend`                | Score-over-time aggregator across audit sidecars              |
+| `all`                  | Composite sweep — runs every enabled audit, rolls up findings |
+
+Run `cadence add audit <name>` to add one. The default set (per detected
+stack) is recorded in `cadence.config.json` → `defaults.audits`.
+
+#### Standards catalog (21 docs)
+
+| Scope          | Areas                                                                                   |
+| -------------- | --------------------------------------------------------------------------------------- |
+| backend (8)    | architecture, api, database, error-handling, observability, python, security, testing   |
+| frontend (7)   | react, typescript, accessibility, performance, testing, data-management, logging         |
+| infrastructure (2) | ci-cd, docker                                                                       |
+| operations (2) | runbooks, feature-flags                                                                 |
+| cross-cutting (2) | `RULES.yaml` (15-rule universal skeleton), `markdown-format-specification`           |
+
+Each ships with frontmatter (scope, area, rule cross-references) and a
+TODO-stub body (~40-100 lines). The *shape* ships; the *depth* comes
+per-team as you fill in the TODOs.
+
+### `cadence audit`
+
+```bash
+cadence audit --list                      # enumerate scaffolded audits
+cadence audit --type pre-merge            # load instruction + stub report
+cadence audit --type security --json      # machine-readable for CI
+```
+
+In v0.3 `--type <name>` still emits a stub. The detector runtime (rule
+execution, score aggregation) ships in v0.5. The contract (where
+instructions live, what front matter they carry) is stable now so AI
+assistants and CI integrations can lean on it today.
 
 ### `cadence create --template <name> --name <foo>`
 
@@ -143,42 +214,87 @@ cadence create --template package-ts --name my-utils
 cadence create --template package-python --name my_pylib
 ```
 
-Available templates in v0.1:
+Available templates: `package-ts`, `package-python`. Path placeholders
+(`{{NAME_SNAKE}}`, `{{NAME_PASCAL}}`) are substituted at copy time.
 
-| Template         | Destination                       | Notes                          |
-| ---------------- | --------------------------------- | ------------------------------ |
-| `package-ts`     | `packages/typescript/<name>`      | TypeScript + Vitest skeleton   |
-| `package-python` | `packages/python/<name>`          | Poetry + Pytest skeleton       |
+### `cadence knowledge`
 
-Path placeholders (`{{NAME_SNAKE}}` for the Python source directory)
-are substituted at copy time. Override the destination with
-`--destination <path>` if your repo doesn't use the default layout.
+Auto-discover the local-stack reference from `docker-compose.yml` and
+`.env.example`. Writes `auto/docs/KNOWLEDGE.md`.
+
+```bash
+cadence knowledge refresh
+cadence knowledge show
+cadence knowledge show --section services
+cadence knowledge show --section "environment variables"
+```
+
+Values matching the configured redact patterns (default: any key
+containing `PASSWORD`, `TOKEN`, `SECRET`, `KEY` — case-insensitive)
+are masked as `***REDACTED***` in the generated doc. Configure in
+`cadence.config.json`:
+
+```jsonc
+{
+  "knowledge": {
+    "sources": ["docker-compose.yml", ".env.example"],
+    "redactPatterns": ["PASSWORD", "TOKEN", "SECRET", "KEY"]
+  }
+}
+```
+
+### `cadence doctor`
+
+Diagnose the cadence installation in the current repo. Reports on:
+
+- Node runtime
+- `cadence.config.json` presence + validity
+- `auto/` directory structure
+- Manifest entries (flags dangling entries that point at missing files)
+- Stack alignment (declared vs detected)
+- Claude bridge file (when enabled in config)
+
+Exits 0 clean, non-zero with triage on error. Pass `--json` for
+machine-readable output.
+
+```bash
+cadence doctor
+cadence doctor --json | jq '.summary'
+```
 
 ---
 
 ## Configuration
 
-`cadence init` writes `cadence.config.json` at your repo root:
+`cadence init` writes `cadence.config.json` at your repo root. v0.3's
+shape:
 
-```json
+```jsonc
 {
   "$schema": "https://cadence.dev/schema.json",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "project": { "name": "my-app", "shortCode": "MA" },
   "stacks": ["python", "typescript"],
-  "paths": { /* ... */ },
+  "paths": { /* repo layout */ },
   "defaults": {
-    "audits": ["pre-merge", "dependencies", "dead-code"],
-    "scaffolds": ["package-ts", "package-python"]
+    "audits":    [ /* derived from detected stacks */ ],
+    "standards": [ /* derived from detected stacks */ ],
+    "scaffolds": ["package-ts", "package-python"],
+    "workflows": []
   },
-  "bridges": { "claude": { "enabled": true } },
+  "bridges": {
+    "claude": { "enabled": true, "commandsDir": ".claude/commands" },
+    "cursor": { "enabled": false }
+  },
+  "knowledge": {
+    "sources": ["docker-compose.yml", ".env.example"],
+    "redactPatterns": ["PASSWORD", "TOKEN", "SECRET", "KEY"]
+  },
   "telemetry": { "enabled": false }
 }
 ```
 
-The schema is documented inline in `src/util/types.ts`. Most fields
-are read-only placeholders in v0.1 (they configure features that ship
-in later versions).
+The schema is documented inline in `src/util/types.ts`.
 
 ---
 
@@ -190,13 +306,21 @@ Two-layer separation — the core design decision:
 node_modules/cadence/      (framework — versioned, upgrades freely)
 ├── bin/cadence            CLI entry point (commander)
 ├── dist/                  compiled source
-└── templates/             source-of-truth defaults (copied on init)
+└── templates/             source-of-truth defaults (copied on init / add)
+    ├── init/              scaffolded by `cadence init`
+    ├── audits/            consumed by `cadence add audit <name>`
+    ├── standards/         consumed by `cadence add standard <scope>/<area>`
+    ├── bridges/           Claude Code (today), Cursor (v0.5+)
+    ├── package-ts/        consumed by `cadence create --template package-ts`
+    └── package-python/    consumed by `cadence create --template package-python`
 
 <your repo>/               (scaffolded — owned by you, lives in git)
 ├── auto/
 │   ├── instructions/main/ audit playbooks (editable)
-│   ├── config/            project + command registry
-│   └── ...
+│   ├── standards/         standards docs (editable)
+│   ├── config/            project + scaffolds + workflows registries
+│   ├── docs/              KNOWLEDGE.md + ADRs
+│   └── .cadence-manifest.json
 ├── cadence.config.json    root config
 └── .claude/commands/      slash-command bridges (opt-in)
 ```
@@ -208,25 +332,28 @@ as shadcn/ui: install once, own forever.
 
 ## Roadmap
 
-Cadence is being built in phases. v0.1 ships the skeleton; later
-versions fill in detectors, content, and ecosystem.
+Cadence is being built in phases. v0.3 ships the content layer; later
+versions add the upgrade flow, the detector runtime, and the ecosystem.
 
 | Version | Theme                       | Headline additions                                                                            |
 | ------- | --------------------------- | --------------------------------------------------------------------------------------------- |
 | v0.1    | Skeleton                    | `init`, `audit --list/--type`, `create`. Three audit templates. Two scaffold templates.       |
-| v0.3    | Content layer               | `add`, `review`, `standards`, `knowledge`, `doctor`. Full 15-audit set. Stack auto-detection. |
-| v0.5    | Upgrade + extensibility     | `workflow`, `config`, `upgrade` (three-way merge). Plugin interface for task / VCS adapters.  |
+| v0.3    | **Content layer (current)** | `add`, `knowledge`, `doctor`. 15-audit catalog. 21 standards docs. Stack auto-detection.      |
+| v0.5    | Upgrade + extensibility     | `workflow`, `config`, `upgrade` (three-way merge). Detector runtime. Plugin interface.        |
 | v0.8    | Hardening + ecosystem       | MCP server bridge. GitHub Action. Telemetry first ship (opt-in). Reference adapter packages.  |
 | v1.0    | GA                          | Semver freeze on `cadence.config`. Public RULES registry contribution mechanism.              |
 
-### What's deliberately deferred
+### What's deliberately deferred beyond v0.3
 
-- **Detector runtime** — v0.1's `audit --type` prints a stub. The
-  actual ripgrep / vulture / pip-audit wrappers ship in v0.3.
-- **Stack auto-detection** — v0.1 assumes Python + TypeScript. v0.3
-  detects from manifest files.
+- **Detector runtime** — `audit --type` still emits a stub. The actual
+  ripgrep / vulture / pip-audit wrappers ship in v0.5.
 - **`cadence upgrade`** — the three-way merge flow that diffs your
   edits against new template versions. v0.5.
+- **`cadence review`** — wraps `audit --type pre-merge` with the
+  variants (pre, standards, security, deep, doc-gap). v0.5.
+- **`cadence standards init/list/for-files`** — once the standards
+  bodies are filled in by real projects. v0.5.
+- **`cadence workflow start`** — workflow runtime executor. v0.5.
 - **Plugin interface** — for task adapters (Linear / Jira / GitHub
   Issues) and VCS adapters. v0.5.
 - **Cursor / MCP bridges** — additional editor bridges. v0.5+.
@@ -239,10 +366,11 @@ versions fill in detectors, content, and ecosystem.
 - TypeScript with ESM, Node 20+, strict mode on.
 - CLI via `commander`. No Handlebars — placeholder substitution is
   plain `String.split().join()`.
-- Vitest for unit tests; ESLint + Prettier for static checks.
+- Vitest 4 for unit tests; ESLint + Prettier for static checks.
 - All commands have a programmatic entry point (`runInit`,
-  `runAuditList`, etc.) so they can be invoked from JS without
-  spawning a subprocess. The CLI is a thin dispatch layer.
+  `runAuditList`, `runAdd`, `runKnowledgeRefresh`, `runDoctor`, etc.)
+  so they can be invoked from JS without spawning a subprocess. The
+  CLI is a thin dispatch layer.
 
 ---
 
@@ -252,7 +380,7 @@ versions fill in detectors, content, and ecosystem.
 npm install
 npm run build       # tsc -b
 npm run lint        # eslint
-npm test            # vitest run
+npm test            # vitest run (84 tests)
 npm run typecheck   # tsc --noEmit
 npm run format      # prettier --write
 ```
@@ -261,10 +389,14 @@ End-to-end smoke test:
 
 ```bash
 mkdir -p /tmp/cadence-smoke && cd /tmp/cadence-smoke
+
+# Mark this as a TypeScript repo so auto-detection has something to find
+echo '{}' > package.json
+
 node /path/to/cadence/dist/cli.js init --name smoke --with-claude
-node /path/to/cadence/dist/cli.js audit --list
-node /path/to/cadence/dist/cli.js audit --type pre-merge
-node /path/to/cadence/dist/cli.js create --template package-ts --name hello
+node /path/to/cadence/dist/cli.js add audit security
+node /path/to/cadence/dist/cli.js add standard frontend/react
+node /path/to/cadence/dist/cli.js doctor
 ```
 
 ---
