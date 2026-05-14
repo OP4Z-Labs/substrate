@@ -39,8 +39,7 @@ function buildProgram(): Command {
     .option("--short-code <code>", "Short code for task tags (e.g. OP → [OP-123])")
     .option(
       "--stack <stack>",
-      "Comma-separated stacks (e.g. python,typescript)",
-      "python,typescript",
+      "Comma-separated stacks (e.g. python,typescript). Omit to auto-detect from marker files.",
     )
     .option("--with-claude", "Also scaffold .claude/commands/cadence.md", false)
     .option("--quiet", "Suppress informational output", false)
