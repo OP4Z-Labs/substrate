@@ -62,9 +62,13 @@ export function hashContent(contents: string): string {
 /**
  * Recursively copy a template directory into a target location.
  *
- * `replacements` is applied to file *contents* (not paths) for any file
- * whose name doesn't match `binaryExtensions`. The substitution is a
- * plain `String.replace` against the keys; per the brief, no Handlebars.
+ * `replacements` is applied to both file *contents* and *paths*. Path
+ * substitution lets templates use `{{NAME_SNAKE}}` as a directory name
+ * (e.g. for Python packages where the source folder must match the
+ * package name).
+ *
+ * Per the brief, the substitution is plain `String.split().join()`
+ * against the keys — no Handlebars, no regex special-character risk.
  *
  * If a target file already exists, it's skipped (init is idempotent).
  */
@@ -83,9 +87,10 @@ export function copyTemplate(
 
   walk(sourceDir, (absPath) => {
     const rel = relative(sourceDir, absPath);
-    const target = join(targetDir, rel);
+    const finalRel = applyReplacements(rel, replacements);
+    const target = join(targetDir, finalRel);
     if (existsSync(target)) {
-      skipped.push(rel);
+      skipped.push(finalRel);
       return;
     }
     const isBinary = binaryExtensions.some((ext) => absPath.endsWith(ext));
@@ -97,7 +102,7 @@ export function copyTemplate(
       ensureDir(dirname(target));
       writeFileSync(target, contents, "utf8");
     }
-    created.push(rel);
+    created.push(finalRel);
   });
 
   return { created, skipped };
