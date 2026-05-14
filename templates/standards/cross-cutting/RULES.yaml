@@ -1,0 +1,166 @@
+# =============================================================================
+# RULES.yaml — Machine-checkable standards registry (skeleton)
+# =============================================================================
+# This is the universal skeleton shipped by Cadence. Replace and extend with
+# rules specific to your project. Audits read this file to know what to check;
+# standards docs reference rule IDs for cross-traceability.
+#
+# ID convention: <SCOPE>-<CATEGORY>-<NUM>
+#   Scope:    BE | FE | INF | OPS | XCUT
+#   Category: ARCH | API | DB | ERR | OBS | SEC | TEST | PY | REACT | TS
+#             A11Y | PERF | DATA | LOG | DOCKER | CICD | RUN | FLAG
+#
+# Severity:
+#   critical — security vuln, multi-tenant breach, irreversible loss
+#   high     — correctness bug, missing auth, missing test in critical path
+#   medium   — standards conformance, naming, structural issue
+#   low      — style, doc gap, minor consistency
+#
+# Detector types:
+#   ripgrep   — pattern match against file contents
+#   shell     — arbitrary shell command, exit code determines pass/fail
+#   script    — points at auto/scripts/<name>.sh
+#   manual    — human review required (no automation yet)
+#
+# This skeleton ships ~15 universal rules. Add your project-specific rules
+# below them and bump `meta.rule_count`.
+# =============================================================================
+
+meta:
+  version: 0.1.0
+  generated: TODO
+  rule_count: 15
+  description: |
+    Cadence universal RULES skeleton. Add your project-specific rules
+    below the skeleton entries.
+
+rules:
+  # -- backend universals --------------------------------------------------
+  - id: BE-ARCH-001
+    title: No direct database calls in API handlers
+    doc: backend/architecture.md
+    severity: high
+    description: Endpoint handlers delegate to a service layer. Direct DB calls in handlers couple HTTP and persistence concerns.
+    detector:
+      type: manual
+
+  - id: BE-ARCH-002
+    title: Async handlers in async services
+    doc: backend/architecture.md
+    severity: high
+    description: In an async service, every endpoint handler must be declared async. Sync handlers block the event loop.
+    detector:
+      type: manual
+
+  - id: BE-ERR-001
+    title: No bare exception swallows
+    doc: backend/error-handling.md
+    severity: high
+    description: Bare `except:` / `catch (e) {}` patterns swallow errors silently. Always handle specific types or re-raise.
+    detector:
+      type: ripgrep
+      pattern: '^\s*except:\s*$|^\s*catch\s*\(\s*\)\s*\{?\s*$'
+
+  - id: BE-SEC-001
+    title: Tenant filter on tenant-scoped queries
+    doc: backend/security.md
+    severity: critical
+    description: Every query against a tenant-scoped table must filter by tenant_id (or your project's equivalent).
+    detector:
+      type: manual
+
+  - id: BE-TEST-001
+    title: No "assert x or True" patterns
+    doc: backend/testing.md
+    severity: high
+    description: Assertions that can never fail are silent test failures.
+    detector:
+      type: ripgrep
+      pattern: 'assert\s+\w+\s+or\s+True'
+
+  # -- frontend universals -------------------------------------------------
+  - id: FE-REACT-001
+    title: Hooks called at top level, not conditionally
+    doc: frontend/react.md
+    severity: critical
+    description: React hooks must be called at the top of a component, in the same order every render.
+    detector:
+      type: manual
+
+  - id: FE-A11Y-001
+    title: Interactive elements use real semantic HTML
+    doc: frontend/accessibility.md
+    severity: high
+    description: Use `<button>` not `<div onClick>`, `<a href>` not `<span onClick>`.
+    detector:
+      type: ripgrep
+      pattern: '<div[^>]*onClick'
+
+  - id: FE-PERF-001
+    title: Lists have stable keys
+    doc: frontend/performance.md
+    severity: high
+    description: List items rendered with stable, unique keys. Index keys are an anti-pattern when items can reorder.
+    detector:
+      type: manual
+
+  - id: FE-DATA-001
+    title: Query keys built from a key factory
+    doc: frontend/data-management.md
+    severity: medium
+    description: Query keys must be constructed from a per-entity factory, not hand-rolled at call sites.
+    detector:
+      type: manual
+
+  - id: FE-LOG-001
+    title: No PII / secrets in client logs
+    doc: frontend/logging.md
+    severity: high
+    description: Frontend logs must not contain passwords, tokens, full user objects, or form input from sensitive flows.
+    detector:
+      type: manual
+
+  # -- infrastructure universals -------------------------------------------
+  - id: INF-DOCKER-001
+    title: Containers run as non-root
+    doc: infrastructure/docker.md
+    severity: high
+    description: Production containers must run as a non-root user.
+    detector:
+      type: shell
+      command: 'grep -L "USER " apps/*/Dockerfile'
+
+  - id: INF-CICD-001
+    title: Pre-merge audit gates the merge
+    doc: infrastructure/ci-cd.md
+    severity: high
+    description: Every PR runs `cadence audit --type pre-merge` (or equivalent) before merging.
+    detector:
+      type: manual
+
+  # -- operations universals -----------------------------------------------
+  - id: OPS-RUN-001
+    title: Every alert links to a runbook
+    doc: operations/runbooks.md
+    severity: high
+    description: Alerts that page someone must link to a runbook that tells them what to do.
+    detector:
+      type: manual
+
+  - id: OPS-FLAG-001
+    title: No long-lived release flags
+    doc: operations/feature-flags.md
+    severity: medium
+    description: Release flags older than 30 days post-rollout should be removed.
+    detector:
+      type: manual
+
+  # -- cross-cutting universals --------------------------------------------
+  - id: XCUT-MD-001
+    title: Standards docs declare scope and area in front matter
+    doc: cross-cutting/markdown-format-specification.md
+    severity: low
+    description: Every standards doc starts with YAML front matter declaring scope, area, last_updated, and update_triggers.
+    detector:
+      type: ripgrep
+      pattern: '^---\n(scope|area):'
