@@ -22,7 +22,8 @@ export function parseFrontMatter(source: string): {
   data: AuditFrontMatter;
   body: string;
 } {
-  const trimmed = source.replace(/^﻿/, ""); // strip BOM if present
+  // Strip UTF-8 BOM (U+FEFF) if present so subsequent string matching works.
+  const trimmed = source.replace(/^﻿/, "");
   if (!trimmed.startsWith("---")) {
     return { data: {}, body: trimmed };
   }

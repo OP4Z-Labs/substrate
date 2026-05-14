@@ -21,11 +21,15 @@ export interface AuditDescriptor {
 export interface AuditListOptions {
   cwd?: string;
   json?: boolean;
+  /** Suppress all stdout (used by tests). Ignored if `json` is set. */
+  quiet?: boolean;
 }
 
 export interface AuditTypeOptions {
   cwd?: string;
   json?: boolean;
+  /** Suppress all stdout (used by tests). Ignored if `json` is set. */
+  quiet?: boolean;
 }
 
 /**
@@ -46,6 +50,7 @@ export function runAuditList(options: AuditListOptions = {}): AuditDescriptor[] 
     process.stdout.write(JSON.stringify(audits, null, 2) + "\n");
     return audits;
   }
+  if (options.quiet) return audits;
 
   if (audits.length === 0) {
     console.log(kleur.yellow("No audits found."));
@@ -116,6 +121,7 @@ export function runAuditType(type: string, options: AuditTypeOptions = {}): Audi
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
     return report;
   }
+  if (options.quiet) return report;
 
   console.log(kleur.bold(`\nAudit: ${type}`));
   console.log(kleur.dim(`  instruction: ${path}`));
