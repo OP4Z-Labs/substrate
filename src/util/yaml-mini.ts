@@ -133,7 +133,14 @@ function parseMapping(lines: Line[], start: number, indent: number): [YamlValue,
 }
 
 function parseScalar(input: string): YamlScalar {
-  const v = unquote(input.trim());
+  const trimmed = input.trim();
+  // Quoted strings stay as strings, regardless of content. This matches
+  // YAML 1.2 semantics: `"8080"` is the string "8080", not the number.
+  const wasQuoted =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"));
+  const v = wasQuoted ? trimmed.slice(1, -1) : trimmed;
+  if (wasQuoted) return v;
   if (v === "" || v === "null" || v === "~") return null;
   if (v === "true") return true;
   if (v === "false") return false;
