@@ -13,9 +13,12 @@
 
 import { Command, Option } from "commander";
 import kleur from "kleur";
+import { runAdd } from "./commands/add.js";
 import { runAuditList, runAuditType } from "./commands/audit.js";
 import { runCreate } from "./commands/create.js";
+import { runDoctor } from "./commands/doctor.js";
 import { runInit } from "./commands/init.js";
+import { runKnowledgeRefresh, runKnowledgeShow } from "./commands/knowledge.js";
 import { CADENCE_VERSION } from "./util/version.js";
 
 function buildProgram(): Command {
@@ -89,8 +92,75 @@ function buildProgram(): Command {
       });
     });
 
+  // ------------------------------------------------------------------ add
+  const add = program.command("add").description("Scaffold a single audit, standard, scaffold, command, or workflow.");
+  add
+    .command("audit <name>")
+    .description("Scaffold audit-<name>.md into auto/instructions/main/.")
+    .option("--overwrite", "Replace an existing file in the target", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((name: string, options: AddCliOptions) => {
+      runAdd({ category: "audit", item: name, overwrite: options.overwrite, quiet: options.quiet });
+    });
+  add
+    .command("standard <category>")
+    .description("Scaffold a standards doc (e.g. backend/architecture) into auto/standards/.")
+    .option("--overwrite", "Replace an existing file in the target", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((category: string, options: AddCliOptions) => {
+      runAdd({ category: "standard", item: category, overwrite: options.overwrite, quiet: options.quiet });
+    });
+  add
+    .command("scaffold <template>")
+    .description("Register a scaffold template in auto/config/scaffolds.yaml.")
+    .option("--quiet", "Suppress informational output", false)
+    .action((template: string, options: AddCliOptions) => {
+      runAdd({ category: "scaffold", item: template, quiet: options.quiet });
+    });
+  add
+    .command("command <name>")
+    .description("Scaffold a command doc stub in auto/commands/.")
+    .option("--overwrite", "Replace an existing file in the target", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((name: string, options: AddCliOptions) => {
+      runAdd({ category: "command", item: name, overwrite: options.overwrite, quiet: options.quiet });
+    });
+  add
+    .command("workflow <id>")
+    .description("Register a workflow in auto/config/workflows.yaml and scaffold a stub doc.")
+    .option("--quiet", "Suppress informational output", false)
+    .action((id: string, options: AddCliOptions) => {
+      runAdd({ category: "workflow", item: id, quiet: options.quiet });
+    });
+
+  // -------------------------------------------------------- knowledge
+  const knowledge = program.command("knowledge").description("Auto-discovered local-stack reference (docker compose + .env).");
+  knowledge
+    .command("refresh")
+    .description("Regenerate auto/docs/KNOWLEDGE.md from docker-compose.yml and .env.example.")
+    .option("--quiet", "Suppress informational output", false)
+    .action((options: KnowledgeCliOptions) => {
+      runKnowledgeRefresh({ quiet: options.quiet });
+    });
+  knowledge
+    .command("show")
+    .description("Print the generated KNOWLEDGE.md.")
+    .option("--section <name>", "Print only one section (e.g. services, env)")
+    .action((options: KnowledgeCliOptions) => {
+      runKnowledgeShow({ section: options.section });
+    });
+
+  // ----------------------------------------------------------- doctor
+  program
+    .command("doctor")
+    .description("Diagnose cadence installation, config sanity, and manifest drift.")
+    .option("--json", "Emit machine-readable JSON", false)
+    .action((options: DoctorCliOptions) => {
+      runDoctor({ json: options.json });
+    });
+
   // Provide a soft hint when a deferred command is invoked.
-  for (const deferred of ["add", "review", "standards", "knowledge", "workflow", "config", "upgrade", "doctor"]) {
+  for (const deferred of ["review", "standards", "workflow", "config", "upgrade"]) {
     program
       .command(deferred)
       .description(`(Not yet available — planned for a later version.)`)
@@ -126,6 +196,20 @@ interface CreateCliOptions {
   name: string;
   destination?: string;
   quiet?: boolean;
+}
+
+interface AddCliOptions {
+  overwrite?: boolean;
+  quiet?: boolean;
+}
+
+interface KnowledgeCliOptions {
+  section?: string;
+  quiet?: boolean;
+}
+
+interface DoctorCliOptions {
+  json?: boolean;
 }
 
 /**
