@@ -28,11 +28,7 @@ export function getTemplatesDir(): string {
   let cursor = HERE;
   for (let depth = 0; depth < 6; depth += 1) {
     const candidate = join(cursor, "templates");
-    if (
-      existsSync(candidate) &&
-      existsSync(join(candidate, "audit-instructions")) &&
-      existsSync(join(candidate, "init"))
-    ) {
+    if (existsSync(candidate) && existsSync(join(candidate, "init"))) {
       return candidate;
     }
     const parent = dirname(cursor);
