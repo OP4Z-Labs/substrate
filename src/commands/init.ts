@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import kleur from "kleur";
+import {
+  ALL_STACKS,
+  type Stack,
+  defaultAuditsFor,
+  defaultStandardsFor,
+  detectStacks,
+} from "../util/detect.js";
 import { copyTemplate, ensureDir, writeFileIfMissing } from "../util/fs.js";
 import { AUTO_SUBDIRS, getTemplatesDir, resolveTargetRoot } from "../util/paths.js";
 import type { CadenceConfig, CadenceManifest } from "../util/types.js";
@@ -56,13 +63,37 @@ export function runInit(options: InitOptions = {}): InitResult {
   const root = resolveTargetRoot(options.cwd);
   const projectName = options.projectName ?? root.split("/").pop() ?? "project";
   const shortCode = options.shortCode ?? deriveShortCode(projectName);
-  const stacks = options.stacks ?? ["python", "typescript"];
+
+  // v0.3: stacks come from auto-detection unless explicitly overridden.
+  // We keep the v0.1 fallback (python + typescript) for the "detected
+  // nothing" branch so existing tests and bare init flows behave the same.
+  let stacks: string[];
+  let detectionSource: "override" | "detected" | "fallback";
+  if (options.stacks && options.stacks.length > 0) {
+    stacks = options.stacks;
+    detectionSource = "override";
+  } else {
+    const detection = detectStacks(root);
+    if (detection.stacks.length > 0) {
+      stacks = detection.stacks;
+      detectionSource = "detected";
+    } else {
+      stacks = ["python", "typescript"];
+      detectionSource = "fallback";
+    }
+  }
+  const stackTyped = stacks.filter((s): s is Stack => (ALL_STACKS as readonly string[]).includes(s));
   const log = options.quiet ? () => {} : (msg: string) => console.log(msg);
   const templatesDir = getTemplatesDir();
 
   log(kleur.bold(`\nInitializing cadence in ${root}`));
   log(kleur.dim(`  project: ${projectName} (${shortCode})`));
-  log(kleur.dim(`  stacks:  ${stacks.join(", ")}\n`));
+  log(
+    kleur.dim(
+      `  stacks:  ${stacks.join(", ")} ` +
+        `(${detectionSource === "override" ? "from --stack" : detectionSource === "detected" ? "auto-detected" : "fallback default"})\n`,
+    ),
+  );
 
   const autoDir = join(root, "auto");
   ensureDir(autoDir);
@@ -83,7 +114,13 @@ export function runInit(options: InitOptions = {}): InitResult {
 
   // cadence.config.json
   const configPath = join(root, "cadence.config.json");
-  const config = buildDefaultConfig(projectName, shortCode, stacks, options.withClaude ?? false);
+  const config = buildDefaultConfig(
+    projectName,
+    shortCode,
+    stacks,
+    stackTyped,
+    options.withClaude ?? false,
+  );
   const configCreated = writeFileIfMissing(configPath, JSON.stringify(config, null, 2) + "\n");
   log(
     configCreated
@@ -154,8 +191,28 @@ function buildDefaultConfig(
   name: string,
   shortCode: string,
   stacks: string[],
+  stackTyped: Stack[],
   withClaude: boolean,
 ): CadenceConfig {
+  // v0.3: defaults are derived from detected stacks. The full audit catalog
+  // is always *available* via `cadence add audit <name>`; the `defaults`
+  // entries are the ones init pre-enables (and that future tooling like
+  // `cadence audit --all` will iterate over).
+  const audits = stackTyped.length > 0
+    ? defaultAuditsFor(stackTyped)
+    : ["pre-merge", "dependencies", "dead-code"]; // v0.1 fallback
+  const standards = stackTyped.length > 0
+    ? defaultStandardsFor(stackTyped)
+    : [];
+  const scaffolds: string[] = [];
+  if (stackTyped.includes("typescript")) scaffolds.push("package-ts");
+  if (stackTyped.includes("python")) scaffolds.push("package-python");
+  // If we couldn't classify the stack (empty stackTyped), fall back to the
+  // v0.1 default so existing init smoke flows still produce something usable.
+  if (scaffolds.length === 0) {
+    scaffolds.push("package-ts", "package-python");
+  }
+
   return {
     $schema: "https://cadence.dev/schema.json",
     version: CADENCE_VERSION,
@@ -174,9 +231,9 @@ function buildDefaultConfig(
       auto: "auto",
     },
     defaults: {
-      audits: ["pre-merge", "dependencies", "dead-code"],
-      standards: [],
-      scaffolds: ["package-ts", "package-python"],
+      audits,
+      standards,
+      scaffolds,
       workflows: [],
     },
     bridges: {
@@ -185,9 +242,15 @@ function buildDefaultConfig(
         : { enabled: false },
       cursor: { enabled: false },
     },
+    knowledge: {
+      // v0.3: knowledge auto-discovery reads these sources by default.
+      // Override in your cadence.config.json if your repo uses other names.
+      sources: ["docker-compose.yml", ".env.example"],
+      redactPatterns: ["PASSWORD", "TOKEN", "SECRET", "KEY"],
+    },
     telemetry: {
       // Opt-in only per locked decision (plan §0).
-      // v0.8 will add a first-run prompt; v0.1 stays silent.
+      // v0.8 will add a first-run prompt; v0.3 stays silent.
       enabled: false,
     },
   };

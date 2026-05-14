@@ -44,6 +44,23 @@ export interface CadenceConfig {
     claude?: { enabled: boolean; commandsDir?: string };
     cursor?: { enabled: boolean };
   };
+  /**
+   * Knowledge-discovery configuration. Drives `cadence knowledge refresh`.
+   *
+   * - `sources`: files at repo root that the discovery walker parses. Today
+   *   `docker-compose.yml` (services / ports / volumes) and `.env.example`
+   *   (env-var surface, redacted).
+   * - `redactPatterns`: substring matchers (case-insensitive). Any env-var
+   *   whose key contains one is replaced with `***REDACTED***` in the
+   *   generated `auto/docs/KNOWLEDGE.md`.
+   *
+   * Added in v0.3; older configs without this field are tolerated by
+   * `knowledge refresh` (it falls back to these same defaults).
+   */
+  knowledge?: {
+    sources: string[];
+    redactPatterns: string[];
+  };
   telemetry: {
     enabled: boolean;
   };
