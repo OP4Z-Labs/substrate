@@ -10,6 +10,7 @@ import {
 } from "../util/detect.js";
 import { copyTemplate, ensureDir, writeFileIfMissing } from "../util/fs.js";
 import { AUTO_SUBDIRS, getTemplatesDir, resolveTargetRoot } from "../util/paths.js";
+import { readPreference, setTelemetryEnabled } from "../util/telemetry.js";
 import type { CadenceConfig, CadenceManifest } from "../util/types.js";
 import { CADENCE_VERSION } from "../util/version.js";
 
@@ -217,6 +218,14 @@ export function runInit(options: InitOptions = {}): InitResult {
       " — these are yours now; the framework reads from your copy.\n",
   );
 
+  // v0.8: surface the telemetry opt-in to a user who's just scaffolded
+  // their first cadence project. We don't prompt interactively here —
+  // init is synchronous and prompt UX in non-TTY contexts (CI, scripts)
+  // would either hang or get suppressed silently. Surfacing the flag
+  // names is a transparent compromise. The user runs
+  // `cadence config --telemetry on|off` to record their preference.
+  surfaceTelemetryOptIn(options.quiet === true);
+
   return {
     autoDir,
     configCreated,
@@ -388,6 +397,54 @@ function deriveShortCode(name: string): string {
   const cleaned = name.replace(/[^a-zA-Z0-9]/g, "");
   if (!cleaned) return "CAD";
   return cleaned.slice(0, Math.min(3, cleaned.length)).toUpperCase();
+}
+
+/**
+ * Surface the opt-in telemetry notice on first run.
+ *
+ * v0.8 ships an explicit "we have telemetry, it's off by default, here's
+ * how to enable it" notice rather than an interactive prompt. Rationale:
+ *
+ *   - `init` is synchronous. An async inquirer call inside the run path
+ *     would require making `runInit` Promise-returning, breaking
+ *     callers like the tests + scripted callers that depend on the
+ *     sync shape.
+ *   - In CI / non-TTY contexts an interactive prompt either hangs or
+ *     gets suppressed silently — neither is a great experience.
+ *
+ * The notice flips `prompted=true` so it's shown exactly once. The user
+ * sets the preference with `cadence config --telemetry on|off`.
+ *
+ * v1.0 may revisit by making `runInit` async + adding a real prompt
+ * gated on `process.stdin.isTTY`.
+ */
+function surfaceTelemetryOptIn(quiet: boolean): void {
+  const pref = readPreference();
+  if (pref.prompted) return;
+  // Flip the "asked once" flag so re-running init doesn't keep
+  // surfacing the same banner. Default to opt-out (the locked v0.8
+  // policy — telemetry is off until the user explicitly toggles it on).
+  setTelemetryEnabled(false);
+  if (quiet) return;
+  console.log(
+    "\n" +
+      kleur.dim("─".repeat(60)) +
+      "\n" +
+      kleur.bold("Telemetry (off by default)") +
+      "\n" +
+      kleur.dim(
+        "Cadence collects no usage data unless you opt in. To enable\n" +
+          "anonymous event capture (command name, audit type, error type,\n" +
+          "cadence version, OS family) run:",
+      ) +
+      "\n  " +
+      kleur.cyan("cadence config --telemetry on") +
+      "\n" +
+      kleur.dim("Toggle off anytime with `cadence config --telemetry off`.") +
+      "\n" +
+      kleur.dim("─".repeat(60)) +
+      "\n",
+  );
 }
 
 function readBridgeTemplate(path: string): string {

@@ -33,6 +33,13 @@ import {
   runWorkflowList,
   runWorkflowStart,
 } from "./commands/workflow.js";
+import {
+  emitTelemetryEvent,
+  logPath,
+  preferencePath,
+  readPreference,
+  setTelemetryEnabled,
+} from "./util/telemetry.js";
 import { CADENCE_VERSION } from "./util/version.js";
 
 function buildProgram(): Command {
@@ -353,8 +360,56 @@ function buildProgram(): Command {
       await runMcpServe();
     });
 
+  // ------------------------------------------------------- config (v0.8 telemetry slice)
+  program
+    .command("config")
+    .description(
+      "Read or update cadence settings. v0.8 ships only --telemetry on|off; --enable / --disable / --eject are v1.0.",
+    )
+    .option(
+      "--telemetry <state>",
+      "Set telemetry preference (on or off). Omit to print the current preference.",
+    )
+    .action((options: ConfigCliOptions) => {
+      if (options.telemetry !== undefined) {
+        const lc = options.telemetry.toLowerCase();
+        if (lc !== "on" && lc !== "off") {
+          console.error(
+            kleur.red("✗ ") +
+              `--telemetry expects "on" or "off" (got "${options.telemetry}").`,
+          );
+          process.exit(2);
+          return;
+        }
+        const enabled = lc === "on";
+        setTelemetryEnabled(enabled);
+        console.log(
+          enabled
+            ? kleur.green("✓ telemetry enabled. ") +
+                kleur.dim(`Events will be written to ~/.config/cadence/telemetry.log`)
+            : kleur.green("✓ telemetry disabled."),
+        );
+        return;
+      }
+      // No flag — print current preference.
+      const pref = readPreference();
+      console.log(kleur.bold("Cadence telemetry"));
+      console.log(
+        `  state    : ${
+          pref.enabled === true
+            ? kleur.green("enabled")
+            : pref.enabled === false
+              ? kleur.dim("disabled")
+              : kleur.yellow("not yet asked")
+        }`,
+      );
+      console.log(`  prompted : ${pref.prompted ? "yes" : "no"}`);
+      console.log(kleur.dim(`  pref file: ${preferencePath()}`));
+      console.log(kleur.dim(`  log file : ${logPath()}`));
+    });
+
   // Provide a soft hint when a deferred command is invoked.
-  for (const deferred of ["review", "standards", "config"]) {
+  for (const deferred of ["review", "standards"]) {
     program
       .command(deferred)
       .description(`(Not yet available — planned for a later version.)`)
@@ -414,6 +469,10 @@ interface UpgradeCliOptions {
   quiet?: boolean;
 }
 
+interface ConfigCliOptions {
+  telemetry?: string;
+}
+
 interface TaskCliCommonOptions {
   json?: boolean;
   quiet?: boolean;
@@ -466,9 +525,17 @@ interface WorkflowStartCliOptions {
  */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const program = buildProgram();
+  // Top-level command (argv[2] when invoked normally) is the first
+  // signal we record for opt-in telemetry. Subcommands (e.g. `task
+  // create`) collapse to their family name (`task`) so the surface
+  // stays narrow.
+  const commandName = (argv[2] ?? "").replace(/^-/, "") || "(none)";
   try {
     await program.parseAsync(argv);
+    emitTelemetryEvent(commandName);
   } catch (err) {
+    const errorType = err instanceof Error ? err.constructor.name : "Unknown";
+    emitTelemetryEvent(commandName, { errorType });
     const message = err instanceof Error ? err.message : String(err);
     console.error(kleur.red("✗ ") + message);
     process.exit(1);
