@@ -1,0 +1,264 @@
+# Substrate — architecture
+
+> **Status:** v2.0 draft (Phase B1). The two-layer model and primitives
+> 1–2 ship in this release; primitives 3–11 layer in over B2/B3/B4.
+> See the project plan for the full eleven-primitive roadmap.
+
+Substrate is built as a **layered runtime** with one bright line in the
+middle: **deterministic primitives below, AI-aware orchestration above.**
+
+Everything in the deterministic layer runs from a shell with no AI
+session, no network, and no interactive prompt. Everything in the
+orchestration layer needs an AI session because its job is to walk a
+workflow's prose body, prompt the model step-by-step, and surface
+proposals.
+
+This document describes the model, the surface of each layer, and the
+rules contributors follow to keep the boundary clean.
+
+---
+
+## Why two layers
+
+OP4Z (the workspace where Substrate was extracted from) ran on two
+parallel command surfaces: `./exc` for deterministic shell operations
+and `/run` for AI-orchestrated workflows. The split worked because each
+side stayed narrow:
+
+- `./exc audit --services` listed services without consulting the AI.
+- `/run audit --backend authentication` orchestrated a multi-step audit
+  with the AI loading standards, applying rules, and producing a
+  scored report.
+
+Substrate v2 formalizes that split. Workflows can call deterministic
+primitives via `invoke-deterministic` steps; the orchestrator never
+re-implements primitive logic. If a rule executes one way under
+`substrate audit` and another way under `substrate run audit-service`,
+that's a v2 design smell (plan §12 R3).
+
+A note on what we **don't** ship: a third "non-AI workflow interpreter"
+layer. That would be a duplicate runtime that drifts from the AI's
+actual behavior — every primitive in v2 is either deterministic and
+shell-invocable, or AI-orchestrated. No middle.
+
+---
+
+## Layer 1 — Deterministic primitives
+
+Pure operations. Safe to call from CI scripts, git hooks, or
+non-interactive contexts. Output is machine-parseable first; every
+command takes `--json`.
+
+### What the deterministic layer never does
+
+- Call an AI model.
+- Prompt the user via stdin.
+- Depend on a network resource.
+- Mutate state outside the consumer repo's working tree (and even then,
+  only when the function name says `write` / `emit`).
+
+### Commands and modules
+
+| Command                     | Module                                           | Notes                                                    |
+| --------------------------- | ------------------------------------------------ | -------------------------------------------------------- |
+| `substrate audit`           | `src/audit/`                                     | v1.0; runs RULES.yaml detector runtime.                  |
+| `substrate doctor`          | `src/commands/doctor.ts`                         | v1.0; installation + config sanity checks.               |
+| `substrate validate [path]` | `src/v2/deterministic/validate-command.ts`       | v2.0; JSON-Schema validation of workflow manifests.      |
+| `substrate query rules`     | `src/v2/deterministic/query-command.ts`          | v2.0; filter RULES.yaml by id glob.                      |
+| `substrate query standards` | `src/v2/deterministic/query-command.ts`          | v2.0; list standards docs.                               |
+| `substrate query memory`    | `src/v2/deterministic/query-command.ts`          | v2.0 stub; full impl lands in B2 (plan §6).              |
+| `substrate knowledge`       | `src/commands/knowledge.ts`                      | v1.0; regenerate KNOWLEDGE.md from docker-compose.       |
+| `substrate emit-sidecar`    | (planned, B3)                                    | Writes audit sidecar JSON.                               |
+
+The Discoverer (`src/v2/discoverer.ts`) and Context loader
+(`src/v2/context-loader.ts`) are deterministic library modules that
+sit beneath the commands. They have no CLI surface of their own; they
+are how the runtime (and the orchestrator) resolves "what does this
+workflow know about its surroundings."
+
+### Programmatic surface
+
+```ts
+import { deterministic } from "@op4z/substrate";
+
+// Schema validation
+const result = deterministic.validateManifest(parsedYaml);
+const fileResult = deterministic.validateManifestFile("substrate/workflows/x.yaml");
+
+// Discovery
+const { workflows } = deterministic.discoverWorkflows({ cwd: "/repo" });
+
+// Context resolution (pure: same inputs → same output)
+const context = deterministic.loadContext({
+  workflow: workflow.manifest,
+  cwd: "/repo",
+});
+
+// Queries
+deterministic.runQueryRules({ byPrefix: ["BE-PY-*"], json: true });
+deterministic.runQueryStandards({ patterns: ["backend/*.md"], json: true });
+```
+
+The `deterministic.*` namespace is the recommended import path for v2
+consumers. Flat re-exports of v1.0 functions (`runAuditExecute`,
+`runDoctor`, etc.) remain on the package root for backwards
+compatibility; new code should import through the namespace.
+
+---
+
+## Layer 2 — AI-aware orchestration
+
+Operations that need an AI session because their job is to render
+prompts, walk a workflow body step-by-step, and surface judgment-rich
+output.
+
+### What the orchestration layer does
+
+- Loads context via the deterministic loader.
+- Dispatches `<workflow>.body.md` to the AI session.
+- Walks the manifest's `steps:` array, prompting the model for each
+  AI-step type.
+- Records session-event telemetry (B3).
+- Invokes cross-cutting hooks (B2).
+
+### What the orchestration layer never does
+
+- Re-implement rule execution. Rules run through the deterministic
+  layer's runner; the orchestrator calls into it but does not
+  duplicate the matching/scoring logic.
+- Mutate the user's repo without an explicit step instructing it to.
+  Side effects come from `invoke-deterministic`, `run-tool`, or
+  `propose-doc-change` steps — never from the runtime itself.
+
+### Commands and modules
+
+| Command                            | Module                                  | Notes                                                                                |
+| ---------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------ |
+| `substrate run <workflow>`         | `src/v2/orchestrator/run-command.ts`    | v2.0 (B1 skeleton); B2/B3 expand the step engine.                                    |
+| `substrate review --proposals`     | (B3)                                    | Walks the proposal queue.                                                            |
+| `substrate workflow create`        | (later)                                 | Interactive workflow authoring.                                                      |
+
+### B1 step support
+
+`substrate run` ships in B1 with **partial** step coverage:
+
+- `invoke-deterministic` and `run-tool` — fully runnable. The step's
+  `run` shell command executes under the consumer's CWD. Stdout/stderr
+  are inherited.
+- All AI-step types (`prompt`, `prompt-and-action`,
+  `invoke-sub-workflow`, `gate`, `discover`, `propose-doc-change`) —
+  surface `status: "deferred"` with a clear message pointing at B2.
+  The workflow halts at the first deferred step and the CLI exits
+  with code 2.
+
+This means workflows whose steps are all `invoke-deterministic` shell
+commands run end-to-end today. Workflows with prompt steps run up to
+the first prompt step and stop. The full AI step engine (prompt loops,
+mid-workflow user confirms, sub-workflow dispatch, gates) is the
+substantive Phase B2 deliverable.
+
+### Programmatic surface
+
+```ts
+import { orchestrator } from "@op4z/substrate";
+
+const summary = await orchestrator.runV2Workflow({
+  workflowId: "audit-service",
+  cwd: "/repo",
+  dryRun: false,
+  json: false,
+});
+
+// summary.exitCode is 0 (clean), 1 (step failed), or 2 (deferred)
+```
+
+---
+
+## The boundary in code
+
+Two structural conventions enforce the layer split:
+
+### 1. Module paths encode layer intent
+
+```
+src/
+├── audit/                   # deterministic (v1.0)
+├── commands/                # deterministic (v1.0 + flat re-exports)
+├── v2/
+│   ├── deterministic/       # deterministic v2 surface
+│   │   ├── validate-command.ts
+│   │   ├── query-command.ts
+│   │   └── index.ts         # namespace barrel
+│   ├── orchestrator/        # AI-aware v2 surface
+│   │   ├── run-command.ts
+│   │   └── index.ts         # namespace barrel
+│   ├── discoverer.ts        # deterministic library
+│   ├── context-loader.ts    # deterministic library
+│   ├── validate.ts          # deterministic library
+│   └── types.ts             # shared
+└── index.ts                 # entry point: deterministic + orchestrator namespaces
+```
+
+When you add a v2 capability, the path decides the layer. A new shell-
+invocable primitive lives under `src/v2/deterministic/`; a new
+AI-orchestrated command lives under `src/v2/orchestrator/`.
+
+### 2. Programmatic API exposes the layers as namespaces
+
+The package root exports:
+
+```ts
+import substrate, { deterministic, orchestrator } from "@op4z/substrate";
+```
+
+Consumers can be explicit:
+
+```ts
+// Pure CI script — only the deterministic layer
+import { deterministic } from "@op4z/substrate";
+const result = deterministic.runValidate({ json: true });
+
+// Workflow-driving harness — wants the orchestrator too
+import { deterministic, orchestrator } from "@op4z/substrate";
+```
+
+The flat re-exports at the package root (`runInit`, `runAuditExecute`,
+…) remain from v1.0 for backwards compatibility. New code should
+prefer the namespaced imports.
+
+---
+
+## Future layers
+
+The two-layer model accommodates everything in the eleven-primitive
+roadmap. Each future primitive belongs to one layer:
+
+| Primitive                        | Layer            | Phase |
+| -------------------------------- | ---------------- | ----- |
+| 1. Workflow manifest             | deterministic    | B1    |
+| 2. Two-layer architecture        | (the model)      | B1    |
+| 3. Cross-cutting hooks           | both             | B2    |
+| 4. Conditional-doc-check registry| deterministic    | B2    |
+| 5. First-class memory            | deterministic    | B2    |
+| 6. `composes_findings_of`        | deterministic    | B2    |
+| 7. `escalate_after`              | deterministic    | B2    |
+| 8. `trigger: schedule`           | deterministic    | B3    |
+| 9. Proposal pipeline             | both             | B3    |
+| 10. `substrate doctor` v2        | deterministic    | B4    |
+| 11. Plural knowledge sources     | deterministic    | B4    |
+
+Cross-cutting hooks (#3) and the proposal pipeline (#9) span both
+layers because the **dispatching mechanism** is orchestration (a hook
+runs when a workflow completes; a proposal is generated from a workflow
+session) while the **applicators** are deterministic file writes
+(append YAML, write a memory file, edit RULES.yaml). The boundary
+inside those primitives mirrors the top-level one: the AI-orchestrated
+piece calls into the deterministic-only piece, never re-implements it.
+
+---
+
+## Reference
+
+- Substrate v2 plan: `docs/plans/substrate-v2-plan.md` (out-of-tree)
+- v1.0 audit runtime: `docs/audit-runtime.md`
+- v1.0 programmatic API: `docs/programmatic-api.md`
