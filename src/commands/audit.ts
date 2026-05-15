@@ -179,12 +179,13 @@ export function runAuditType(type: string, options: AuditTypeOptions = {}): Audi
   console.log(kleur.dim(`  description: ${description}`));
   console.log(
     "\n" +
-      kleur.yellow("⚠ v0.1 stub:") +
+      kleur.yellow("⚠ stub:") +
       " no detectors executed.\n" +
       kleur.dim(
-        "  In v0.1, cadence reads the instruction file and confirms it is\n" +
-          "  well-formed. The detector runtime (RULES.yaml + ripgrep / vulture /\n" +
-          "  pip-audit / knip wrappers) ships in v0.3.\n",
+        "  Cadence reads the instruction file and confirms it is well-formed.\n" +
+          "  The audit executor (RULES.yaml + ripgrep / vulture / pip-audit /\n" +
+          "  knip wrappers) is coming in v0.5 — for now this returns the loaded\n" +
+          "  instruction stub.\n",
       ),
   );
   console.log(kleur.bold("Findings: ") + "0 (stub)\n");
