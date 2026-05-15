@@ -18,27 +18,47 @@ describe("audit commands", () => {
 
   describe("runAuditList", () => {
     it("enumerates the three default audits scaffolded by init", () => {
-      const audits = runAuditList({ quiet: true });
-      const types = audits.map((a) => a.type).sort();
+      const { enabled } = runAuditList({ quiet: true });
+      const types = enabled.map((a) => a.type).sort();
       expect(types).toEqual(["dead-code", "dependencies", "pre-merge"]);
     });
 
     it("populates the description from front matter when available", () => {
-      const audits = runAuditList({ quiet: true });
-      const preMerge = audits.find((a) => a.type === "pre-merge");
+      const { enabled } = runAuditList({ quiet: true });
+      const preMerge = enabled.find((a) => a.type === "pre-merge");
       expect(preMerge).toBeDefined();
       expect(preMerge?.description).toContain("Diff-only");
     });
 
-    it("returns an empty list when no audits exist", () => {
+    it("returns an empty enabled list when no audits exist", () => {
       const fresh = makeTempDir();
       try {
         process.chdir(fresh);
-        const audits = runAuditList({ quiet: true });
-        expect(audits).toEqual([]);
+        const { enabled } = runAuditList({ quiet: true });
+        expect(enabled).toEqual([]);
       } finally {
         removeTempDir(fresh);
       }
+    });
+
+    it("surfaces the bundled catalog so users can discover what to scaffold", () => {
+      // Discovery contract: every audit-*.md under templates/audits/ should
+      // appear in the catalog, and the audits already scaffolded by init
+      // (pre-merge, dependencies, dead-code) should be flagged scaffolded.
+      const { enabled, catalog } = runAuditList({ quiet: true });
+      expect(catalog.length).toBeGreaterThan(enabled.length);
+
+      const catalogTypes = catalog.map((c) => c.type);
+      // Spot-check a handful of templates known to ship with cadence.
+      expect(catalogTypes).toContain("backend");
+      expect(catalogTypes).toContain("frontend");
+      expect(catalogTypes).toContain("security");
+
+      const preMergeEntry = catalog.find((c) => c.type === "pre-merge");
+      expect(preMergeEntry?.scaffolded).toBe(true);
+
+      const backendEntry = catalog.find((c) => c.type === "backend");
+      expect(backendEntry?.scaffolded).toBe(false);
     });
   });
 

@@ -3,7 +3,7 @@ import { basename, join } from "node:path";
 import kleur from "kleur";
 import { listFiles, readText } from "../util/fs.js";
 import { parseFrontMatter } from "../util/frontmatter.js";
-import { resolveTargetRoot } from "../util/paths.js";
+import { getTemplatesDir, resolveTargetRoot } from "../util/paths.js";
 
 const INSTRUCTIONS_SUBPATH = join("auto", "instructions", "main");
 const AUDIT_PREFIX = "audit-";
@@ -16,6 +16,24 @@ export interface AuditDescriptor {
   path: string;
   /** Short description, pulled from the front matter or the first heading. */
   description: string;
+}
+
+export interface AuditCatalogEntry {
+  /** Audit type, e.g. "backend", "security". */
+  type: string;
+  /** Absolute path to the template markdown in the cadence package. */
+  path: string;
+  /** Short description, pulled from the front matter or the first heading. */
+  description: string;
+  /** True if this catalog entry has already been scaffolded into the user's repo. */
+  scaffolded: boolean;
+}
+
+export interface AuditListResult {
+  /** Audits scaffolded into the user's repo (auto/instructions/main/). */
+  enabled: AuditDescriptor[];
+  /** Audit templates available to scaffold via `cadence add audit <name>`. */
+  catalog: AuditCatalogEntry[];
 }
 
 export interface AuditListOptions {
@@ -33,43 +51,76 @@ export interface AuditTypeOptions {
 }
 
 /**
- * Enumerate audit instruction files under `auto/instructions/main/`.
+ * Enumerate audit instruction files and the bundled audit-template catalog.
  *
- * In v0.1 these are static markdown files scaffolded by `cadence init`.
- * In v0.3 they'll grow into the live detector inputs (RULES.yaml +
- * per-audit playbooks). The discovery contract — "anything matching
- * `audit-*.md` in this directory is an audit" — stays stable across
- * versions, so cadence-aware tooling can rely on it now.
+ * Two surfaces:
+ *
+ *   - `enabled`  : audits scaffolded into the user's repo under
+ *                  `auto/instructions/main/audit-*.md`. The discovery
+ *                  contract ("anything matching `audit-*.md` in this dir
+ *                  is an audit") stays stable across cadence versions, so
+ *                  cadence-aware tooling can rely on it now.
+ *
+ *   - `catalog`  : audit templates that ship with cadence under
+ *                  `templates/audits/`. These are the audits a user CAN
+ *                  scaffold via `cadence add audit <name>`. Each entry
+ *                  carries a `scaffolded` flag so a single `--list`
+ *                  output can tell you both "what's enabled" and "what
+ *                  else you can pull in" — without re-reading the README.
+ *
+ * Design decision (2026-05-14 cleanup): default behavior shows BOTH
+ * sections. Alternative considered: a `--catalog` flag toggling between
+ * enabled-only (default) and catalog-only views. Rejected because the
+ * smoke tester's first instinct was "show me what's available" and the
+ * combined view answers that without a flag. Adding `--catalog` later as
+ * a filter is non-breaking if it becomes useful.
  */
-export function runAuditList(options: AuditListOptions = {}): AuditDescriptor[] {
+export function runAuditList(options: AuditListOptions = {}): AuditListResult {
   const root = resolveTargetRoot(options.cwd);
   const dir = join(root, INSTRUCTIONS_SUBPATH);
-  const audits = discoverAudits(dir);
+  const enabled = discoverAudits(dir);
+  const catalog = discoverCatalog(enabled);
+  const result: AuditListResult = { enabled, catalog };
 
   if (options.json) {
-    process.stdout.write(JSON.stringify(audits, null, 2) + "\n");
-    return audits;
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    return result;
   }
-  if (options.quiet) return audits;
+  if (options.quiet) return result;
 
-  if (audits.length === 0) {
-    console.log(kleur.yellow("No audits found."));
+  if (enabled.length === 0) {
+    console.log(kleur.yellow("No audits scaffolded in this repo."));
     console.log(
       kleur.dim(`  Expected: ${join(INSTRUCTIONS_SUBPATH, "audit-<type>.md")} in ${root}`),
     );
     console.log(kleur.dim("  Tip: run `cadence init` to scaffold the defaults."));
-    return audits;
+  } else {
+    console.log(kleur.bold(`\nEnabled (scaffolded) — ${enabled.length}\n`));
+    const widest = Math.max(...enabled.map((a) => a.type.length));
+    for (const audit of enabled) {
+      console.log(
+        `  ${kleur.cyan(audit.type.padEnd(widest))}  ${kleur.dim(audit.description)}`,
+      );
+    }
+    console.log("\n" + kleur.dim(`  Run: cadence audit --type <name>`));
   }
 
-  console.log(kleur.bold(`\nAudits available (${audits.length})\n`));
-  const widest = Math.max(...audits.map((a) => a.type.length));
-  for (const audit of audits) {
-    console.log(
-      `  ${kleur.cyan(audit.type.padEnd(widest))}  ${kleur.dim(audit.description)}`,
-    );
+  const addable = catalog.filter((c) => !c.scaffolded);
+  if (addable.length > 0) {
+    console.log(kleur.bold(`\nAvailable (catalog) — ${addable.length}\n`));
+    const widest = Math.max(...addable.map((c) => c.type.length));
+    for (const entry of addable) {
+      console.log(
+        `  ${kleur.cyan(entry.type.padEnd(widest))}  ${kleur.dim(entry.description)}`,
+      );
+    }
+    console.log("\n" + kleur.dim(`  Add: cadence add audit <name>\n`));
+  } else if (enabled.length > 0) {
+    // Empty trailing line keeps spacing consistent with the addable branch above.
+    console.log("");
   }
-  console.log("\n" + kleur.dim(`  Run: cadence audit --type <name>\n`));
-  return audits;
+
+  return result;
 }
 
 export interface AuditRunReport {
@@ -153,6 +204,43 @@ function discoverAudits(dir: string): AuditDescriptor[] {
       type,
       path,
       description: describeAudit(source, data),
+    };
+  });
+}
+
+/**
+ * Walk the bundled `templates/audits/` directory to enumerate every audit
+ * the user *could* scaffold via `cadence add audit <name>`. Each entry is
+ * flagged with `scaffolded: true` if the user has already pulled it into
+ * `auto/instructions/main/`, so the CLI can present "enabled vs available"
+ * without re-walking the user's tree.
+ *
+ * Errors are swallowed deliberately: if the templates dir is somehow
+ * unreachable (e.g. the user's running an unbuilt checkout), we return an
+ * empty catalog rather than crashing the `--list` command. The enabled
+ * surface still works in that degraded mode.
+ */
+function discoverCatalog(enabled: AuditDescriptor[]): AuditCatalogEntry[] {
+  let templatesDir: string;
+  try {
+    templatesDir = getTemplatesDir();
+  } catch {
+    return [];
+  }
+  const auditsDir = join(templatesDir, "audits");
+  const scaffoldedTypes = new Set(enabled.map((a) => a.type));
+  const files = listFiles(auditsDir)
+    .filter((f) => basename(f).startsWith(AUDIT_PREFIX) && f.endsWith(MD_EXT))
+    .sort();
+  return files.map((path) => {
+    const type = basename(path).slice(AUDIT_PREFIX.length, -MD_EXT.length);
+    const source = readText(path);
+    const { data } = parseFrontMatter(source);
+    return {
+      type,
+      path,
+      description: describeAudit(source, data),
+      scaffolded: scaffoldedTypes.has(type),
     };
   });
 }
