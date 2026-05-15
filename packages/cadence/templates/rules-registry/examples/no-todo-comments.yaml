@@ -1,0 +1,33 @@
+# Example rule contribution: catch unaddressed TODO comments.
+#
+# This file demonstrates the shape of a community rules contribution.
+# Copy it as a starting point.
+
+meta:
+  contributor: cadence-team
+  version: 1.0.0
+  description: |
+    Example rule for the cadence rules registry. Catches TODO comments
+    that lack a tracking link or ticket reference, which often become
+    dead code over time.
+
+rules:
+  - id: XCUT-MD-002
+    title: TODOs without a tracking link
+    severity: low
+    category: cross-cutting
+    description: |
+      A bare `TODO` comment is fine in active development but becomes
+      cruft if it ships without a tracking reference. This rule flags
+      TODOs that don't include a parenthesized reference (e.g.
+      `TODO(JIRA-123)` or `TODO(@alice)`).
+
+      The rule is low-severity because false positives are common
+      (legitimate exploratory TODOs in branches that won't ship).
+      Teams that find it useful can promote to medium severity in
+      their own RULES.yaml override.
+    detector:
+      type: ripgrep
+      pattern: '\bTODO\b(?!\s*\()'
+      paths: ['src', 'apps', 'packages']
+      exclude: ['**/*.test.ts', '**/*.spec.ts']

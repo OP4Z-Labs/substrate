@@ -9,4 +9,4 @@
  * If you bump package.json, bump this string. A pre-publish hook in
  * a later version should enforce parity.
  */
-export const CADENCE_VERSION = "0.8.0";
+export const CADENCE_VERSION = "1.0.0";

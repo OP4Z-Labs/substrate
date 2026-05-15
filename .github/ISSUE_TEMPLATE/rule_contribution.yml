@@ -1,0 +1,81 @@
+name: RULES.yaml rule contribution
+description: Propose a new rule for cadence's curated public registry.
+title: "[rule] "
+labels: ["rule-contribution", "triage"]
+body:
+  - type: input
+    id: rule-id
+    attributes:
+      label: Rule ID
+      placeholder: "e.g. BE-PY-003"
+      description: Use the SCOPE-CATEGORY-NUM convention. Check existing IDs first.
+    validations:
+      required: true
+
+  - type: input
+    id: rule-title
+    attributes:
+      label: Rule title
+      placeholder: "Short one-line description"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - critical
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is the rule checking and why? Link to docs or research where applicable.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: detector-type
+    attributes:
+      label: Detector type
+      options:
+        - ripgrep
+        - script
+        - composite
+        - none (manual rule)
+    validations:
+      required: true
+
+  - type: textarea
+    id: detector-detail
+    attributes:
+      label: Detector detail
+      description: |
+        For ripgrep: the pattern + paths + excludes.
+        For script: a minimal sample.
+        For composite: the sub-rule IDs + operator.
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples
+      description: A do / don't pair. Helps reviewers verify the detector and the intent.
+
+  - type: textarea
+    id: where-tested
+    attributes:
+      label: Where you've tested this
+      description: Link to a repo or paste the validation output. Rules without real-world validation get re-reviewed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else

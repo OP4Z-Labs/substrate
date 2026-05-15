@@ -220,7 +220,11 @@ describe("runUpgrade --apply", () => {
     expect(readFileSync(filePath, "utf8")).toBe(userContent);
     const mergePath = filePath + ".cadence-merge";
     expect(existsSync(mergePath)).toBe(true);
-    expect(readFileSync(mergePath, "utf8")).toMatch(/^---/);
+    // v1.0: when templates-history is available the merge file uses
+    // git-style conflict markers; otherwise it falls back to v0.5 shape
+    // (just the new template content, which starts with --- front matter).
+    const mergeText = readFileSync(mergePath, "utf8");
+    expect(mergeText).toMatch(/^(---|<<<<<<<)/);
 
     const applied = result.applied.find((a) =>
       a.path.endsWith("audit-backend.md"),

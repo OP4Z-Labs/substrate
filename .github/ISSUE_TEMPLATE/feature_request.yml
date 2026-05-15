@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a capability cadence should have.
+title: "[feat] "
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: What you're trying to do
+      description: Describe the underlying use case, not the implementation. Helps us find a better solution than the one you might propose.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-workaround
+    attributes:
+      label: Current workaround (if any)
+
+  - type: textarea
+    id: proposed-shape
+    attributes:
+      label: Proposed shape (optional)
+      description: If you have a specific API or flag in mind, sketch it.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - audit runtime
+        - upgrade flow
+        - bridges (Claude / Cursor / MCP)
+        - GitHub Action
+        - adapters (task / VCS)
+        - standards docs
+        - documentation
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else

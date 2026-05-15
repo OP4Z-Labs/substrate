@@ -25,8 +25,9 @@
  * migration.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteJsonSync } from "./atomic-write.js";
 import { hashContent } from "./fs.js";
 import type { CadenceManifest, ManifestEntry } from "./types.js";
 import { CADENCE_VERSION } from "./version.js";
@@ -67,8 +68,10 @@ export function readManifest(autoDir: string): CadenceManifest {
 }
 
 export function writeManifest(autoDir: string, manifest: CadenceManifest): void {
-  const path = manifestPath(autoDir);
-  writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  // Atomic write — manifest is crash-critical for the upgrade flow. A
+  // half-written manifest mid-`add` would orphan the just-scaffolded
+  // file from its tracking entry.
+  atomicWriteJsonSync(manifestPath(autoDir), manifest);
 }
 
 /**

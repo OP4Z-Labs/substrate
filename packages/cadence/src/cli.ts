@@ -26,6 +26,12 @@ import { runInit } from "./commands/init.js";
 import { runKnowledgeRefresh, runKnowledgeShow } from "./commands/knowledge.js";
 import { runMcpServe } from "./commands/mcp.js";
 import {
+  runTelemetryExport,
+  runTelemetryPurge,
+  runTelemetryShow,
+} from "./commands/telemetry.js";
+import { runUninstall } from "./commands/uninstall.js";
+import {
   runTaskComplete,
   runTaskCreate,
   runTaskFind,
@@ -55,7 +61,11 @@ function buildProgram(): Command {
       "Cadence — repeatable automation patterns for codebases (audits, scaffolds, standards).",
     )
     .version(CADENCE_VERSION, "-v, --version", "Print cadence version")
-    .helpOption("-h, --help", "Display help for command");
+    .helpOption("-h, --help", "Display help for command")
+    .option(
+      "--telemetry-endpoint <url>",
+      "Forward telemetry events to a user-configured collector URL (opt-in).",
+    );
 
   // ---------------------------------------------------------------- init
   program
@@ -435,6 +445,77 @@ function buildProgram(): Command {
       console.log(kleur.dim(`  log file : ${logPath()}`));
     });
 
+  // -------------------------------------------------------- uninstall (v1.0)
+  program
+    .command("uninstall")
+    .description(
+      "Remove cadence-scaffolded files from this repo. Preserves user-modified files by default.",
+    )
+    .option("--dry-run", "Print the plan without writing anything", false)
+    .option("--yes", "Skip the confirmation prompt", false)
+    .option("--force", "Remove user-modified files too (skips hash check)", false)
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (options: {
+        dryRun?: boolean;
+        yes?: boolean;
+        force?: boolean;
+        json?: boolean;
+        quiet?: boolean;
+      }) => {
+        runUninstall({
+          dryRun: options.dryRun,
+          yes: options.yes,
+          force: options.force,
+          json: options.json,
+          quiet: options.quiet,
+        });
+      },
+    );
+
+  // -------------------------------------------------------- telemetry (v1.0)
+  const telemetry = program
+    .command("telemetry")
+    .description("Inspect, purge, or export cadence's local telemetry log.");
+  telemetry
+    .command("show")
+    .description("Print the current preference and the last N events.")
+    .option("--tail <n>", "Number of recent events to display", (v) => parseInt(v, 10), 10)
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((options: { tail?: number; json?: boolean; quiet?: boolean }) => {
+      runTelemetryShow({ tail: options.tail, json: options.json, quiet: options.quiet });
+    });
+  telemetry
+    .command("purge")
+    .description("Delete the telemetry preference file and event log.")
+    .option("--yes", "Skip confirmation", false)
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((options: { yes?: boolean; json?: boolean; quiet?: boolean }) => {
+      runTelemetryPurge({ yes: options.yes, json: options.json, quiet: options.quiet });
+    });
+  telemetry
+    .command("export <outPath>")
+    .description("Copy the telemetry log to a file in JSONL or CSV format.")
+    .option("--format <format>", "Output format: jsonl (default) or csv", "jsonl")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (
+        outPath: string,
+        options: { format?: "jsonl" | "csv"; json?: boolean; quiet?: boolean },
+      ) => {
+        runTelemetryExport({
+          outPath,
+          format: options.format,
+          json: options.json,
+          quiet: options.quiet,
+        });
+      },
+    );
+
   // Provide a soft hint when a deferred command is invoked.
   for (const deferred of ["review", "standards"]) {
     program
@@ -567,10 +648,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const commandName = (argv[2] ?? "").replace(/^-/, "") || "(none)";
   try {
     await program.parseAsync(argv);
-    emitTelemetryEvent(commandName);
+    const opts = program.opts<{ telemetryEndpoint?: string }>();
+    emitTelemetryEvent(commandName, { endpoint: opts.telemetryEndpoint });
   } catch (err) {
     const errorType = err instanceof Error ? err.constructor.name : "Unknown";
-    emitTelemetryEvent(commandName, { errorType });
+    const opts = program.opts<{ telemetryEndpoint?: string }>();
+    emitTelemetryEvent(commandName, { errorType, endpoint: opts.telemetryEndpoint });
     const message = err instanceof Error ? err.message : String(err);
     console.error(kleur.red("✗ ") + message);
     process.exit(1);

@@ -13,6 +13,7 @@
  * `--json` swaps the rendering for machine-readable output.
  */
 
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import kleur from "kleur";
@@ -70,18 +71,76 @@ export function runDoctor(options: DoctorOptions = {}): DoctorReport {
 
 // ----------------------------------------------------------- checks
 function checkTooling(): Check[] {
-  // We don't shell out to the tooling — that adds platform complexity
-  // (Windows vs POSIX, exec lookup, etc.). Instead we record what node
-  // gives us about itself: `node` is available (we're running), and we
-  // expose the version for human inspection.
-  return [
-    {
+  const checks: Check[] = [];
+
+  // Node version: cadence requires >= 20.
+  const nodeMajor = parseInt(process.versions.node.split(".")[0]!, 10);
+  if (nodeMajor < 20) {
+    checks.push({
+      id: "tooling.node",
+      title: "Node.js runtime",
+      severity: "error",
+      message: `Node ${process.version} is below the cadence minimum (20+).`,
+      fix: "Upgrade Node to 20.x or later (see docs/compatibility.md).",
+    });
+  } else if (nodeMajor < 22) {
+    // Node 20 is supported; 22+ is preferred for newer Astro / docs-site
+    // work. Surface as a soft warn so users on LTS-stable Node 20 still
+    // pass.
+    checks.push({
+      id: "tooling.node",
+      title: "Node.js runtime",
+      severity: "ok",
+      message: `Running on ${process.version} (${process.platform}/${process.arch}). Node 22+ is the recommended target.`,
+    });
+  } else {
+    checks.push({
       id: "tooling.node",
       title: "Node.js runtime",
       severity: "ok",
       message: `Running on ${process.version} (${process.platform}/${process.arch}).`,
-    },
-  ];
+    });
+  }
+
+  // Ripgrep: optional but recommended for the audit runtime.
+  const rg = spawnSync("rg", ["--version"], { stdio: "ignore" });
+  if (rg.status === 0) {
+    checks.push({
+      id: "tooling.ripgrep",
+      title: "ripgrep",
+      severity: "ok",
+      message: "Available on PATH — audit ripgrep detectors will use the fast path.",
+    });
+  } else {
+    checks.push({
+      id: "tooling.ripgrep",
+      title: "ripgrep",
+      severity: "warn",
+      message: "Not found on PATH. Cadence will fall back to a Node-only regex scan (slower).",
+      fix: "Install ripgrep: https://github.com/BurntSushi/ripgrep#installation",
+    });
+  }
+
+  // Git: needed for `audit --diff` and the VCS adapter.
+  const git = spawnSync("git", ["--version"], { stdio: "ignore" });
+  if (git.status === 0) {
+    checks.push({
+      id: "tooling.git",
+      title: "git",
+      severity: "ok",
+      message: "Available on PATH.",
+    });
+  } else {
+    checks.push({
+      id: "tooling.git",
+      title: "git",
+      severity: "warn",
+      message: "Not found on PATH. `cadence audit --diff` and the VCS adapter will be unavailable.",
+      fix: "Install git: https://git-scm.com/downloads",
+    });
+  }
+
+  return checks;
 }
 
 function checkConfig(root: string): Check[] {

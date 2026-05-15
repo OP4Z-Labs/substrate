@@ -1,0 +1,23 @@
+id: new-service
+name: New Service Scaffold
+description: Scaffold a new backend microservice from cadence templates, then run the backend audit.
+steps:
+  - name: Ask for the service name
+    type: prompt
+    prompt: "What's the name of the new service?"
+    var: SERVICE_NAME
+
+  - name: Ask for the service stack
+    type: prompt
+    prompt: "Which stack? (fastapi | express)"
+    var: SERVICE_STACK
+
+  - name: Run the scaffold
+    type: command
+    command: "echo 'Would scaffold service: ${SERVICE_NAME} (${SERVICE_STACK})'"
+
+  - name: Audit the new service
+    type: audit
+    audit: backend
+    # Only run the audit if the user actually filled in a service name.
+    condition: "${SERVICE_NAME}"

@@ -14,12 +14,13 @@ jobs:
 
     # Cadence's CLI is invoked as a node subprocess by the integration
     # tests, so the runtime version matters. Pin to the package.json
-    # `engines.node` minimum (20) and one current LTS line (22) so
-    # version drift catches us at PR time, not after release.
+    # `engines.node` minimum (20), the current LTS line (22), and the
+    # latest line (24) so version drift catches us at PR time. See
+    # docs/compatibility.md for the support matrix.
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        node: [20, 22, 24]
 
     steps:
       - uses: actions/checkout@v4

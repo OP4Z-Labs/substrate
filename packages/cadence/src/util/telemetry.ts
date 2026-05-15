@@ -140,15 +140,20 @@ export function setTelemetryEnabled(enabled: boolean): TelemetryPreference {
 /**
  * Emit a telemetry event IF the user has opted in. No-op when the
  * preference is null/false. v0.8 writes the event JSON to a local log
- * file only; v1.0 may also POST to a collector when the user grants
- * an extra "send anonymous events" consent.
+ * file only; v1.0 also (optionally) POSTs to a user-configured
+ * collector via the `CADENCE_TELEMETRY_ENDPOINT` env var or the
+ * `--telemetry-endpoint <url>` flag (passed through here by the CLI).
+ *
+ * **Local logging is the default.** The endpoint is opt-in extra; if
+ * configured, the JSONL line is also POSTed there. Failures POSTing
+ * never surface to the user — telemetry must not break cadence.
  *
  * The function is intentionally silent on errors — telemetry must never
  * cause a user-facing failure.
  */
 export function emitTelemetryEvent(
   command: string,
-  options: { audit?: string; errorType?: string } = {},
+  options: { audit?: string; errorType?: string; endpoint?: string } = {},
 ): void {
   try {
     const pref = readPreference();
@@ -165,9 +170,32 @@ export function emitTelemetryEvent(
     const p = logPath();
     mkdirSync(dirname(p), { recursive: true });
     appendFileSync(p, JSON.stringify(event) + "\n", "utf8");
+
+    // Optional outbound forward to a user-configured collector.
+    const endpoint = options.endpoint ?? process.env.CADENCE_TELEMETRY_ENDPOINT;
+    if (endpoint) {
+      // Best-effort, fire-and-forget. Don't await — we don't want
+      // network latency on the CLI exit path.
+      void forwardEvent(endpoint, event).catch(() => {
+        // Swallow — telemetry must not break.
+      });
+    }
   } catch {
     // Telemetry must not break cadence — swallow errors.
   }
+}
+
+async function forwardEvent(endpoint: string, event: TelemetryEvent): Promise<void> {
+  // Use the global fetch (Node 18+). We don't import a heavy http
+  // library because this is fire-and-forget and the surface is one
+  // POST.
+  await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(event),
+    // Reasonable cap so a slow collector doesn't hang cadence exit.
+    signal: AbortSignal.timeout(2000),
+  });
 }
 
 /**
