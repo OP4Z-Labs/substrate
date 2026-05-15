@@ -21,6 +21,9 @@ import { detectStacks } from "../util/detect.js";
 import { readManifest } from "../util/manifest.js";
 import { AUTO_SUBDIRS, resolveTargetRoot } from "../util/paths.js";
 import { queryMemory } from "../v2/memory.js";
+import { discoverWorkflows } from "../v2/discoverer.js";
+import { locateRulesFile, loadRules } from "../audit/index.js";
+import { listPending } from "../v2/deterministic/proposals/queue.js";
 import type { SubstrateConfig } from "../util/types.js";
 
 type Severity = "ok" | "warn" | "error";
@@ -36,6 +39,25 @@ interface Check {
 export interface DoctorOptions {
   cwd?: string;
   json?: boolean;
+  /**
+   * When set, run only the named check(s). Names are the suffix after
+   * `--check` in the v2 surface: `rules-doc-coverage`,
+   * `workflow-coverage`, `memory-frontmatter`, `stale-proposals`,
+   * `escalation-debt`. Unknown names produce a warning-severity
+   * "unknown check" entry but do not abort.
+   */
+  only?: string[];
+  /**
+   * Override the staleness threshold (in days) for the stale-proposals
+   * check. Default 90 (plan §3.10).
+   */
+  staleProposalsDays?: number;
+  /**
+   * Override the escalation-debt threshold (in days). Findings whose
+   * post-escalation severity has been `critical` for at least this many
+   * days surface as warn. Default 30.
+   */
+  escalationDebtDays?: number;
 }
 
 export interface DoctorReport {
@@ -44,17 +66,61 @@ export interface DoctorReport {
   exitCode: 0 | 1;
 }
 
+/**
+ * Registry of v2 named-check IDs (those addressable via `--check <id>`).
+ * Each entry pairs the public name with the closure that runs it. Order
+ * here is the order they appear in aggregate output.
+ *
+ * v1.0 baseline checks (tooling / config / auto-dir / manifest / stack
+ * alignment / bridges) are always run; they're foundational and have
+ * no `--check` filter analogue.
+ */
+const V2_CHECKS: Array<{ id: string; run: (root: string, options: DoctorOptions) => Check[] }> = [
+  { id: "memory-frontmatter", run: (root) => checkMemoryFrontmatter(root) },
+  { id: "rules-doc-coverage", run: (root) => checkRulesDocCoverage(root) },
+  { id: "workflow-coverage", run: (root) => checkWorkflowCoverage(root) },
+  { id: "stale-proposals", run: (root, opt) => checkStaleProposals(root, opt.staleProposalsDays ?? 90) },
+  { id: "escalation-debt", run: (root, opt) => checkEscalationDebt(root, opt.escalationDebtDays ?? 30) },
+];
+
 export function runDoctor(options: DoctorOptions = {}): DoctorReport {
   const root = resolveTargetRoot(options.cwd);
-  const checks: Check[] = [
+  const baseline: Check[] = [
     ...checkTooling(),
     ...checkConfig(root),
     ...checkAutoDir(root),
     ...checkManifest(root),
     ...checkStackAlignment(root),
     ...checkBridge(root),
-    ...checkMemoryFrontmatter(root),
   ];
+
+  // v2 named checks. When `only` is passed, only run the listed ones
+  // and surface a warn entry for any unknown name. When unset, all v2
+  // checks run.
+  const v2Checks: Check[] = [];
+  const scoped = options.only !== undefined && options.only.length > 0;
+  if (scoped) {
+    for (const name of options.only!) {
+      const entry = V2_CHECKS.find((c) => c.id === name);
+      if (!entry) {
+        v2Checks.push({
+          id: `check.unknown.${name}`,
+          title: `unknown --check name: ${name}`,
+          severity: "warn",
+          message: `No v2 check registered as "${name}".`,
+          fix: `Use one of: ${V2_CHECKS.map((c) => c.id).join(", ")}.`,
+        });
+        continue;
+      }
+      v2Checks.push(...entry.run(root, options));
+    }
+  } else {
+    for (const c of V2_CHECKS) v2Checks.push(...c.run(root, options));
+  }
+
+  // When the caller scoped to `--check` we suppress the baseline so the
+  // output matches "this one slice only". Otherwise baseline + v2.
+  const checks: Check[] = scoped ? v2Checks : [...baseline, ...v2Checks];
 
   const summary = { ok: 0, warn: 0, error: 0 };
   for (const c of checks) summary[c.severity] += 1;
@@ -469,6 +535,283 @@ function checkMemoryFrontmatter(root: string): Check[] {
   ];
 }
 
+/**
+ * `--check rules-doc-coverage`: every RULES.yaml entry should reference
+ * a standards doc via the `doc:` field. Rules without one are an
+ * accountability gap — a reviewer who runs the audit can't follow the
+ * chain back to the standards prose. Surfaces as `warn` (count + first
+ * five rule ids). Missing RULES.yaml file is `ok` (no rules, no gaps).
+ */
+function checkRulesDocCoverage(root: string): Check[] {
+  const rulesPath = locateRulesFile(root);
+  if (!rulesPath) {
+    return [
+      {
+        id: "rules.doc-coverage",
+        title: "RULES.yaml doc coverage",
+        severity: "ok",
+        message: "no RULES.yaml found (substrate/RULES.yaml or auto/RULES.yaml).",
+      },
+    ];
+  }
+  let rules;
+  try {
+    rules = loadRules(rulesPath).document.rules ?? [];
+  } catch (err) {
+    return [
+      {
+        id: "rules.doc-coverage",
+        title: "RULES.yaml doc coverage",
+        severity: "error",
+        message: `Could not load ${rulesPath}: ${err instanceof Error ? err.message : String(err)}`,
+        fix: "Repair the YAML or remove the malformed entries.",
+      },
+    ];
+  }
+  const undocumented = rules.filter((r) => !r.doc || r.doc.trim().length === 0);
+  if (undocumented.length === 0) {
+    return [
+      {
+        id: "rules.doc-coverage",
+        title: "RULES.yaml doc coverage",
+        severity: "ok",
+        message: `${rules.length} rules; all carry a doc reference.`,
+      },
+    ];
+  }
+  const examples = undocumented.slice(0, 5).map((r) => r.id).join(", ");
+  const remainder = undocumented.length > 5 ? `, …${undocumented.length - 5} more` : "";
+  return [
+    {
+      id: "rules.doc-coverage",
+      title: "RULES.yaml doc coverage",
+      severity: "warn",
+      message: `${undocumented.length} of ${rules.length} rules lack a doc: reference (${examples}${remainder}).`,
+      fix:
+        "Add `doc: substrate/standards/<scope>/<doc>.md#anchor` to each rule so audit reports can link back to the prose.",
+    },
+  ];
+}
+
+/**
+ * `--check workflow-coverage`: every workflow manifest discovered under
+ * `substrate/workflows/` should have a sibling `.body.md` (the v2
+ * convention). Manifests missing a body surface as warn — workflow
+ * authors who omit the body lose the cross-cutting prose followups +
+ * documentation surface. Also surfaces invalid manifests as `error`
+ * (those don't run at all).
+ */
+function checkWorkflowCoverage(root: string): Check[] {
+  const discovery = discoverWorkflows({ cwd: root });
+  if (discovery.workflows.length === 0 && discovery.invalidWorkflows.length === 0) {
+    return [
+      {
+        id: "workflow.coverage",
+        title: "v2 workflow coverage",
+        severity: "ok",
+        message: `no workflows discovered under ${discovery.workflowsDir} (pre-v2 install or empty).`,
+      },
+    ];
+  }
+  const out: Check[] = [];
+  if (discovery.invalidWorkflows.length > 0) {
+    const examples = discovery.invalidWorkflows
+      .slice(0, 3)
+      .map((iw) => `${iw.manifestPath.split(/[\\/]/).pop()}: ${iw.errors[0]?.message ?? "validation error"}`)
+      .join("; ");
+    out.push({
+      id: "workflow.coverage.invalid",
+      title: "v2 workflow manifests",
+      severity: "error",
+      message: `${discovery.invalidWorkflows.length} workflow manifest(s) failed validation: ${examples}.`,
+      fix: "Run `substrate validate <path>` for each broken manifest and apply the suggested fix.",
+    });
+  }
+  const bodyMissing = discovery.workflows.filter((w) => !w.bodyPath);
+  if (bodyMissing.length === 0) {
+    out.push({
+      id: "workflow.coverage",
+      title: "v2 workflow coverage",
+      severity: "ok",
+      message: `${discovery.workflows.length} workflows; all paired with a .body.md.`,
+    });
+  } else {
+    const examples = bodyMissing.slice(0, 5).map((w) => w.manifest.id).join(", ");
+    const remainder = bodyMissing.length > 5 ? `, …${bodyMissing.length - 5} more` : "";
+    out.push({
+      id: "workflow.coverage",
+      title: "v2 workflow coverage",
+      severity: "warn",
+      message: `${bodyMissing.length} of ${discovery.workflows.length} workflows lack a .body.md (${examples}${remainder}).`,
+      fix:
+        "Author a prose body next to each manifest (e.g. `substrate/workflows/<id>.body.md`). The orchestrator renders it into the AI prompt at workflow-start.",
+    });
+  }
+  return out;
+}
+
+/**
+ * `--check stale-proposals`: pending proposals older than `staleDays`
+ * (default 90 per plan §3.10) accumulate as queue debt. Surface as warn
+ * with the count + the five oldest filenames.
+ */
+function checkStaleProposals(root: string, staleDays: number): Check[] {
+  const pending = listPending(root);
+  if (pending.length === 0) {
+    return [
+      {
+        id: "proposals.stale",
+        title: "proposal queue",
+        severity: "ok",
+        message: "no pending proposals.",
+      },
+    ];
+  }
+  const now = Date.now();
+  const cutoffMs = staleDays * 24 * 60 * 60 * 1000;
+  // Filename date carries the age signal — file-mtime would conflate
+  // "moved between filesystems" with "still around" so we use the
+  // declared date.
+  const stale = pending.filter((p) => {
+    if (!p.date) return false;
+    const declared = Date.parse(p.date);
+    return Number.isFinite(declared) && now - declared >= cutoffMs;
+  });
+  if (stale.length === 0) {
+    return [
+      {
+        id: "proposals.stale",
+        title: "proposal queue",
+        severity: "ok",
+        message: `${pending.length} pending proposal file(s); none older than ${staleDays}d.`,
+      },
+    ];
+  }
+  const examples = stale
+    .slice(0, 5)
+    .map((p) => p.path.split(/[\\/]/).pop())
+    .join(", ");
+  const remainder = stale.length > 5 ? `, …${stale.length - 5} more` : "";
+  return [
+    {
+      id: "proposals.stale",
+      title: "proposal queue",
+      severity: "warn",
+      message: `${stale.length} of ${pending.length} pending proposal file(s) are older than ${staleDays}d (${examples}${remainder}).`,
+      fix:
+        "Run `substrate review --proposals` to walk the queue. Accept, reject, or defer each — letting them age erodes signal trust.",
+    },
+  ];
+}
+
+/**
+ * `--check escalation-debt`: critical-severity findings that have been
+ * stuck at critical for >= `debtDays` (default 30) are debt the team
+ * keeps shipping past. We read `substrate/audits/*-latest.json`
+ * sidecars (the latest run per scope) and look at findings whose
+ * effective severity is `critical` AND whose `firstSeenAt` is
+ * old enough. Missing sidecars or sidecars without escalation metadata
+ * surface as `ok` (no escalation configured → no debt to report).
+ */
+function checkEscalationDebt(root: string, debtDays: number): Check[] {
+  const auditsDir = join(root, "substrate", "audits");
+  if (!existsSync(auditsDir)) {
+    return [
+      {
+        id: "escalation.debt",
+        title: "escalation debt",
+        severity: "ok",
+        message: "no substrate/audits/ directory (no audits have been run yet).",
+      },
+    ];
+  }
+  let entries: string[];
+  try {
+    entries = readdirSync(auditsDir);
+  } catch {
+    return [
+      {
+        id: "escalation.debt",
+        title: "escalation debt",
+        severity: "ok",
+        message: "substrate/audits/ is unreadable.",
+      },
+    ];
+  }
+  const sidecars = entries.filter((n) => n.endsWith("-latest.json"));
+  if (sidecars.length === 0) {
+    return [
+      {
+        id: "escalation.debt",
+        title: "escalation debt",
+        severity: "ok",
+        message: "no `-latest.json` sidecars under substrate/audits/.",
+      },
+    ];
+  }
+  const now = Date.now();
+  const cutoffMs = debtDays * 24 * 60 * 60 * 1000;
+  let totalStuck = 0;
+  const stuckExamples: string[] = [];
+  for (const name of sidecars) {
+    const path = join(auditsDir, name);
+    let raw: string;
+    try {
+      raw = readFileSync(path, "utf8");
+    } catch {
+      continue;
+    }
+    let report: { scope?: string; results?: Array<{ ruleId?: string; findings?: Array<unknown> }> };
+    try {
+      report = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (!report.results) continue;
+    for (const res of report.results) {
+      if (!res.findings) continue;
+      for (const f of res.findings as Array<{
+        ruleId?: string;
+        severity?: string;
+        firstSeenAt?: string;
+        originalSeverity?: string;
+      }>) {
+        if (f.severity !== "critical") continue;
+        if (!f.firstSeenAt) continue;
+        const firstSeen = Date.parse(f.firstSeenAt);
+        if (!Number.isFinite(firstSeen)) continue;
+        if (now - firstSeen < cutoffMs) continue;
+        totalStuck += 1;
+        if (stuckExamples.length < 5) {
+          const days = Math.floor((now - firstSeen) / (24 * 60 * 60 * 1000));
+          stuckExamples.push(`${f.ruleId ?? "?"} (${days}d, scope ${report.scope ?? name})`);
+        }
+      }
+    }
+  }
+  if (totalStuck === 0) {
+    return [
+      {
+        id: "escalation.debt",
+        title: "escalation debt",
+        severity: "ok",
+        message: `${sidecars.length} audit sidecar(s) scanned; no findings stuck at critical for ${debtDays}d+.`,
+      },
+    ];
+  }
+  const remainder = totalStuck > stuckExamples.length ? `, …${totalStuck - stuckExamples.length} more` : "";
+  return [
+    {
+      id: "escalation.debt",
+      title: "escalation debt",
+      severity: "warn",
+      message: `${totalStuck} finding(s) have been at critical severity for ${debtDays}d+ (${stuckExamples.join("; ")}${remainder}).`,
+      fix:
+        "Resolve the underlying issues, or downgrade severity via `escalate_after` if the rule's escalation curve is too aggressive.",
+    },
+  ];
+}
+
 // ---------------------------------------------------------- rendering
 function renderHumanReport(report: DoctorReport): void {
   console.log(kleur.bold("\nSubstrate doctor\n"));
@@ -502,6 +845,10 @@ export const _internals = {
   checkStackAlignment,
   checkBridge,
   checkMemoryFrontmatter,
+  checkRulesDocCoverage,
+  checkWorkflowCoverage,
+  checkStaleProposals,
+  checkEscalationDebt,
   // Use a wrapper rather than mutating readdirSync for tests
   readdir: (dir: string): string[] => (existsSync(dir) ? readdirSync(dir).filter((e) => statSync(join(dir, e))) : []),
 };

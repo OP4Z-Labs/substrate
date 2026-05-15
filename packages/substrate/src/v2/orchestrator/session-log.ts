@@ -18,9 +18,14 @@
  *   { "ts": "<iso>", "event": "prompt-issued",         "step": "...", "prompt": "..." }
  *   { "ts": "<iso>", "event": "workflow-completion",   "exit": "pass|conditional|fail", "duration": <ms> }
  *
- * Telemetry contract version: v: 3 (B3 extends B1's v: 2). Each line
- * is a self-contained JSON object — readers can stream-parse without
- * needing a header.
+ * Versioning. The session-event-log is a *separate channel* from the
+ * `~/.config/substrate/telemetry.log` events emitted by
+ * `src/util/telemetry.ts` (which stays at `v: 2` through v2.0). Each
+ * event written here is self-describing via its `event` discriminant,
+ * so readers stream-parse line-by-line without needing a schema
+ * header. When this file's shape changes, an explicit `version` field
+ * will be introduced at that point — until then, the discriminant is
+ * the contract.
  *
  * Forbidden fields (PII boundary). The session log is checked into the
  * consumer repo by default; substrate ships explicit forbidden-field

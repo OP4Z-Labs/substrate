@@ -8,9 +8,11 @@
  *   - Humans exploring "what would Substrate load if I ran X"
  *
  * Subjects:
- *   - rules     : filter RULES.yaml entries by id pattern
- *   - standards : list standards docs (by path, by prefix glob)
- *   - memory    : STUBBED in B1 — first-class memory lands in B2
+ *   - rules      : filter RULES.yaml entries by id pattern
+ *   - standards  : list standards docs (by path, by prefix glob)
+ *   - memory     : query the active memory store (B2)
+ *   - doc-checks : list / evaluate conditional doc-checks (B2)
+ *   - sessions   : index session-event-log files written by `substrate run` (B4)
  *
  * `--json` is supported on all subjects for CI consumption.
  */
@@ -32,6 +34,11 @@ import {
   type DocCheckFinding,
 } from "../doc-checks.js";
 import { queryMemory, type MemoryEntry } from "../memory.js";
+import {
+  indexSessionLogs,
+  readSessionLog,
+  type SessionLogIndexEntry,
+} from "../orchestrator/session-log.js";
 
 export interface QueryRulesOptions {
   /** Glob patterns to match against rule ids (e.g. `BE-PY-*`). Default: all. */
@@ -344,6 +351,107 @@ export function runQueryDocChecks(
     }
   }
   for (const w of warnings) console.log(kleur.yellow(`  ! ${w}`));
+  return result;
+}
+
+export interface QuerySessionsOptions {
+  /** Filter to one workflow id (matches the discriminant in the filename). */
+  workflowId?: string;
+  /** Most-recent N entries (newest first). Default unlimited. */
+  limit?: number;
+  /**
+   * When true, include each entry's parsed event list. False (default)
+   * returns the index entries only — the most common CI use case.
+   */
+  includeEvents?: boolean;
+  cwd?: string;
+  json?: boolean;
+  quiet?: boolean;
+}
+
+export interface QuerySessionsResultEntry extends SessionLogIndexEntry {
+  /** Event count is always cheap to compute; we surface it on every entry. */
+  eventCount: number;
+  /** Populated only when `includeEvents` is set. */
+  events?: ReturnType<typeof readSessionLog>["events"];
+  /** Read warnings (malformed lines etc.). */
+  warnings: string[];
+}
+
+export interface QuerySessionsResult {
+  entries: QuerySessionsResultEntry[];
+  sessionsDir: string;
+  warnings: string[];
+}
+
+/**
+ * `substrate query sessions` — index session-event-log files written
+ * by `substrate run`. Sorted newest first (descending mtime), optionally
+ * filtered to one workflow id and / or capped by `limit`.
+ *
+ * Deterministic (no AI, no network). The underlying primitives
+ * (`indexSessionLogs`, `readSessionLog`) live in the orchestrator layer
+ * because that's where they're emitted; this wrapper is a thin CLI
+ * surface so CI scripts can list recent runs without hand-rolling
+ * directory walks.
+ */
+export function runQuerySessions(
+  options: QuerySessionsOptions = {},
+): QuerySessionsResult {
+  const root = resolveTargetRoot(options.cwd);
+  const sessionsDir = join(root, "substrate", "sessions");
+  const indexed = indexSessionLogs({ cwd: root, workflowId: options.workflowId });
+  // indexSessionLogs returns ascending; we want newest first.
+  const newestFirst = [...indexed].reverse();
+  const limited =
+    typeof options.limit === "number" && options.limit > 0
+      ? newestFirst.slice(0, options.limit)
+      : newestFirst;
+
+  const entries: QuerySessionsResultEntry[] = limited.map((idx) => {
+    const read = readSessionLog(idx.path);
+    return {
+      ...idx,
+      eventCount: read.events.length,
+      events: options.includeEvents ? read.events : undefined,
+      warnings: read.warnings,
+    };
+  });
+  const result: QuerySessionsResult = {
+    entries,
+    sessionsDir,
+    warnings: [],
+  };
+
+  if (options.json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    return result;
+  }
+  if (options.quiet) return result;
+
+  if (entries.length === 0) {
+    console.log(
+      kleur.yellow(
+        options.workflowId
+          ? `No session logs for workflow "${options.workflowId}" under ${sessionsDir}.`
+          : `No session logs found under ${sessionsDir}.`,
+      ),
+    );
+    return result;
+  }
+
+  console.log(
+    kleur.dim(
+      `Sessions: ${sessionsDir}${options.workflowId ? ` (workflow=${options.workflowId})` : ""}`,
+    ),
+  );
+  for (const entry of entries) {
+    const when = new Date(entry.mtimeMs).toISOString();
+    const fname = entry.path.split(/[\\/]/).pop() ?? entry.path;
+    console.log(
+      `  ${kleur.cyan(fname)} ${kleur.dim(`(${entry.eventCount} events, ${when})`)}`,
+    );
+  }
   return result;
 }
 

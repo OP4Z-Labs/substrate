@@ -49,6 +49,7 @@ import {
   runQueryDocChecks,
   runQueryMemory,
   runQueryRules,
+  runQuerySessions,
   runQueryStandards,
 } from "./v2/deterministic/query-command.js";
 import {
@@ -236,9 +237,31 @@ function buildProgram(): Command {
   program
     .command("doctor")
     .description("Diagnose substrate installation, config sanity, and manifest drift.")
+    .option(
+      "--check <names>",
+      "Comma-separated v2 check ids to run in isolation (rules-doc-coverage, workflow-coverage, memory-frontmatter, stale-proposals, escalation-debt). Omit to run the full suite.",
+    )
+    .option(
+      "--stale-proposals-days <n>",
+      "Threshold (days) for the stale-proposals check (default 90).",
+      (v) => parseInt(v, 10),
+    )
+    .option(
+      "--escalation-debt-days <n>",
+      "Threshold (days) for the escalation-debt check (default 30).",
+      (v) => parseInt(v, 10),
+    )
     .option("--json", "Emit machine-readable JSON", false)
     .action((options: DoctorCliOptions) => {
-      runDoctor({ json: options.json });
+      const only = options.check
+        ? options.check.split(",").map((c) => c.trim()).filter(Boolean)
+        : undefined;
+      runDoctor({
+        json: options.json,
+        only,
+        staleProposalsDays: options.staleProposalsDays,
+        escalationDebtDays: options.escalationDebtDays,
+      });
     });
 
   // -------------------------------------------------------------- task
@@ -683,6 +706,45 @@ function buildProgram(): Command {
       },
     );
 
+  query
+    .command("sessions")
+    .description(
+      "Index session-event-log files written by `substrate run` (newest first).",
+    )
+    .option(
+      "--workflow <id>",
+      "Restrict to one workflow id (matches the filename discriminant).",
+    )
+    .option(
+      "--limit <n>",
+      "Return only the most recent N entries.",
+      (v) => parseInt(v, 10),
+    )
+    .option(
+      "--include-events",
+      "Embed each entry's parsed event list (default: counts only)",
+      false,
+    )
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (options: {
+        workflow?: string;
+        limit?: number;
+        includeEvents?: boolean;
+        json?: boolean;
+        quiet?: boolean;
+      }) => {
+        runQuerySessions({
+          workflowId: options.workflow,
+          limit: options.limit,
+          includeEvents: options.includeEvents,
+          json: options.json,
+          quiet: options.quiet,
+        });
+      },
+    );
+
   // ------------------------------------------------------- hooks (v2 deterministic)
   // Read-only inspection of substrate/hooks/*.yaml. Dispatch happens
   // automatically inside `substrate run`; these commands are for
@@ -892,6 +954,9 @@ interface KnowledgeCliOptions {
 
 interface DoctorCliOptions {
   json?: boolean;
+  check?: string;
+  staleProposalsDays?: number;
+  escalationDebtDays?: number;
 }
 
 interface UpgradeCliOptions {

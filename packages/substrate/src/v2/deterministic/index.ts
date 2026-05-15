@@ -31,6 +31,7 @@ export {
   runQueryStandards,
   runQueryMemory,
   runQueryDocChecks,
+  runQuerySessions,
 } from "./query-command.js";
 export type {
   QueryRulesOptions,
@@ -41,6 +42,9 @@ export type {
   QueryMemoryResult,
   QueryDocChecksOptions,
   QueryDocChecksResult,
+  QuerySessionsOptions,
+  QuerySessionsResult,
+  QuerySessionsResultEntry,
 } from "./query-command.js";
 
 export { runHooksList, runHooksDescribe } from "./hooks-command.js";
