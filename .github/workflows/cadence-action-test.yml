@@ -1,0 +1,89 @@
+name: cadence-action-test
+
+# Dogfood the cadence GitHub Action against the cadence repo itself.
+# Runs `cadence doctor` and `cadence audit --list` via the local
+# `./action.yml` entrypoint to prove the action surface works end-to-end.
+#
+# Why a dedicated workflow (not part of ci.yml): the action installs
+# cadence via npx, which fetches from npm. For pre-release cadence
+# work (when the version isn't published yet), this workflow can be
+# pointed at a local-install via the action's `version` input or
+# temporarily disabled. ci.yml stays clean of npm-fetch dependencies.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "action.yml"
+      - "dist/action/**"
+      - ".github/workflows/cadence-action-test.yml"
+
+jobs:
+  doctor:
+    name: cadence doctor via action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Use the action from the same checkout (./ refers to the repo root).
+      # Once published, downstream consumers will write `uses: BeauGoldberg/cadence@v0.8.0`.
+      - name: Run cadence doctor via action
+        id: doctor
+        uses: ./
+        with:
+          command: "doctor --json"
+          # Cadence isn't usable from this repo without a `cadence init` first;
+          # most action tests should run in a freshly-initialized fixture dir.
+          # For this dogfood run we accept that doctor will warn loudly — the
+          # acceptance signal is "the action wraps the CLI end-to-end."
+          fail-on: "none"
+
+      - name: Show captured output
+        env:
+          EXIT_CODE: ${{ steps.doctor.outputs.exit-code }}
+          REPORT_PATH: ${{ steps.doctor.outputs.report-path }}
+        run: |
+          echo "Exit code: $EXIT_CODE"
+          echo "Report at: $REPORT_PATH"
+
+  audit-list:
+    name: cadence audit --list via action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Bootstrap a cadence project for the action to run inside
+        run: |
+          mkdir -p fixture
+          cd fixture
+          # Install cadence locally to invoke init (the action will use npx
+          # in the next step, but init must run before audit --list has
+          # anything to enumerate).
+          npm init -y > /dev/null
+          npm install ../packages/cadence > /dev/null
+          npx cadence init --name action-fixture --short-code AF --bridge claude --quiet
+
+      - name: Run cadence audit --list via action
+        id: audit
+        uses: ./
+        with:
+          command: "audit --list"
+          working-directory: ./fixture
+          fail-on: "error"
+
+      - name: Verify a non-empty audit list was returned
+        run: |
+          # The action writes cadence-report.json into the working-directory.
+          test -f ./fixture/cadence-report.json
+          # The stdout output should mention at least one audit (e.g. backend).
+          grep -E "(backend|frontend|pre-merge)" ./fixture/cadence-report.json

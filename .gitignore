@@ -1,5 +1,13 @@
 node_modules/
-dist/
+# Only ignore nested dist/ dirs (per-package build output). The top-level
+# dist/ tree under the repo root is reserved for checked-in artifacts:
+# v0.8 ships dist/action/index.js as the GitHub Action entrypoint, which
+# MUST be committed (GitHub fetches it directly when the action is
+# consumed from `uses: <repo>@<ref>`).
+**/dist/
+!/dist/
+/dist/*
+!/dist/action/
 coverage/
 *.log
 .DS_Store

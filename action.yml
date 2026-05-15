@@ -1,0 +1,49 @@
+name: "Cadence"
+description: "Run cadence audits, reviews, or workflows in CI. Wraps the cadence CLI with workflow-friendly inputs and outputs."
+author: "Beau Goldberg"
+branding:
+  icon: "git-pull-request"
+  color: "purple"
+
+inputs:
+  command:
+    description: >-
+      The cadence command to run, including any flags. Examples:
+      `audit --list`, `audit --type backend`, `doctor --json`,
+      `knowledge show`, `upgrade --check`. The action prepends `cadence`
+      automatically — do NOT include it in this string.
+    required: true
+  working-directory:
+    description: "Directory to run cadence in. Defaults to the GitHub workspace root."
+    required: false
+    default: ""
+  version:
+    description: >-
+      Cadence version to install via npm. Defaults to `latest`. Pin to a
+      specific version like `0.8.0` for reproducible CI runs.
+    required: false
+    default: "latest"
+  fail-on:
+    description: >-
+      Severity threshold for failing the action. Choices: `none`, `error`,
+      `warning`. When the underlying cadence command reports findings at
+      or above this severity, the action exits non-zero. `none` makes the
+      action report-only. Default: `error`.
+    required: false
+    default: "error"
+
+outputs:
+  exit-code:
+    description: "Exit code of the cadence command (0 for success)."
+  stdout:
+    description: "Captured stdout of the cadence command."
+  stderr:
+    description: "Captured stderr of the cadence command."
+  report-path:
+    description: >-
+      Path to the JSON report file produced by the action (always written,
+      regardless of `fail-on`). Relative to the runner workspace.
+
+runs:
+  using: "node20"
+  main: "dist/action/index.js"
