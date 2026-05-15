@@ -2,7 +2,7 @@
 
 > Repeatable automation patterns for codebases. Audits, scaffolds, standards, workflows, and AI-editor bridges — scaffolded into your repo where you own them.
 
-**Status:** v0.5 (upgrade + extensibility). Local development only; not yet published to npm.
+**Status:** v0.8 (hardening + ecosystem). Local development only; not yet published to npm.
 
 Cadence is the public extraction of a `./exc + /run` automation system
 that grew up inside a private monorepo. It separates the **framework**
@@ -13,25 +13,37 @@ click: install once, own forever.
 
 ---
 
-## What ships in v0.5
+## What ships in v0.8
 
-v0.5 is the **upgrade + extensibility** milestone. v0.3's content layer
-(15 audits, 21 standards, stack auto-detection, knowledge auto-discovery)
-is intact; v0.5 layers on:
+v0.8 is the **hardening + ecosystem** milestone. v0.5's plugin
+contracts and three-way upgrade flow are intact; v0.8 layers on:
 
-| Capability (additions in v0.5)                                                       | Status |
+| Capability (additions in v0.8)                                                       | Status |
 | ----------------------------------------------------------------------------------- | ------ |
-| `cadence upgrade --check / --apply / --dry-run` — diff & merge scaffolded files     | new    |
-| Three-way merge UX: keep / take-new / merge / eject per modified file               | new    |
-| Plugin contract for **task adapters** (TaskAdapter) + `cadence task` CLI verbs      | new    |
-| Reference stub task adapter at `packages/adapter-stub/`                             | new    |
-| Plugin contract for **VCS adapters** (VcsAdapter) + built-in git adapter            | new    |
-| `cadence workflow list / describe / start <id> --var k=v` runtime                   | new    |
-| Default `new-service` workflow shipped as a bundled template                        | new    |
-| Three step types in workflows: `command`, `audit`, `prompt`                         | new    |
-| Cursor bridge alongside Claude bridge — both coexist freely                         | new    |
-| `cadence init --bridge claude,cursor` — multi-bridge scaffold                       | new    |
-| YAML parser swap to `yaml` (eemeli) — full spec support, fixes `command: >` truncation | new |
+| `templates-history/<version>/` shipping path — real three-way merge anchors        | new    |
+| Monorepo migration — main CLI moves to `packages/cadence/`; npm workspaces at root | new    |
+| MCP server bridge (`cadence mcp serve`) — third bridge alongside Claude + Cursor   | new    |
+| `cadence init --bridge mcp` scaffolds Claude-Desktop-compatible MCP registration   | new    |
+| GitHub Action wrapper (`action.yml` + `dist/action/index.js`) for CI usage          | new    |
+| Three reference adapters: `@cadence/adapter-{linear,jira,github}` (workspace pkgs) | new    |
+| Astro docs site (`docs-site/`) dogfooded with cadence; builds via `docs:build`      | new    |
+| Opt-in telemetry: `cadence config --telemetry on|off`, local-log emission         | new    |
+| `cadence config --telemetry` CLI command surface                                    | new    |
+
+v0.5 capabilities (unchanged):
+
+| Capability (carried from v0.5)                                                       | Status |
+| ----------------------------------------------------------------------------------- | ------ |
+| `cadence upgrade --check / --apply / --dry-run` — diff & merge scaffolded files     | yes    |
+| Three-way merge UX: keep / take-new / merge / eject per modified file               | yes    |
+| Plugin contract for **task adapters** (TaskAdapter) + `cadence task` CLI verbs      | yes    |
+| Plugin contract for **VCS adapters** (VcsAdapter) + built-in git adapter            | yes    |
+| `cadence workflow list / describe / start <id> --var k=v` runtime                   | yes    |
+| Default `new-service` workflow shipped as a bundled template                        | yes    |
+| Three step types in workflows: `command`, `audit`, `prompt`                         | yes    |
+| Cursor bridge alongside Claude bridge — both coexist freely                         | yes    |
+| `cadence init --bridge claude,cursor` — multi-bridge scaffold                       | yes    |
+| YAML parser swap to `yaml` (eemeli) — full spec support                            | yes    |
 
 Carried over from v0.3 (unchanged):
 
@@ -47,34 +59,70 @@ Carried over from v0.3 (unchanged):
 | `cadence create --template <name> --name <foo>` — scaffold a package                | yes    |
 | `cadence knowledge refresh / show [--section <name>]`                               | yes    |
 | `cadence doctor` — diagnostic command (config, manifest, stack, bridge)             | yes    |
-| Test suite — **194 tests** across 22 files (unit + integration); lint+tsc+build green | yes |
+| Test suite — **272 tests** across 31 files (unit + integration); lint+tsc+build green | yes |
 
-**Explicitly NOT in v0.5.** See the [roadmap](#roadmap) for when each
-arrives. Calling a still-deferred command (`review`, `standards`,
-`config`) exits with code 2 and a hint.
+**Explicitly NOT in v0.8.** See the [roadmap](#roadmap) for when each
+arrives. Calling a still-deferred command (`review`, `standards`)
+exits with code 2 and a hint. The `config` command now ships with
+`--telemetry` only; `--enable / --disable / --eject` follow in v1.0.
 
 ---
 
 ## Install
 
-v0.5 is local-only — no npm publish yet. To try it inside this repo:
+v0.8 is local-only — no npm publish yet. The monorepo layout (v0.8
+landed npm workspaces with the main CLI at `packages/cadence/`):
+
+```
+cadence/                              ← monorepo root
+├── packages/
+│   ├── cadence/                      ← the main CLI (publishable as `cadence`)
+│   ├── adapter-stub/                 ← reference TaskAdapter (logs verbs)
+│   ├── adapter-linear/               ← @cadence/adapter-linear
+│   ├── adapter-jira/                 ← @cadence/adapter-jira
+│   └── adapter-github/               ← @cadence/adapter-github
+├── docs-site/                        ← Astro docs site (cadence-dogfooded)
+├── action.yml                        ← GitHub Action entrypoint
+├── dist/action/index.js              ← Action JS (checked in for `uses:` consumers)
+└── package.json                      ← workspace manager
+```
+
+To try it inside this repo:
 
 ```bash
 git clone <this-repo>
 cd cadence
-npm install
-npm run build
-node dist/cli.js --help
+npm install                           # installs across all workspaces
+npm run build                         # builds cadence + adapter-stub + adapters
+node packages/cadence/dist/cli.js --help
 ```
 
 To use it inside another local project, `npm link`:
 
 ```bash
-cd cadence && npm link
+cd cadence/packages/cadence && npm link
 cd /path/to/your/project
 npm link cadence
 cadence init
 ```
+
+### Using a reference adapter
+
+```bash
+cd /path/to/your/project
+# In your cadence.config.json:
+#   "extensions": { "taskAdapter": "@cadence/adapter-linear" }
+
+# Link the adapter locally (until npm publish lands in v1.0):
+cd /path/to/cadence/packages/adapter-linear && npm link
+cd /path/to/your/project
+npm link @cadence/adapter-linear
+
+export LINEAR_API_KEY=lin_api_xxx
+cadence task find ENG-123
+```
+
+Each adapter has its own README under `packages/adapter-<name>/README.md`.
 
 ---
 
@@ -284,6 +332,7 @@ Diagnose the cadence installation in the current repo. Reports on:
 - Stack alignment (declared vs detected)
 - Claude bridge file (when enabled in config)
 - Cursor bridge file (when enabled in config)
+- MCP bridge file (when enabled in config — v0.8)
 
 Exits 0 clean, non-zero with triage on error. Pass `--json` for
 machine-readable output.
@@ -322,7 +371,16 @@ The four interactive choices for a modified file:
 - **merge** — write `<file>.cadence-merge` beside the user's copy with the new template content; user resolves manually.
 - **eject** — flip `ejected: true` in the manifest; future upgrades skip this file.
 
-Note for v0.5: the diff shown is `user-current vs new-template`. The "original at recorded templateVersion" anchor requires a templates-history shipping path that lands in v0.8. The manifest schema is already keyed on `templateVersion`, so the third anchor can be layered in without a migration.
+**v0.8: real three-way merge.** When `templates-history/<recordedVersion>/` ships the
+content as it shipped originally, the merge UX shows all three anchors:
+"your edits since cadence@X" (original → current), "cadence template changes"
+(original → new), and "raw drift to resolve" (current → new). When a recorded
+version isn't carried in `templates-history/` (e.g. running v0.8 against a manifest
+scaffolded by a non-shipped v0.4), the upgrade gracefully falls back to the v0.5
+degenerate two-way (`current vs new`) — the header banner makes the merge mode
+explicit. Merge files written with `choice=merge` use a git-style conflict-marker
+block (`<<<<<<< ORIGINAL` / `||||||| CURRENT` / `>>>>>>> NEW`) when three-way
+is available.
 
 ### `cadence workflow`
 
@@ -381,14 +439,52 @@ cadence task update OP-660 --status in_progress
 cadence task complete OP-660 --actual-hours 2.5
 ```
 
-Reference adapter ships in this repo at `packages/adapter-stub/`. It
-logs every verb invocation (`[stub-adapter] would call <verb>`) and
-returns synthetic tasks — useful for testing the plugin contract or
-copying as a starting point for a real adapter.
+**Four adapters ship in v0.8** (all under `packages/`):
 
-To wire a real adapter: build it as an npm package whose default export
-satisfies `TaskAdapter`, install it, and point the config field at the
-package name. Cadence loads it lazily via dynamic `import()` at runtime.
+| Adapter                       | What it talks to                          | Env vars                                       |
+| ----------------------------- | ----------------------------------------- | ---------------------------------------------- |
+| `@cadence/adapter-stub`       | Nothing — logs verbs + returns synthetics | (none)                                         |
+| `@cadence/adapter-linear`     | Linear via @linear/sdk                    | `LINEAR_API_KEY`                               |
+| `@cadence/adapter-jira`       | Jira (Cloud or Server) via jira-client    | `JIRA_HOST`, `JIRA_USERNAME`, `JIRA_API_TOKEN` |
+| `@cadence/adapter-github`     | GitHub Issues via Octokit                 | `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`  |
+
+Each adapter has its own `README.md` under `packages/adapter-<name>/`.
+They all follow the same pattern: structural-typing of the adapter
+contract (no build-time import from cadence), inject a client-like
+narrow interface for testing, dynamic `import()` at runtime.
+
+To wire a real adapter: install the package, set the env vars,
+point `extensions.taskAdapter` at the package name. Cadence loads
+it lazily via dynamic `import()` at runtime.
+
+### `cadence mcp serve` (v0.8)
+
+Run cadence as an MCP (Model Context Protocol) server. The third
+bridge target alongside Claude Code and Cursor. Exposes read-only
+cadence tools to any MCP-aware agent (Claude Desktop, Continue,
+Cline, Claude Code's MCP client).
+
+```bash
+# Run standalone (stdio transport):
+cadence mcp serve
+
+# Scaffold the host registration:
+cadence init --bridge mcp
+# → .cadence/mcp/cadence-server.json + .cadence/mcp/README.md
+```
+
+Tools exposed by v0.8:
+
+- `cadence_audit_list` / `cadence_audit_run`
+- `cadence_knowledge_show`
+- `cadence_doctor`
+- `cadence_workflow_list` / `cadence_workflow_describe`
+- `cadence_upgrade_check` (dry-run only)
+
+Write operations (`init`, `add`, `apply`, `task create/update`,
+`workflow start`) are NOT exposed in v0.8. Those have side effects
+the user should approve via the CLI; v1.0 may add them behind an
+explicit `confirm: true` parameter convention.
 
 ### VCS adapter (default: built-in git)
 
@@ -402,13 +498,13 @@ Pijul) drop into the same slot.
 
 ## Configuration
 
-`cadence init` writes `cadence.config.json` at your repo root. v0.5's
-shape:
+`cadence init` writes `cadence.config.json` at your repo root. v0.8's
+shape (`bridges.mcp` added):
 
 ```jsonc
 {
   "$schema": "https://cadence.dev/schema.json",
-  "version": "0.5.0",
+  "version": "0.8.0",
   "project": { "name": "my-app", "shortCode": "MA" },
   "stacks": ["python", "typescript"],
   "paths": { /* repo layout */ },
@@ -420,7 +516,8 @@ shape:
   },
   "bridges": {
     "claude": { "enabled": true,  "commandsDir": ".claude/commands" },
-    "cursor": { "enabled": false, "commandsDir": ".cursor/commands" }
+    "cursor": { "enabled": false, "commandsDir": ".cursor/commands" },
+    "mcp":    { "enabled": false, "commandsDir": ".cadence/mcp" }
   },
   "knowledge": {
     "sources": ["docker-compose.yml", ".env.example"],
@@ -481,44 +578,104 @@ as shadcn/ui: install once, own forever.
 
 ## Roadmap
 
-Cadence is being built in phases. v0.5 ships the upgrade flow,
-extensibility contracts, the workflow runtime, and the second bridge.
-Later versions add the detector runtime, MCP support, and the
-reference-adapter ecosystem.
+Cadence is being built in phases. v0.8 lands the ecosystem layer:
+real three-way merge anchors, MCP bridge, GitHub Action, three
+reference adapter packages (Linear, Jira, GitHub Issues), an Astro
+docs site, and opt-in telemetry. v1.0 is the GA release.
 
 | Version | Theme                                | Headline additions                                                                                                   |
 | ------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
 | v0.1    | Skeleton                             | `init`, `audit --list/--type`, `create`. Three audit templates. Two scaffold templates.                              |
 | v0.3    | Content layer                        | `add`, `knowledge`, `doctor`. 15-audit catalog. 21 standards docs. Stack auto-detection.                             |
-| v0.5    | **Upgrade + extensibility (current)** | `upgrade` (three-way merge). `task` + `workflow` runtimes. Task/VCS plugin contracts. Cursor bridge. YAML lib swap.  |
-| v0.8    | Hardening + ecosystem                | MCP server bridge. GitHub Action. Detector runtime (RULES execution). Telemetry first ship (opt-in). Reference adapters (Linear/Jira/GH Issues). |
-| v1.0    | GA                                   | Semver freeze on `cadence.config`. Public RULES registry contribution mechanism. Migration guide from 0.x.           |
+| v0.5    | Upgrade + extensibility              | `upgrade` (three-way merge). `task` + `workflow` runtimes. Task/VCS plugin contracts. Cursor bridge. YAML lib swap.  |
+| v0.8    | **Hardening + ecosystem (current)** | `templates-history/` real three-way anchors. Monorepo migration. MCP bridge. GitHub Action. 3 reference adapters. Astro docs site. Opt-in telemetry. |
+| v1.0    | GA                                   | Semver freeze on `cadence.config`. Public RULES registry contribution mechanism. Migration guide from 0.x. 5 published case studies. npm publish. |
 
-### What's deliberately deferred beyond v0.5
+### What's deliberately deferred beyond v0.8
 
 - **Detector runtime** — `audit --type` still emits a stub. The actual
-  ripgrep / vulture / pip-audit wrappers ship in v0.8 alongside the
-  RULES.yaml execution engine.
+  ripgrep / vulture / pip-audit wrappers + RULES.yaml execution engine
+  remain a v1.0+ concern.
 - **`cadence review`** — wraps `audit --type pre-merge` with the
-  variants (pre, standards, security, deep, doc-gap). v0.8.
+  variants (pre, standards, security, deep, doc-gap). v1.0.
 - **`cadence standards init/list/for-files`** — once the standards
-  bodies are filled in by real projects. v0.8.
-- **`cadence config`** — view / enable / disable / eject items from
-  `cadence.config.json`. v0.8 (today users edit JSON directly; `upgrade --apply`
+  bodies are filled in by real projects. v1.0.
+- **`cadence config --enable / --disable / --eject`** — v0.8 ships
+  only `--telemetry on|off`. Full enable/disable/eject UX is v1.0
+  (today users edit `cadence.config.json` directly; `upgrade --apply`
   exercises the eject path).
-- **MCP server bridge** — a third bridge target alongside claude/cursor. v0.8.
-- **Reference adapters** — `@cadence/adapter-linear`, `@cadence/adapter-jira`,
-  `@cadence/adapter-github-issues`. The contract is locked in v0.5; the
-  reference implementations ship in v0.8. The stub at `packages/adapter-stub/`
-  is enough to prove the contract today.
-- **Three-way merge with real `original` anchor** — v0.5 ships the
-  upgrade flow with a `current vs new-template` diff. The third anchor
-  (original template at the recorded `templateVersion`) needs a
-  `templates-history/` shipping path; v0.8.
-- **Telemetry** — opt-in, off by default. v0.8 first ships the prompt.
-- **npm publish** — still local-only. v0.8.
+- **MCP write-side tool exposure** — v0.8 MCP exposes read-only +
+  dry-run tools. `init` / `add` / `apply` / `task create|update` /
+  `workflow start` are intentionally not exposed; they mutate the
+  user's repo and v1.0 will revisit with a `confirm: true` parameter
+  convention.
+- **Real telemetry endpoint** — v0.8 ships opt-in + local-log
+  emission only. v1.0 will add an optional collector with explicit
+  secondary consent.
+- **npm publish** — still local-only at v0.8. Each adapter declares
+  `"private": true` to prevent accidental publish. v1.0 publishes
+  `cadence` + `@cadence/adapter-{stub,linear,jira,github}`.
+- **5 case studies** — flagship v1.0 deliverable. Target: 5 external
+  repos using cadence in production.
+- **Public RULES contribution registry** — PR-based, curated. v1.0.
+
+### v1.0 work cuts that may slip
+
+- **Trademark / CLA** on "Cadence" — open question. CC-BY 4.0 + MIT
+  cover usage but not naming.
+- **License finalization beyond what `package.json` declares.**
+- **Sandboxed RULES detector scripts** (Deno?). Currently scripts
+  ship as trust-the-user; v1.0 may add an opt-in sandbox.
 
 ---
+
+## GitHub Action (v0.8)
+
+Run cadence audits in CI without per-workflow boilerplate.
+
+```yaml
+# .github/workflows/cadence-audit.yml
+- uses: BeauGoldberg/cadence@v0.8.0
+  with:
+    command: "audit --type backend"
+    working-directory: ./
+    fail-on: error
+```
+
+Inputs: `command` (required), `working-directory`, `version`
+(npm tag, default `latest`), `fail-on` (`none` / `warning` / `error`).
+Outputs: `exit-code`, `stdout`, `stderr`, `report-path`
+(always written, even on failure).
+
+The action is at `action.yml` + `dist/action/index.js` — both checked
+into this repo so `uses:` consumers fetch a working entrypoint directly.
+
+## Docs site (v0.8)
+
+The public docs site (Astro, deployed-target Cloudflare Pages) lives at
+`docs-site/`. The site is itself cadence-init'd — any standards/audits
+edits you make to cadence flow naturally through the docs site too.
+
+```bash
+npm run docs:dev       # local preview (http://localhost:4321/)
+npm run docs:build     # produces docs-site/dist/
+```
+
+## Telemetry (v0.8, opt-in only)
+
+Cadence collects no usage data unless you opt in. To enable anonymous
+events (command name, audit type, error type, cadence version, OS family):
+
+```bash
+cadence config --telemetry on    # records preference; events emit going forward
+cadence config --telemetry off   # disables
+cadence config                   # prints current preference + file paths
+```
+
+Events emit to `~/.config/cadence/telemetry.log` only at v0.8 (no
+endpoint wired). v1.0 will add an optional collector with explicit
+secondary consent. **No project paths, no user identifiers, no rule
+body content, no audit findings, no message bodies** are ever recorded.
 
 ## Project conventions
 
@@ -530,6 +687,9 @@ reference-adapter ecosystem.
   `runAuditList`, `runAdd`, `runKnowledgeRefresh`, `runDoctor`, etc.)
   so they can be invoked from JS without spawning a subprocess. The
   CLI is a thin dispatch layer.
+- Monorepo via npm workspaces. CLI source lives under
+  `packages/cadence/`; root scripts forward to the workspace
+  via `--workspaces --if-present`.
 
 ---
 
