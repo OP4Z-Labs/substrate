@@ -1,0 +1,28 @@
+schema_version: v2.0
+id: public-docs-on-marketing-change
+description: >-
+  When customer-facing pages (public marketing pages, pricing,
+  landing copy) change, prompt about user-facing documentation
+  updates. Closes OP4Z Gap 1 (lost public-docs check) explicitly.
+when:
+  files-changed-any:
+    - apps/frontend/*/app/(public)/**
+    - apps/frontend/*/app/(marketing)/**
+    - apps/frontend/*/app/(landing)/**
+    - apps/frontend/*/components/marketing/**
+    - apps/frontend/*/components/landing/**
+    - docs/public/**
+require:
+  one-of:
+    - docs/public/release-notes.md
+    - docs/public/changelog.md
+    - docs/public/**
+prompt: >-
+  Customer-facing marketing/pricing/landing content changed. Update
+  the public-docs surface (release notes, changelog, or relevant
+  user-facing doc) so external users see the change reflected. Skip
+  if this is a pure refactor with no behaviour or copy change.
+severity: should-fix
+authors:
+  - substrate
+last_updated: "2026-05-15"

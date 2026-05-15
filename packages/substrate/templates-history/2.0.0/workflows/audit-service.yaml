@@ -1,0 +1,78 @@
+schema_version: v2.0
+id: audit-service
+name: Audit a backend service
+description: >-
+  Service-level health check. Wraps the v1 detector runtime
+  (substrate audit) with a single service-scoped invocation, loads
+  the relevant backend standards, and follows up with concrete
+  next steps.
+kind: audit
+authors:
+  - substrate
+
+# This workflow can be invoked directly or composed into a larger
+# audit-all flow. The schedule trigger is illustrative — uncomment if
+# you want a weekly automated run. B3 wires schedule triggers up to
+# the runtime.
+trigger:
+  - manual-command
+
+when:
+  # Audit the service whenever something inside the service directory
+  # changes — gives the v2 runtime a hint for diff-scoped runs.
+  files-changed-any:
+    - apps/backend/**
+
+context:
+  standards:
+    - backend/architecture.md
+    - backend/python.md
+    - backend/api.md
+    - backend/error-handling.md
+    - backend/observability.md
+  rules:
+    - BE-*
+  # Memory loading lands in B2; declarations work today but resolve
+  # to a no-op + deferred-feature warning. Workflows declaring memory
+  # now will benefit automatically when the loader ships.
+  memory:
+    types:
+      - feedback
+      - project
+    scope: backend
+    tags:
+      - audit
+
+# B1 ships invoke-deterministic step support. The full prompt-driven
+# review loop (prompt, gate, propose-doc-change) lands in B2. Until
+# then, this workflow runs the detector pass and surfaces the report
+# path; AI-driven scoring + recommendations follow.
+steps:
+  - id: run-detector
+    name: Run RULES.yaml detector against the service tree
+    type: invoke-deterministic
+    run: "substrate audit --json"
+
+followups:
+  - if: gate == pass
+    suggest: >-
+      No critical findings. Consider scheduling the next audit
+      via `substrate run audit-service` after the next major
+      service change.
+  - if: gate == conditional
+    suggest: >-
+      Conditional gate. Review findings in
+      `substrate/audits/backend/<service>-latest.json` and triage
+      via `substrate run tackle-task` for any blockers.
+  - if: gate == fail
+    suggest: >-
+      Failing gate. Block merge and run
+      `substrate run tackle-task` for each critical finding.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+  required-steps:
+    - run-detector

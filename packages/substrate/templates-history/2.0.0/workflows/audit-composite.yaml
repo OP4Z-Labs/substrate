@@ -1,0 +1,74 @@
+schema_version: v2.0
+id: audit-composite
+name: Composite audit (aggregates findings from sub-audits)
+description: >-
+  Demonstrates Primitive 6 (composes_findings_of). Declares freshness
+  requirements against sub-audits — when their sidecars are stale,
+  the orchestrator warns at workflow start so the user can refresh
+  first. The audit itself shells out to `substrate audit --json` to
+  re-run the detector; the composition layer ensures composite
+  findings have known-fresh provenance from each sub-audit.
+kind: audit
+authors:
+  - substrate
+
+trigger:
+  - manual-command
+
+# Declare which sub-audits this workflow's findings depend on. The
+# runtime walks each entry, reads the latest sidecar at
+# substrate/audits/<id>-latest.json, and warns when the sidecar is
+# older than require-fresh-within (or missing entirely).
+composes_findings_of:
+  - workflow: audit-service
+    section: "Service-scoped findings"
+    require-fresh-within: 7d
+  - workflow: audit-package
+    section: "Package-scoped findings"
+    require-fresh-within: 7d
+
+context:
+  standards:
+    - backend/architecture.md
+    - frontend/react.md
+  rules:
+    - "*"
+  memory:
+    types:
+      - feedback
+      - project
+    tags:
+      - audit
+      - composite
+
+# The composite audit is a single deterministic step: re-run the
+# detector pass over the whole repo. The composition warnings (above)
+# are surfaced by the runtime before this step executes.
+steps:
+  - id: run-detector
+    name: Re-run RULES.yaml detector across full repo
+    type: invoke-deterministic
+    run: "substrate audit --json"
+
+followups:
+  - if: gate == pass
+    suggest: >-
+      All sub-audit deps fresh, no critical findings. Composite audit
+      clean.
+  - if: gate == conditional
+    suggest: >-
+      Composite gate is conditional. Inspect sub-audit sidecars for
+      finding provenance.
+  - if: gate == fail
+    suggest: >-
+      Composite audit failing. Run sub-audits individually
+      (`substrate run audit-service`, `substrate run audit-package`)
+      to triage findings.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+  required-steps:
+    - run-detector

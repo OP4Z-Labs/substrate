@@ -1,0 +1,137 @@
+schema_version: v2.0
+id: tackle-task
+name: Tackle a task end-to-end
+description: >-
+  The headline workflow. Walks a single task from research to commit
+  approval in eight reinforced steps. Mirrors OP4Z's standard
+  task workflow (memory: feedback-task-workflow-standard).
+kind: task-tackle
+authors:
+  - substrate
+
+trigger:
+  - manual-command
+  # Optional: fire automatically when the user starts work on a
+  # branch named feat/* or fix/*. The runtime hooks B2 wire this up.
+  # - pre-commit
+
+when:
+  branch-pattern: "^(feat|fix|chore|refactor|test|docs|perf)/.*"
+
+context:
+  standards:
+    - backend/architecture.md
+    - backend/api.md
+    - backend/python.md
+    - frontend/react.md
+    - frontend/typescript.md
+    - frontend/data-management.md
+  rules:
+    # All rules are in-scope at first; the AI narrows by the touched
+    # files during the research step.
+    - "*"
+  memory:
+    types:
+      - feedback
+      - project
+    tags:
+      - task-tackle
+
+# Eight steps mirroring OP4Z's standard pattern:
+#   1. research      — load context, understand the ask
+#   2. validate-scope — confirm scope before writing code
+#   3. implement     — write the change
+#   4. service-validation — restart affected docker services, tail logs
+#   5. tests         — write/update tests, run them locally
+#   6. review        — invoke git-review-deep equivalent
+#   7. resolve-findings — clear viable review findings
+#   8. await-commit-approval — present diff summary, wait for user OK
+#
+# Steps 1-7 are AI-orchestrated and surface "deferred" in B1; step
+# 4 has an invoke-deterministic component (docker rebuild) that runs
+# today.
+steps:
+  - id: research
+    name: Research task context
+    type: prompt
+    prompt: >-
+      Read the task description and any linked tickets. Identify the
+      affected files via the standards + RULES loaded into context.
+      Surface any prior decisions from memory that apply (ADR
+      references, feedback memories tagged with the same scope).
+    must-confirm: true
+
+  - id: validate-scope
+    name: Validate scope before implementation
+    type: prompt
+    prompt: >-
+      State the scope in one paragraph. List acceptance criteria as a
+      bulleted checklist. Wait for the user to confirm scope before
+      writing code. Reference: feedback-task-workflow-standard.
+    must-confirm: true
+
+  - id: implement
+    name: Implement the change
+    type: prompt-and-action
+    prompt: >-
+      Make the code changes. Edit existing files when possible. Avoid
+      gold-plating beyond the agreed scope.
+
+  - id: service-validation
+    name: Rebuild + restart affected services, tail logs
+    type: invoke-deterministic
+    # The default command is a no-op echo so B1 runs cleanly. Replace
+    # with `docker compose up -d --build <services> && docker compose
+    # logs --tail=80 <services>` once your service set is known.
+    run: |
+      echo "service-validation: implement docker rebuild + log check here"
+
+  - id: tests
+    name: Run tests
+    type: invoke-sub-workflow
+    workflow: run-tests-scoped
+    continue-on-failure: false
+
+  - id: review
+    name: Deep pre-commit review
+    type: invoke-sub-workflow
+    workflow: git-review-deep
+    continue-on-failure: false
+
+  - id: resolve-findings
+    name: Resolve all viable review findings
+    type: prompt
+    prompt: >-
+      Walk every finding from the deep review. For each, either fix it
+      or defer with rationale. Re-run the affected tests. Loop until
+      no viable findings remain.
+    must-confirm: true
+
+  - id: await-commit-approval
+    name: Present diff summary; await approval
+    type: gate
+    description: >-
+      Present a one-paragraph summary of the staged diff. Wait for
+      explicit user approval before invoking the commit workflow.
+
+followups:
+  - if: gate == pass
+    suggest: >-
+      Run `substrate run commit-and-push` to ship.
+  - if: gate == fail
+    suggest: >-
+      Resolve outstanding findings or defer with explicit rationale.
+      Update task with revised estimate via the task adapter.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+  required-steps:
+    - research
+    - validate-scope
+    - implement
+    - tests
+    - review
+    - await-commit-approval

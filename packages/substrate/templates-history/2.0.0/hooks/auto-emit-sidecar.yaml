@@ -1,0 +1,26 @@
+schema_version: v2.0
+id: auto-emit-sidecar
+description: >-
+  After every audit workflow completes, the runtime shells `substrate
+  audit --json` which already writes the audit's sidecar JSON next to
+  the Markdown report. This hook captures the completion event so it
+  shows up in the workflow run summary and in any telemetry pipeline.
+trigger:
+  - workflow-completion
+matches:
+  workflow-kind: audit
+  exit-code: any
+enabled: true
+order: 10
+step:
+  type: run-deterministic
+  # Echo is a no-op smoke test for B2 — `substrate audit` already
+  # writes the sidecar itself, so this hook is primarily a hook-system
+  # demonstration. Replace with a real sidecar-emitter when you want a
+  # cross-workflow uniform sidecar contract.
+  command: 'echo "auto-emit-sidecar: workflow-completion captured"'
+  pass-result: false
+  fail-on-error: false
+authors:
+  - substrate
+last_updated: "2026-05-15"

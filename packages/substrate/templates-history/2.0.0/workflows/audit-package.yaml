@@ -1,0 +1,60 @@
+schema_version: v2.0
+id: audit-package
+name: Audit a shared package
+description: >-
+  Package-level health check for shared TypeScript or Python packages
+  (e.g. @op4z/auth-commons, ui-components, data-access-commons).
+  Wraps the v1 detector runtime, loads cross-cutting + language
+  standards, and follows up with package-specific next steps.
+kind: audit
+authors:
+  - substrate
+
+trigger:
+  - manual-command
+
+when:
+  files-changed-any:
+    - packages/**
+
+context:
+  standards:
+    - backend/python.md
+    - frontend/typescript.md
+    - cross-cutting/markdown-format-specification.md
+  rules:
+    # Packages can carry rules from either side, so we glob broadly.
+    - BE-PY-*
+    - FE-TS-*
+    - CROSS-*
+  memory:
+    types:
+      - feedback
+      - reference
+    scope: packages
+
+steps:
+  - id: run-detector
+    name: Run RULES.yaml detector across the package
+    type: invoke-deterministic
+    run: "substrate audit --json"
+
+followups:
+  - if: gate == pass
+    suggest: >-
+      Package is healthy. Consider running
+      `substrate run audit-service` for the services consuming it
+      to catch downstream regressions.
+  - if: gate == fail
+    suggest: >-
+      Package has critical findings. Block any release of this
+      package and run `substrate run tackle-task` for each
+      critical finding.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+  required-steps:
+    - run-detector

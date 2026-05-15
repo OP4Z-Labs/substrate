@@ -19,7 +19,7 @@
  *                                  //   is a forbidden-field change, so the
  *                                  //   contract version moves with it.)
  *   ts: string;                    // ISO 8601 timestamp
- *   substrateVersion: string;      // e.g. "1.0.0"
+ *   substrateVersion: string;      // e.g. "2.0.0"
  *   osFamily: string;              // "darwin" | "linux" | "win32"
  *   command: string;               // e.g. "audit", "init", "upgrade"
  *   audit?: string;                // e.g. "backend", "frontend"

@@ -60,7 +60,7 @@ interface TelemetryEvent {
                                 //   schema-validate, so legacy logs from
                                 //   any internal preview still round-trip.)
   ts: string;                   // ISO 8601, e.g. "2026-05-14T12:34:56.789Z"
-  substrateVersion: string;     // e.g. "1.0.0"
+  substrateVersion: string;     // e.g. "2.0.0"
   osFamily: string;             // "darwin" | "linux" | "win32"
   command: string;              // e.g. "audit", "init", "upgrade"
   audit?: string;               // e.g. "all", "<rule-id>"

@@ -1,6 +1,6 @@
 {
   "name": "substrate-monorepo",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Substrate workspace root. The publishable CLI lives in packages/substrate/.",
   "license": "MIT",
   "author": "Beau Goldberg",
