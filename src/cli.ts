@@ -27,6 +27,11 @@ import {
   runTaskUpdate,
 } from "./commands/task.js";
 import { runUpgrade } from "./commands/upgrade.js";
+import {
+  runWorkflowDescribe,
+  runWorkflowList,
+  runWorkflowStart,
+} from "./commands/workflow.js";
 import { CADENCE_VERSION } from "./util/version.js";
 
 function buildProgram(): Command {
@@ -262,6 +267,50 @@ function buildProgram(): Command {
       });
     });
 
+  // ---------------------------------------------------------- workflow
+  const workflow = program
+    .command("workflow")
+    .description("List, describe, or run multi-step workflows from auto/config/workflows.yaml.");
+  workflow
+    .command("list")
+    .description("Enumerate registered workflows.")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((options: WorkflowCliCommonOptions) => {
+      runWorkflowList({ json: options.json, quiet: options.quiet });
+    });
+  workflow
+    .command("describe <id>")
+    .description("Print one workflow's definition (name, description, steps).")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((id: string, options: WorkflowCliCommonOptions) => {
+      runWorkflowDescribe({ id, json: options.json, quiet: options.quiet });
+    });
+  workflow
+    .command("start <id>")
+    .description("Execute a workflow's steps in sequence.")
+    .option(
+      "--var <key=value>",
+      "Pre-fill a workflow variable (repeatable).",
+      (val: string, prev: Record<string, string>) => {
+        const eq = val.indexOf("=");
+        if (eq === -1) {
+          throw new Error(`Cadence: --var expects key=value, got "${val}"`);
+        }
+        return { ...prev, [val.slice(0, eq)]: val.slice(eq + 1) };
+      },
+      {} as Record<string, string>,
+    )
+    .option("--quiet", "Suppress informational output", false)
+    .action(async (id: string, options: WorkflowStartCliOptions) => {
+      await runWorkflowStart({
+        id,
+        vars: options.var,
+        quiet: options.quiet,
+      });
+    });
+
   // ----------------------------------------------------------- upgrade
   program
     .command("upgrade")
@@ -372,6 +421,16 @@ interface TaskUpdateCliOptions extends TaskCliCommonOptions {
 
 interface TaskCompleteCliOptions extends TaskCliCommonOptions {
   actualHours?: number;
+}
+
+interface WorkflowCliCommonOptions {
+  json?: boolean;
+  quiet?: boolean;
+}
+
+interface WorkflowStartCliOptions {
+  var?: Record<string, string>;
+  quiet?: boolean;
 }
 
 /**
