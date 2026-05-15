@@ -16,10 +16,24 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import kleur from "kleur";
+import { parse as parseYaml } from "yaml";
 import { ensureDir } from "../util/fs.js";
 import { resolveTargetRoot } from "../util/paths.js";
 import type { CadenceConfig } from "../util/types.js";
-import { parseYaml, type YamlValue } from "../util/yaml-mini.js";
+
+/**
+ * v0.5: swapped the hand-rolled `yaml-mini` parser for `yaml` (eemeli/yaml).
+ *
+ * The mini parser handled the docker-compose subset Cadence cared about, but
+ * lost services after a `command: >` block scalar (P1 finding from the v0.3
+ * smoke run, blocking the OP4Z dogfood loop). The eemeli `yaml` library is
+ * the canonical full-spec parser for the Node ecosystem.
+ *
+ * Local `YamlValue` alias keeps the rest of this module's types stable —
+ * `yaml`'s `parse()` returns `unknown` so we shape the result at the boundary.
+ */
+type YamlScalar = string | number | boolean | null;
+type YamlValue = YamlScalar | YamlValue[] | { [key: string]: YamlValue };
 
 export interface KnowledgeRefreshOptions {
   cwd?: string;
@@ -149,17 +163,21 @@ interface ServiceSummary {
 }
 
 function parseDockerCompose(source: string): ServiceSummary[] {
-  let doc: YamlValue;
+  let doc: unknown;
   try {
+    // `yaml` (eemeli) handles anchors, multi-line scalars (`|`, `>`), tags,
+    // and tab-mixed indentation that the prior mini-parser dropped on the
+    // floor. Errors here just mean "this file isn't parseable" — callers
+    // get an empty service list and the rest of the discovery still runs.
     doc = parseYaml(source);
   } catch {
     return [];
   }
   if (!doc || typeof doc !== "object" || Array.isArray(doc)) return [];
-  const services = (doc as { services?: YamlValue }).services;
+  const services = (doc as { services?: unknown }).services;
   if (!services || typeof services !== "object" || Array.isArray(services)) return [];
   const out: ServiceSummary[] = [];
-  for (const [name, raw] of Object.entries(services)) {
+  for (const [name, raw] of Object.entries(services as Record<string, unknown>)) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const node = raw as Record<string, YamlValue>;
     out.push({

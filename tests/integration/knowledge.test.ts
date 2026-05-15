@@ -29,10 +29,27 @@
  *   sensitive keys so the redaction contract is verified end-to-end.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeTmpDir, removeTmpDir, runCli } from "./helpers.js";
+
+/**
+ * Where to find an OP4Z-shaped real compose file for the multi-service test.
+ *
+ * v0.5 swapped `yaml-mini.ts` for the eemeli `yaml` library, which means
+ * `command: >` block scalars no longer truncate the service list. The brief
+ * asked for a second test using OP4Z's real compose; we copy that file into
+ * the tmp dir so the test never mutates the source.
+ *
+ * If the OP4Z repo isn't present on this machine (CI box without a clone),
+ * the test self-skips via `it.skipIf` so cadence stays portable. The check
+ * lives at module top so vitest's collection phase sees it.
+ */
+const OP4Z_COMPOSE_PATH =
+  process.env.OP4Z_COMPOSE_PATH ??
+  "/home/beaug/dev/TheNexusProject/docker-compose.yml";
+const OP4Z_COMPOSE_AVAILABLE = existsSync(OP4Z_COMPOSE_PATH);
 
 // Compose fixture: 3 services, shapes the v0.3 mini-parser handles.
 // (No `command: >` block scalars — see note above for why.)
@@ -171,4 +188,48 @@ describe("cadence knowledge (integration)", () => {
     // can't afford to load the full doc when they only need one part.
     expect(result.stdout).not.toContain("## Environment variables");
   });
+
+  // v0.5 — real OP4Z compose. Pins the yaml-library swap by asserting
+  // that the parser handles `command: >` block scalars, anchors, and the
+  // full ~59-service spread that the prior mini-parser truncated to 1.
+  //
+  // Test is gated on the OP4Z compose file actually being present (it
+  // lives outside the cadence repo). On a CI box without the OP4Z clone,
+  // the test self-skips rather than fails.
+  it.skipIf(!OP4Z_COMPOSE_AVAILABLE)(
+    "v0.5: knowledge refresh extracts all services from OP4Z's real docker-compose.yml",
+    () => {
+      // Copy the real compose into the tmp repo. Never mutate the source.
+      copyFileSync(OP4Z_COMPOSE_PATH, join(tmp, "docker-compose.yml"));
+
+      const result = runCli(["knowledge", "refresh"], { cwd: tmp });
+      expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+
+      const outputPath = join(tmp, "auto", "docs", "KNOWLEDGE.md");
+      expect(existsSync(outputPath)).toBe(true);
+      const content = readFileSync(outputPath, "utf8");
+
+      // OP4Z has ~59 top-level services. The prior mini-parser stopped at
+      // the first `command: >` and returned 1; the eemeli `yaml` library
+      // returns the full set. We assert a generous floor (≥40) rather than
+      // pinning the exact count — OP4Z's compose grows and shrinks as the
+      // platform evolves, and the test should age well across those edits.
+      //
+      // Count occurrences of "| `<name>` |" rows in the services table.
+      const serviceRows = (content.match(/\n\| `[a-z][a-z0-9_-]*` \|/g) ?? []).length;
+      expect(serviceRows).toBeGreaterThanOrEqual(40);
+
+      // Spot-check a handful of well-known OP4Z service names so a
+      // regression that drops them (e.g. parser bails on a specific
+      // shape) fails loudly.
+      const SPOT_CHECK_SERVICES = [
+        "authentication-service",
+        "task-management-service",
+        "gateway",
+      ];
+      for (const svc of SPOT_CHECK_SERVICES) {
+        expect(content, `expected service "${svc}" in KNOWLEDGE.md`).toContain(`\`${svc}\``);
+      }
+    },
+  );
 });
