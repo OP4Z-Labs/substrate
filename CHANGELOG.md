@@ -3,6 +3,189 @@
 All notable changes to the substrate CLI are documented in this file.
 Adheres roughly to [Keep a Changelog](https://keepachangelog.com).
 
+## [2.0.0] — 2026-05-15 — Workflow Runtime + Proposal Pipeline
+
+v2.0 layers an AI-orchestrated workflow runtime over the v1.0
+detector + standards foundation, and ships the headline primitive of
+the release: a self-reinforcement loop where every workflow run
+observes itself and proposes improvements to the conventions it
+just executed. Eleven primitives total. v1.0 surface is unchanged —
+v2.0 is fully additive.
+
+### Added — Phase B1 (Foundation)
+
+- **Workflow manifest schema + validator** (Primitive 1). Declarative
+  YAML manifests at `substrate/workflows/<id>.yaml` paired with a
+  `<id>.body.md` prose body. Full JSON Schema at
+  `packages/substrate/schemas/workflow.schema.json`.
+  `substrate validate [path]` checks one file or walks the directory.
+- **Two-layer architecture** (Primitive 2). Deterministic primitives
+  (discoverer, context loader, query commands, validators) safe to
+  call from CI / hooks / scripts. Orchestration layer (drives AI
+  session) wraps the deterministic layer.
+- **Discoverer + Context loader.** Pure modules that walk
+  `substrate/workflows/`, validate manifests, and resolve
+  `context.standards | memory | rules | knowledge-sections` into a
+  structured `Context` for the orchestrator.
+- **`substrate run <workflow-id>`** — orchestration-layer command
+  that loads the manifest, resolves context, fires hooks, executes
+  steps, and emits session events.
+- **Three reference workflow templates:** `tackle-task`,
+  `audit-service`, `audit-package`. Drop-in starting points.
+- **`substrate query` family:** `query rules`, `query standards`,
+  `query memory`, `query doc-checks`, `query sessions`. Pure
+  read/filter commands; every form supports `--json`.
+
+### Added — Phase B2 (Reinforcement)
+
+- **Cross-cutting hooks** (Primitive 3). One YAML file declares
+  "fire this on every workflow-completion when X" — applies to every
+  workflow, no per-workflow copy-paste. Four built-in hooks:
+  `auto-emit-sidecar`, `auto-update-trend`, `auto-propose-tasks`,
+  `auto-drift-detect`. Hook schema at `schemas/hook.schema.json`.
+- **`substrate hooks list / describe`** — deterministic inspection.
+- **Conditional doc-check registry** (Primitive 4). Manifests at
+  `substrate/doc-checks/<id>.yaml` declare "if commit-message
+  matches X, require changed-files-any Y." Used as pre-commit /
+  pre-merge gates. Schema at `schemas/doc-check.schema.json`.
+- **First-class memory integration** (Primitive 5). Reads
+  Claude Code's memory directory by default; resolves via flag →
+  env → config → bridge precedence. Frontmatter extensions: `type`,
+  `scope`, `tags`, `expires`. `queryMemory()` filters by type /
+  scope / tags / changed-file overlap.
+- **`composes_findings_of`** (Primitive 6). Cross-workflow
+  dependency — `review-pre` can compose findings from
+  `audit-package`. Optional `require-fresh-within` guard.
+- **`escalate_after`** (Primitive 7). Age-based severity escalation
+  on RULES.yaml entries. Findings gain `originalSeverity`,
+  `firstSeenAt`, `ageDays`, and post-escalation `severity`.
+
+### Added — Phase B3 (Loop closure)
+
+- **Proposal pipeline** (Primitive 9, the headline). Every
+  `substrate run` writes a JSONL session-event-log to
+  `substrate/sessions/<workflow>-<sha>.jsonl`. The `auto-drift-detect`
+  hook runs six built-in drift detectors (`adhoc-step`,
+  `skipped-step`, `out-of-order`, `context-gap`,
+  `repeated-prompt`, `rule-violation-recurrence`) and classifies
+  findings into eight typed proposals: `add-to-workflow-step`,
+  `add-to-memory`, `strengthen-context-load`, `add-to-rule`,
+  `add-to-doc-check-registry`, `add-to-standards-doc`,
+  `cross-link-existing`, `add-to-adr`. Pending proposals land at
+  `substrate/proposals/pending/<date>-<workflow>-<sha>.md`.
+- **`substrate review --proposals`** — interactive walker with five
+  controls (accept / reject / edit / defer / skip). `--dry-run`
+  preserves the queue; `--batch-confirm` auto-accepts
+  high-confidence proposals and defers the rest.
+- **Applicators.** Each proposal kind has a deterministic applicator:
+  workflow manifest edits via comment-preserving YAML helpers,
+  RULES.yaml appends, memory frontmatter writes (B2 storage
+  discovery), ADR drafts auto-incrementing DEC-XXX numbering,
+  doc-check registry writes, standards-doc + cross-link drafts with
+  embedded `<!-- substrate-proposal: <id> -->` anchors.
+- **`trigger: schedule`** (Primitive 8). Three forms: cron, interval,
+  every-n-commits. In-house 5-field cron parser (`*`, ranges,
+  comma-lists, step, named days/months). State at
+  `substrate/scheduler/state.json`.
+- **`substrate scheduler --check`** — non-invasive scheduler
+  inspection (lists due workflows; never invokes anything).
+- **`weekly-proposal-walk` reference workflow** — scheduled cron
+  trigger that shells out to `substrate review --proposals
+  --batch-confirm`.
+- **Comment-preserving YAML edit helpers** (`yaml-edit.ts`) —
+  `appendListItem`, `insertListItemAfter`, `appendToMapKey`.
+  Capped at depth 2; rejects unknown shapes loudly.
+- **`substrate doctor --check memory-frontmatter`** — aggregation
+  of per-memory frontmatter warnings.
+
+### Added — Phase B4 (Polish + Release)
+
+- **`substrate doctor` v2 checks** (Primitive 10 remainder):
+  `rules-doc-coverage`, `workflow-coverage`, `stale-proposals`,
+  `escalation-debt`. Each addressable individually via
+  `--check <name>`; aggregate run includes all of them. `--json`
+  works on every form.
+- **Plural knowledge sources** (Primitive 11). New
+  `substrate/knowledge-sources.yaml` manifest declares typed source
+  entries. Built-in plugins: `docker-compose` (existing),
+  `kubernetes` (new), `env-registry` (new). Custom-plugin contract
+  documented in `docs/knowledge-sources.md`. The kubernetes plugin
+  reads Service / Deployment / StatefulSet / Secret / ConfigMap
+  resources (Secret + ConfigMap surface keys only — values never
+  leave the filesystem).
+- **`substrate query sessions`** — CLI wrapper around B3's
+  `indexSessionLogs` + `readSessionLog` primitives. Newest-first
+  index of `substrate/sessions/*.jsonl`. `--workflow` filter,
+  `--limit` cap, `--include-events` to embed parsed events.
+- **Docs site v2.0 update.** Three new pages: `/workflows`,
+  `/proposals` (the headline explainer), `/knowledge-sources`.
+  Refreshed: home / commands / quick-start.
+- **`docs/migration-from-1.x.md`** — migration guide. v2.0 is
+  fully additive — no breaking changes from 1.x.
+- **`docs/release-2.0-checklist.md`** — publish checklist.
+
+### Changed
+
+- `SUBSTRATE_VERSION` bumped from `1.0.0` to `2.0.0`.
+- `packages/substrate/package.json` version bumped to `2.0.0`.
+- Root `substrate-monorepo` package.json version bumped to `2.0.0`.
+- `substrate doctor` now aggregates the v2 checks (B2 memory-
+  frontmatter + B4 rules-doc-coverage / workflow-coverage /
+  stale-proposals / escalation-debt) alongside v1.0's baseline
+  checks. `--check <name>` scopes to one slice.
+- Audit JSON sidecar (`substrate/audits/<scope>-latest.json`)
+  findings carry the escalation tracking fields
+  (`originalSeverity`, `firstSeenAt`, `ageDays`, `severity` =
+  effective) when `escalate_after` is configured on the rule.
+- `HookFiringContext` interface extends with optional `manifest`,
+  `sessionLogPath`, `cwd` fields (B3). Existing hooks ignore the
+  new fields — fully backwards-compatible.
+- `RunWorkflowResult` surfaces an optional `sessionLogPath`
+  attribute (B3).
+- Session-event-log `session-log.ts` docstring corrected:
+  telemetry contract version stays at `v: 2` for v2.0. The
+  session-event-log is a separate channel without its own
+  `version` field — the event discriminant is the contract.
+
+### Deprecated
+
+- None in v2.0 itself. (v1.0's `detector.type: shell` deprecation
+  persists.)
+
+### Removed
+
+- None. v1.0 surface remains operational.
+
+### Fixed
+
+- `INF-DOCKER-002` (B2): the rule's YAML detector was tripped by
+  benign cases; ripgrep pattern tightened.
+- B3: `auto-drift-detect` hook replaced its B2 skeleton handler
+  with the real `runProposalPipeline()` integration. Defensive
+  `status=skipped` fallback when fired outside the orchestrator path.
+
+### Test count
+
+- v1.0 baseline: 305+ tests.
+- v2.0: 608 passed + 1 skipped across 59 test files (substrate +
+  adapters). Phase deltas:
+  - B1: discoverer + context-loader + query + run
+  - B2: +141 (hooks, doc-checks, memory, composition, escalation)
+  - B3: +127 (session-log, drift detectors, classifier, queue,
+    pipeline-e2e, yaml-edit, applicators, review, scheduler,
+    doctor-memory)
+  - B4: +35 (doctor v2 checks, query sessions, knowledge sources)
+
+### Migration
+
+See `docs/migration-from-1.x.md`. **Short version: no breaking
+changes.** v2.0 is fully additive — same `substrate audit`, same
+standards bundle, same init/upgrade flow; new commands and new
+YAML files in `substrate/`. Existing v1.x consumers keep working
+without changes.
+
+---
+
 ## [1.0.0] — 2026-05-14 — General Availability
 
 ### Added — Phase A (audit detector runtime)
@@ -149,6 +332,7 @@ detectors deprecated but still loaded.
 - `substrate create --template package-{ts,python}`.
 - Claude bridge.
 
+[2.0.0]: https://github.com/op4z/substrate/releases/tag/v2.0.0
 [1.0.0]: https://github.com/op4z/substrate/releases/tag/v1.0.0
 [0.8.0]: https://github.com/op4z/substrate/releases/tag/v0.8.0
 [0.5.0]: https://github.com/op4z/substrate/releases/tag/v0.5.0
