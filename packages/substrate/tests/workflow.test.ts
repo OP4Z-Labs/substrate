@@ -255,12 +255,12 @@ describe("runWorkflowStart", () => {
       id: "ask",
       cwd: tmp,
       quiet: true,
-      resolvePrompt: () => "Beau",
+      resolvePrompt: () => "Alice",
     });
     expect(result.steps.length).toBe(2);
     expect(result.steps[0].status).toBe("ok");
-    expect(result.steps[0].output).toBe("Beau");
-    expect(result.vars.USER_NAME).toBe("Beau");
+    expect(result.steps[0].output).toBe("Alice");
+    expect(result.vars.USER_NAME).toBe("Alice");
     expect(result.steps[1].status).toBe("ok");
   });
 
