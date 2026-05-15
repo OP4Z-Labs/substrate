@@ -1,8 +1,8 @@
-# Contributing rules to the cadence registry
+# Contributing rules to the substrate registry
 
-Cadence ships a default `RULES.yaml` covering the 21 shipped standards
+Substrate ships a default `RULES.yaml` covering the 21 shipped standards
 docs. Project-specific rules live in the consumer repo's
-`cadence/RULES.yaml`. But there's a third tier: **rules that are
+`substrate/RULES.yaml`. But there's a third tier: **rules that are
 generally applicable and worth promoting to the shipped default**.
 
 This document is how you propose one.
@@ -27,19 +27,19 @@ What does NOT belong:
 - Rules tied to one team's stack-specific decisions (e.g. "all
   components use our internal Button").
 - Style-only rules covered by formatters (prettier / black handle
-  formatting; cadence doesn't relitigate).
+  formatting; substrate doesn't relitigate).
 - Rules whose detector can't reliably distinguish a true positive
   from a false positive (e.g. "find all TODOs" — too noisy).
 
 ## How to propose a rule
 
-1. **Open an issue** using the [rule contribution template](https://github.com/BeauGoldberg/cadence/issues/new?template=rule_contribution.yml).
+1. **Open an issue** using the [rule contribution template](https://github.com/op4z/substrate/issues/new?template=rule_contribution.yml).
    This lets us discuss scope before you put work into a PR.
 
-2. **Draft the rule** in your fork of cadence:
+2. **Draft the rule** in your fork of substrate:
 
    ```yaml
-   # packages/cadence/templates/standards/cross-cutting/RULES.yaml
+   # packages/substrate/templates/standards/cross-cutting/RULES.yaml
    - id: BE-PY-003
      title: No print() left in shipped code
      doc: backend/python.md
@@ -68,7 +68,7 @@ What does NOT belong:
    ```
 
 4. **Add a test** under
-   `packages/cadence/tests/integration/audit-runtime.test.ts` that
+   `packages/substrate/tests/integration/audit-runtime.test.ts` that
    exercises your detector against a controlled fixture.
 
 5. **Test it locally** in your own repo. Document the test output in
@@ -127,7 +127,7 @@ available number after grepping existing IDs.
 ## License
 
 Contributions to the shipped RULES.yaml are licensed under the same
-license as cadence's content (CC-BY-4.0, see [LICENSES.md](../LICENSES.md)).
+license as substrate's content (CC-BY-4.0, see [LICENSES.md](../LICENSES.md)).
 By submitting a rule, you agree your contribution is licensable that
 way.
 

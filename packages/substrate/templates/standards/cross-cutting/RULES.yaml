@@ -1,0 +1,402 @@
+# =============================================================================
+# RULES.yaml — Machine-checkable standards registry (Substrate default)
+# =============================================================================
+# This is the universal default shipped by Substrate. It ships with rules
+# covering the 21 standards docs. Override and extend with project-specific
+# rules. `substrate audit` reads this file at `substrate/RULES.yaml`.
+#
+# ID convention: <SCOPE>-<CATEGORY>-<NUM>
+#   Scope:    BE | FE | INF | OPS | XCUT
+#   Category: ARCH | API | APIV | DB | ERR | MSG | OBS | PY | SEC | TEST
+#             REACT | TS | A11Y | DATA | LOG | PERF
+#             DOCKER | CICD
+#             RUN | DBOPS | FLAG
+#             MD
+#
+# Severity:
+#   critical — security vuln, multi-tenant breach, irreversible loss
+#   high     — correctness bug, missing auth, missing test in critical path
+#   medium   — standards conformance, structural issue
+#   low      — style, doc gap, minor consistency
+#
+# Detector types:
+#   ripgrep   — pattern match against file contents
+#   script    — invoke a JS/MJS file in the consumer repo (sandboxed worker)
+#   composite — combine other rules with all/any/none operators
+#   (no detector) — manual review; runtime marks it skipped with note
+#
+# Add your project-specific rules below the shipped set and bump
+# `meta.rule_count`.
+# =============================================================================
+
+meta:
+  version: 1.0.0
+  description: |
+    Substrate default RULES registry. Covers the 21 shipped standards docs
+    with conservative, framework-agnostic detectors. Replace or extend
+    per project.
+
+rules:
+  # =======================================================================
+  # Backend — architecture (BE-ARCH)
+  # =======================================================================
+  - id: BE-ARCH-001
+    title: No direct database calls in API handlers
+    doc: backend/architecture.md
+    severity: high
+    description: Endpoint handlers delegate to a service layer. Direct DB calls in handlers couple HTTP and persistence concerns.
+    category: backend
+
+  - id: BE-ARCH-002
+    title: Async handlers in async services
+    doc: backend/architecture.md
+    severity: high
+    description: In an async service, every endpoint handler must be declared async. Sync handlers block the event loop.
+    category: backend
+
+  # =======================================================================
+  # Backend — API (BE-API)
+  # =======================================================================
+  - id: BE-API-001
+    title: Errors return the canonical error shape
+    doc: backend/api.md
+    severity: high
+    description: Every error response includes { error, code, correlation_id } (or your project's equivalent). Free-form error strings are not API.
+    category: backend
+
+  - id: BE-API-002
+    title: Pagination uses skip + limit (or cursor) consistently
+    doc: backend/api.md
+    severity: medium
+    description: Pick one pagination style per service and stick to it. Mixing shapes confuses clients.
+    category: backend
+
+  # =======================================================================
+  # Backend — API versioning (BE-APIV)
+  # =======================================================================
+  - id: BE-APIV-001
+    title: URLs use /api/vN prefix
+    doc: backend/api-versioning.md
+    severity: medium
+    description: Every public endpoint lives under /api/v1/... (or /v2/, etc.) so version migration is mechanical.
+    category: backend
+    detector:
+      type: ripgrep
+      pattern: '@(app|router)\.(get|post|put|patch|delete)\("/(?!api/v)'
+
+  - id: BE-APIV-002
+    title: Deprecated endpoints emit a Deprecation header
+    doc: backend/api-versioning.md
+    severity: medium
+    description: Clients must be told when an endpoint will go away. The Deprecation header + Sunset header are the convention.
+    category: backend
+
+  # =======================================================================
+  # Backend — database (BE-DB)
+  # =======================================================================
+  - id: BE-DB-001
+    title: Tenant filter on every tenant-scoped query
+    doc: backend/database.md
+    severity: critical
+    description: Tenant isolation is the single most important security property. Every query against a tenant-scoped table must filter by tenant_id (or your project's equivalent).
+    category: backend
+
+  - id: BE-DB-002
+    title: Migrations are reversible
+    doc: backend/database.md
+    severity: high
+    description: Every alembic / typeorm / prisma migration has a working down() / rollback path, or explicitly documents why not.
+    category: backend
+
+  # =======================================================================
+  # Backend — error handling (BE-ERR)
+  # =======================================================================
+  - id: BE-ERR-001
+    title: No bare exception swallows
+    doc: backend/error-handling.md
+    severity: high
+    description: Bare `except:` / `catch (e) {}` patterns swallow errors silently. Always handle specific types or re-raise.
+    category: backend
+    detector:
+      type: ripgrep
+      pattern: '^\s*except:\s*$'
+
+  - id: BE-ERR-002
+    title: Errors don't leak in HTTP responses
+    doc: backend/error-handling.md
+    severity: critical
+    description: Stack traces, SQL fragments, and internal paths never end up in 5xx response bodies sent to clients.
+    category: backend
+
+  # =======================================================================
+  # Backend — messaging (BE-MSG)
+  # =======================================================================
+  - id: BE-MSG-001
+    title: Consumers are idempotent
+    doc: backend/messaging.md
+    severity: high
+    description: Message consumers must handle delivery duplicates without producing duplicate side effects.
+    category: backend
+
+  - id: BE-MSG-002
+    title: Failed messages land in a dead-letter queue
+    doc: backend/messaging.md
+    severity: high
+    description: Messages that exhaust retries are not silently dropped — they go to a DLQ so an operator can investigate.
+    category: backend
+
+  # =======================================================================
+  # Backend — observability (BE-OBS)
+  # =======================================================================
+  - id: BE-OBS-001
+    title: Logs are structured (JSON) in production
+    doc: backend/observability.md
+    severity: high
+    description: Production logs are machine-parseable JSON with a stable field set.
+    category: backend
+
+  - id: BE-OBS-002
+    title: Every request emits a correlation ID
+    doc: backend/observability.md
+    severity: medium
+    description: A correlation ID (request ID / trace ID) is attached to every log line emitted while handling a request.
+    category: backend
+
+  # =======================================================================
+  # Backend — Python (BE-PY)
+  # =======================================================================
+  - id: BE-PY-001
+    title: No print() left in committed code
+    doc: backend/python.md
+    severity: low
+    description: print() in shipped code is debug residue. Use the structured logger.
+    category: backend
+    detector:
+      type: ripgrep
+      pattern: '^\s*print\s*\('
+      paths: ["apps", "packages", "src"]
+
+  - id: BE-PY-002
+    title: pyproject.toml is the single source of truth
+    doc: backend/python.md
+    severity: medium
+    description: Dependencies, tool config (ruff, black, mypy, pytest), and metadata all live in pyproject.toml.
+    category: backend
+
+  # =======================================================================
+  # Backend — security (BE-SEC)
+  # =======================================================================
+  - id: BE-SEC-001
+    title: Tenant filter on tenant-scoped queries (cross-link to BE-DB-001)
+    doc: backend/security.md
+    severity: critical
+    description: Same as BE-DB-001 — every tenant-scoped query filters by tenant_id. Lives in both docs because security and database concerns both own it.
+    category: backend
+
+  - id: BE-SEC-002
+    title: No secrets in committed code
+    doc: backend/security.md
+    severity: critical
+    description: API tokens, passwords, and private keys are loaded from env / secret store, never committed.
+    category: backend
+
+  # =======================================================================
+  # Backend — testing (BE-TEST)
+  # =======================================================================
+  - id: BE-TEST-001
+    title: No "assert x or True" patterns
+    doc: backend/testing.md
+    severity: high
+    description: Assertions that can never fail are silent test failures.
+    category: backend
+    detector:
+      type: ripgrep
+      pattern: 'assert\s+\w+\s+or\s+True'
+
+  - id: BE-TEST-002
+    title: Async tests carry the @pytest.mark.asyncio decorator
+    doc: backend/testing.md
+    severity: high
+    description: Async test functions without the asyncio mark silently no-op in pytest. The decorator is mandatory.
+    category: backend
+
+  # =======================================================================
+  # Frontend — accessibility (FE-A11Y)
+  # =======================================================================
+  - id: FE-A11Y-001
+    title: Interactive elements use real semantic HTML
+    doc: frontend/accessibility.md
+    severity: high
+    description: Use <button> not <div onClick>, <a href> not <span onClick>.
+    category: frontend
+    detector:
+      type: ripgrep
+      pattern: '<div[^>]*onClick'
+
+  - id: FE-A11Y-002
+    title: Touch targets at least 44px (mobile)
+    doc: frontend/accessibility.md
+    severity: medium
+    description: Tap targets smaller than 44px violate the WCAG 2.5.5 baseline on touch devices.
+    category: frontend
+
+  # =======================================================================
+  # Frontend — data management (FE-DATA)
+  # =======================================================================
+  - id: FE-DATA-001
+    title: Query keys built from a key factory
+    doc: frontend/data-management.md
+    severity: medium
+    description: Query keys must be constructed from a per-entity factory, not hand-rolled at call sites.
+    category: frontend
+
+  - id: FE-DATA-002
+    title: Mutations invalidate the right cache slice
+    doc: frontend/data-management.md
+    severity: medium
+    description: Every mutation hook documents which query keys it invalidates and verifies in tests.
+    category: frontend
+
+  # =======================================================================
+  # Frontend — logging (FE-LOG)
+  # =======================================================================
+  - id: FE-LOG-001
+    title: No PII / secrets in client logs
+    doc: frontend/logging.md
+    severity: high
+    description: Frontend logs must not contain passwords, tokens, full user objects, or form input from sensitive flows.
+    category: frontend
+
+  # =======================================================================
+  # Frontend — performance (FE-PERF)
+  # =======================================================================
+  - id: FE-PERF-001
+    title: Lists have stable keys
+    doc: frontend/performance.md
+    severity: high
+    description: List items rendered with stable, unique keys. Index keys are an anti-pattern when items can reorder.
+    category: frontend
+
+  - id: FE-PERF-002
+    title: Images use explicit width + height
+    doc: frontend/performance.md
+    severity: medium
+    description: Images without dimensions cause layout shift. Set width/height (or use a sized container).
+    category: frontend
+
+  # =======================================================================
+  # Frontend — React (FE-REACT)
+  # =======================================================================
+  - id: FE-REACT-001
+    title: Hooks called at top level, not conditionally
+    doc: frontend/react.md
+    severity: critical
+    description: React hooks must be called at the top of a component, in the same order every render.
+    category: frontend
+
+  - id: FE-REACT-002
+    title: Components export PascalCase names
+    doc: frontend/react.md
+    severity: low
+    description: Component names are PascalCase. Hooks are camelCase with `use` prefix.
+    category: frontend
+
+  # =======================================================================
+  # Frontend — testing (FE-TEST)
+  # =======================================================================
+  - id: FE-TEST-001
+    title: Use userEvent over fireEvent for interactions
+    doc: frontend/testing.md
+    severity: medium
+    description: userEvent simulates real user interactions (focus, keypress sequence); fireEvent dispatches a single synthetic event.
+    category: frontend
+    detector:
+      type: ripgrep
+      pattern: '\bfireEvent\.(click|change|submit|keyDown|keyUp|keyPress)\b'
+      paths: ["apps", "packages", "src"]
+
+  # =======================================================================
+  # Frontend — TypeScript (FE-TS)
+  # =======================================================================
+  - id: FE-TS-001
+    title: No `any` without an inline justification comment
+    doc: frontend/typescript.md
+    severity: medium
+    description: An `any` is a typed escape hatch — when used, an inline comment must explain why.
+    category: frontend
+    detector:
+      type: ripgrep
+      pattern: ':\s*any\b(?!\s*//\s*(eslint|TODO|HACK))'
+
+  # =======================================================================
+  # Infrastructure — CI/CD (INF-CICD)
+  # =======================================================================
+  - id: INF-CICD-001
+    title: Pre-merge audit gates the merge
+    doc: infrastructure/ci-cd.md
+    severity: high
+    description: Every PR runs `substrate audit --diff` (or equivalent) before merging.
+    category: infrastructure
+
+  # =======================================================================
+  # Infrastructure — Docker (INF-DOCKER)
+  # =======================================================================
+  - id: INF-DOCKER-001
+    title: Containers run as non-root
+    doc: infrastructure/docker.md
+    severity: high
+    description: Production containers must run as a non-root user.
+    category: infrastructure
+
+  - id: INF-DOCKER-002
+    title: Pin base image versions
+    doc: infrastructure/docker.md
+    severity: medium
+    description: `FROM node:latest` is a vulnerability surface. Pin to a digest or at minimum a major.minor tag.
+    category: infrastructure
+    detector:
+      type: ripgrep
+      pattern: '^FROM\s+\S+:latest'
+
+  # =======================================================================
+  # Operations — runbooks (OPS-RUN)
+  # =======================================================================
+  - id: OPS-RUN-001
+    title: Every alert links to a runbook
+    doc: operations/runbooks.md
+    severity: high
+    description: Alerts that page someone must link to a runbook that tells them what to do.
+    category: operations
+
+  # =======================================================================
+  # Operations — database ops (OPS-DBOPS)
+  # =======================================================================
+  - id: OPS-DBOPS-001
+    title: Production schema changes follow expand/contract
+    doc: operations/database-ops.md
+    severity: high
+    description: Schema migrations on a live DB use expand (add new) → backfill → cut over → contract (remove old) over multiple deploys.
+    category: operations
+
+  # =======================================================================
+  # Operations — feature flags (OPS-FLAG)
+  # =======================================================================
+  - id: OPS-FLAG-001
+    title: No long-lived release flags
+    doc: operations/feature-flags.md
+    severity: medium
+    description: Release flags older than 30 days post-rollout should be removed.
+    category: operations
+
+  # =======================================================================
+  # Cross-cutting (XCUT)
+  # =======================================================================
+  - id: XCUT-MD-001
+    title: Standards docs declare scope and area in front matter
+    doc: cross-cutting/markdown-format-specification.md
+    severity: low
+    description: Every standards doc starts with YAML front matter declaring scope, area, last_updated, and update_triggers.
+    category: cross-cutting
+    detector:
+      type: ripgrep
+      pattern: '^---\n(scope|area):'

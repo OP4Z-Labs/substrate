@@ -10,15 +10,15 @@ Fill in:
 - **Project:** Your project name.
 - **Team size:** How many people work on this codebase.
 - **Codebase:** Stack + rough size (services, packages, LoC).
-- **Cadence usage:** Which version, which commands you rely on.
+- **Substrate usage:** Which version, which commands you rely on.
 
 ## Sections to write
 
-### What problem cadence solves
+### What problem substrate solves
 
-One or two paragraphs describing the friction cadence addressed.
+One or two paragraphs describing the friction substrate addressed.
 
-### Which cadence features you depend on most
+### Which substrate features you depend on most
 
 Bulleted list with one paragraph per feature describing the
 concrete value.
@@ -26,7 +26,7 @@ concrete value.
 ### What bit you during adoption
 
 Honest list of pain points + workarounds. We use these to make
-cadence better.
+substrate better.
 
 ### What you'd want next
 
@@ -38,4 +38,4 @@ Qualitative or quantitative — whichever you can defend.
 
 ### Recommendation
 
-Who else should adopt cadence based on your experience?
+Who else should adopt substrate based on your experience?

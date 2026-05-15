@@ -1,5 +1,5 @@
 /**
- * Unit tests for @cadence/adapter-linear.
+ * Unit tests for @op4z/substrate-adapter-linear.
  *
  * Strategy: inject a hand-rolled fake LinearClient via the
  * `createLinearAdapter({ client })` option. This bypasses real HTTP
@@ -8,7 +8,7 @@
  *
  * For each verb, we assert:
  *   - The adapter routes to the right Linear SDK method
- *   - The cadence-canonical task returned has the right shape
+ *   - The substrate-canonical task returned has the right shape
  *   - Edge cases (404, missing required fields) surface correctly
  */
 
@@ -52,11 +52,11 @@ function makeFakeIssue(overrides: Record<string, unknown> = {}): Issue {
   return fixture as unknown as Issue;
 }
 
-describe("@cadence/adapter-linear", () => {
+describe("@op4z/substrate-adapter-linear", () => {
   it("exports name + version metadata", () => {
     const fake = {} as LinearClient;
     const adapter = createLinearAdapter({ client: fake });
-    expect(adapter.name).toBe("@cadence/adapter-linear");
+    expect(adapter.name).toBe("@op4z/substrate-adapter-linear");
     expect(adapter.version).toBe("0.8.0");
   });
 
@@ -67,7 +67,7 @@ describe("@cadence/adapter-linear", () => {
     if (orig) process.env.LINEAR_API_KEY = orig;
   });
 
-  it("findTask returns the cadence task shape", async () => {
+  it("findTask returns the substrate task shape", async () => {
     const fakeClient = {
       issue: vi.fn().mockResolvedValue(makeFakeIssue()),
     } as unknown as LinearClient;

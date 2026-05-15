@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "cadence-{{SHORT_CODE}}": {
-      "command": "npx",
-      "args": ["cadence", "mcp", "serve"],
-      "env": {}
-    }
-  }
-}

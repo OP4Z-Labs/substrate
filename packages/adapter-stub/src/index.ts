@@ -1,27 +1,27 @@
 /**
- * @cadence/adapter-stub — reference TaskAdapter implementation.
+ * @op4z/substrate-adapter-stub — reference TaskAdapter implementation.
  *
  * Every method logs the verb + the inputs it was given, then returns a
  * deterministic synthetic task (or array) so downstream code paths get
  * exercised end-to-end. This is the v0.5 way to prove the plugin contract
  * works: install the stub, point `extensions.taskAdapter` at it, run
- * `cadence task find STUB-1` and see "would call findTask" + a synthetic
+ * `substrate task find STUB-1` and see "would call findTask" + a synthetic
  * task echo. No real tracker SDK, no network, no surprises.
  *
  * Real adapter implementations (Linear / Jira / GitHub Issues) follow this
  * shape and replace the synthetic returns with real API calls. The
- * `TaskAdapter` interface lives at `cadence/dist/extensions/task-adapter.js`
- * once cadence is installed.
+ * `TaskAdapter` interface lives at `substrate/dist/extensions/task-adapter.js`
+ * once substrate is installed.
  *
- * Why a duplicate of the interface here rather than `import` from cadence:
- * the adapter package is a peer of cadence, not a downstream consumer. The
+ * Why a duplicate of the interface here rather than `import` from substrate:
+ * the adapter package is a peer of substrate, not a downstream consumer. The
  * stub's source file duplicates the interface inline so the package can
- * build without depending on the cadence build artifact. Type compatibility
- * is enforced by structural typing at runtime via cadence's
+ * build without depending on the substrate build artifact. Type compatibility
+ * is enforced by structural typing at runtime via substrate's
  * `isTaskAdapter()` guard.
  */
 
-interface CadenceTask {
+interface SubstrateTask {
   id: string;
   title: string;
   description?: string;
@@ -78,14 +78,14 @@ interface CompleteTaskInput {
 interface TaskAdapter {
   readonly name: string;
   readonly version: string;
-  findTask(input: FindTaskInput): Promise<CadenceTask | null>;
-  searchTasks(input: SearchTasksInput): Promise<CadenceTask[]>;
-  createTask(input: CreateTaskInput): Promise<CadenceTask>;
-  updateTask(input: UpdateTaskInput): Promise<CadenceTask>;
-  completeTask(input: CompleteTaskInput): Promise<CadenceTask>;
+  findTask(input: FindTaskInput): Promise<SubstrateTask | null>;
+  searchTasks(input: SearchTasksInput): Promise<SubstrateTask[]>;
+  createTask(input: CreateTaskInput): Promise<SubstrateTask>;
+  updateTask(input: UpdateTaskInput): Promise<SubstrateTask>;
+  completeTask(input: CompleteTaskInput): Promise<SubstrateTask>;
 }
 
-const ADAPTER_NAME = "@cadence/adapter-stub";
+const ADAPTER_NAME = "@op4z/substrate-adapter-stub";
 const ADAPTER_VERSION = "0.8.0";
 
 function log(verb: string, inputs: object): void {
@@ -114,7 +114,7 @@ const stubAdapter: TaskAdapter = {
     return {
       id: input.id,
       title: `Synthetic task ${input.id}`,
-      description: "Returned by @cadence/adapter-stub — no tracker call was made.",
+      description: "Returned by @op4z/substrate-adapter-stub — no tracker call was made.",
       status: "open",
       priority: "medium",
     };
@@ -123,7 +123,7 @@ const stubAdapter: TaskAdapter = {
   async searchTasks(input) {
     log("searchTasks", input);
     const limit = input.limit ?? 3;
-    const results: CadenceTask[] = [];
+    const results: SubstrateTask[] = [];
     for (let i = 0; i < limit; i += 1) {
       results.push({
         id: synthId(),

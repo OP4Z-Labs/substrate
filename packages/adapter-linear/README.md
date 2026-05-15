@@ -1,20 +1,20 @@
-# @cadence/adapter-linear
+# @op4z/substrate-adapter-linear
 
-Linear `TaskAdapter` implementation for [cadence](../../README.md).
+Linear `TaskAdapter` implementation for [substrate](../../README.md).
 
 ## Install
 
 ```bash
-npm install @cadence/adapter-linear
+npm install @op4z/substrate-adapter-linear
 ```
 
 ## Configure
 
 ```jsonc
-// cadence.config.json
+// substrate.config.json
 {
   "extensions": {
-    "taskAdapter": "@cadence/adapter-linear"
+    "taskAdapter": "@op4z/substrate-adapter-linear"
   }
 }
 ```
@@ -28,24 +28,24 @@ export LINEAR_API_KEY=lin_api_xxx
 
 ## Usage
 
-Once configured, the standard `cadence task` verbs route through Linear:
+Once configured, the standard `substrate task` verbs route through Linear:
 
 ```bash
-cadence task find ENG-123
-cadence task search "auth refresh" --limit 10
-cadence task create \
+substrate task find ENG-123
+substrate task search "auth refresh" --limit 10
+substrate task create \
   --project ENG \
   --title "Fix login redirect race" \
   --description "Session cookie set before redirect; race in next/15." \
   --priority high \
   --type bug
-cadence task update ENG-123 --status "In Progress"
-cadence task complete ENG-123 --actual-hours 2.5
+substrate task update ENG-123 --status "In Progress"
+substrate task complete ENG-123 --actual-hours 2.5
 ```
 
 ## Mapping
 
-| Cadence field    | Linear field                                        |
+| Substrate field    | Linear field                                        |
 | ---------------- | --------------------------------------------------- |
 | `id`             | Identifier (`ENG-123`), not GUID                    |
 | `title`          | `title`                                             |
@@ -66,7 +66,7 @@ cadence task complete ENG-123 --actual-hours 2.5
   (e.g. `ENG`). The adapter resolves it to a team ID at create time.
 - **`actualHours` is not natively tracked** by Linear and will round-trip
   as `undefined`. Use the `estimate` field via `estimatedHours` for the
-  forward-looking hour-budget signal cadence offers.
+  forward-looking hour-budget signal substrate offers.
 - **Label attachment on create is deferred to v1.0.** v0.8 creates issues
   with the title/description/priority/estimate set, but labels passed via
   `--labels`, `--type`, `--category`, `--complexity` are not yet attached.

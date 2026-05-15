@@ -1,5 +1,5 @@
 /**
- * @cadence/adapter-jira — TaskAdapter implementation for Atlassian Jira.
+ * @op4z/substrate-adapter-jira — TaskAdapter implementation for Atlassian Jira.
  *
  * Backed by the `jira-client` REST library. Works against both Jira
  * Cloud (api.atlassian.com) and self-hosted Jira Server. Configured via
@@ -14,7 +14,7 @@
  *
  * 1. **Adapter contract is duplicated inline** — same pattern as the
  *    stub and Linear adapter. Peer package, no build-time import from
- *    cadence. Structural typing at runtime via `isTaskAdapter()`.
+ *    substrate. Structural typing at runtime via `isTaskAdapter()`.
  *
  * 2. **`JiraClientLike` abstraction.** The jira-client SDK is a class
  *    with a sprawling surface. We narrow it to a `JiraClientLike`
@@ -46,10 +46,10 @@
 import JiraApi from "jira-client";
 
 // ---------------------------------------------------------------------- types
-// Adapter contract — duplicated from cadence's `src/extensions/task-adapter.ts`.
-// Structural typing at runtime; do not import from cadence (peer package).
+// Adapter contract — duplicated from substrate's `src/extensions/task-adapter.ts`.
+// Structural typing at runtime; do not import from substrate (peer package).
 
-interface CadenceTask {
+interface SubstrateTask {
   id: string;
   title: string;
   description?: string;
@@ -106,11 +106,11 @@ interface CompleteTaskInput {
 interface TaskAdapter {
   readonly name: string;
   readonly version: string;
-  findTask(input: FindTaskInput): Promise<CadenceTask | null>;
-  searchTasks(input: SearchTasksInput): Promise<CadenceTask[]>;
-  createTask(input: CreateTaskInput): Promise<CadenceTask>;
-  updateTask(input: UpdateTaskInput): Promise<CadenceTask>;
-  completeTask(input: CompleteTaskInput): Promise<CadenceTask>;
+  findTask(input: FindTaskInput): Promise<SubstrateTask | null>;
+  searchTasks(input: SearchTasksInput): Promise<SubstrateTask[]>;
+  createTask(input: CreateTaskInput): Promise<SubstrateTask>;
+  updateTask(input: UpdateTaskInput): Promise<SubstrateTask>;
+  completeTask(input: CompleteTaskInput): Promise<SubstrateTask>;
 }
 
 // ------------------------------------------------------------ jira-client abstraction
@@ -150,7 +150,7 @@ interface JiraIssue {
   };
 }
 
-const ADAPTER_NAME = "@cadence/adapter-jira";
+const ADAPTER_NAME = "@op4z/substrate-adapter-jira";
 const ADAPTER_VERSION = "0.8.0";
 
 export interface JiraAdapterOptions {
@@ -176,7 +176,7 @@ function descriptionToText(
   return JSON.stringify(raw);
 }
 
-function toCadenceTask(issue: JiraIssue, host?: string): CadenceTask {
+function toSubstrateTask(issue: JiraIssue, host?: string): SubstrateTask {
   const f = issue.fields;
   const tt = f.timetracking;
   return {
@@ -214,7 +214,7 @@ export function createJiraAdapter(options: JiraAdapterOptions = {}): TaskAdapter
   } else {
     if (!host || !username || !apiToken) {
       throw new Error(
-        "@cadence/adapter-jira: set JIRA_HOST, JIRA_USERNAME, JIRA_API_TOKEN env vars (or pass options).",
+        "@op4z/substrate-adapter-jira: set JIRA_HOST, JIRA_USERNAME, JIRA_API_TOKEN env vars (or pass options).",
       );
     }
     // The real jira-client constructor accepts a config object. We cast
@@ -247,7 +247,7 @@ export function createJiraAdapter(options: JiraAdapterOptions = {}): TaskAdapter
       try {
         const issue = await client.findIssue(id);
         if (!issue) return null;
-        return toCadenceTask(issue, effectiveHost);
+        return toSubstrateTask(issue, effectiveHost);
       } catch (err) {
         if (
           err instanceof Error &&
@@ -265,13 +265,13 @@ export function createJiraAdapter(options: JiraAdapterOptions = {}): TaskAdapter
       const escaped = query.replace(/"/g, '\\"');
       const jql = `text ~ "${escaped}" ORDER BY updated DESC`;
       const result = await client.searchJira(jql, { maxResults: limit ?? 25 });
-      return result.issues.map((i) => toCadenceTask(i, effectiveHost));
+      return result.issues.map((i) => toSubstrateTask(i, effectiveHost));
     },
 
     async createTask(input) {
       if (!input.project) {
         throw new Error(
-          "@cadence/adapter-jira: createTask requires `project` (Jira project key, e.g. 'PROJ').",
+          "@op4z/substrate-adapter-jira: createTask requires `project` (Jira project key, e.g. 'PROJ').",
         );
       }
       const issueType = input.type ?? "Task";
@@ -302,7 +302,7 @@ export function createJiraAdapter(options: JiraAdapterOptions = {}): TaskAdapter
       const created = await client.addNewIssue({ fields });
       // `addNewIssue` returns a thin shape — re-fetch for the full task.
       const full = await client.findIssue(created.key);
-      return toCadenceTask(full, effectiveHost);
+      return toSubstrateTask(full, effectiveHost);
     },
 
     async updateTask(input) {
@@ -335,13 +335,13 @@ export function createJiraAdapter(options: JiraAdapterOptions = {}): TaskAdapter
         );
         if (!target) {
           throw new Error(
-            `@cadence/adapter-jira: no transition named "${input.status}" available on ${input.id}.`,
+            `@op4z/substrate-adapter-jira: no transition named "${input.status}" available on ${input.id}.`,
           );
         }
         await client.transitionIssue(input.id, { transition: { id: target.id } });
       }
       const full = await client.findIssue(input.id);
-      return toCadenceTask(full, effectiveHost);
+      return toSubstrateTask(full, effectiveHost);
     },
 
     async completeTask({ id }) {
@@ -351,12 +351,12 @@ export function createJiraAdapter(options: JiraAdapterOptions = {}): TaskAdapter
       );
       if (!target) {
         throw new Error(
-          `@cadence/adapter-jira: no completion transition (Done/Closed/Resolved/Complete) on ${id}.`,
+          `@op4z/substrate-adapter-jira: no completion transition (Done/Closed/Resolved/Complete) on ${id}.`,
         );
       }
       await client.transitionIssue(id, { transition: { id: target.id } });
       const full = await client.findIssue(id);
-      return toCadenceTask(full, effectiveHost);
+      return toSubstrateTask(full, effectiveHost);
     },
   };
 }

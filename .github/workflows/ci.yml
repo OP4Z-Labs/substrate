@@ -12,7 +12,7 @@ jobs:
     name: lint + typecheck + test + build
     runs-on: ubuntu-latest
 
-    # Cadence's CLI is invoked as a node subprocess by the integration
+    # Substrate's CLI is invoked as a node subprocess by the integration
     # tests, so the runtime version matters. Pin to the package.json
     # `engines.node` minimum (20), the current LTS line (22), and the
     # latest line (24) so version drift catches us at PR time. See

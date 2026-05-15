@@ -1,12 +1,12 @@
 ---
 /**
- * Base layout for cadence docs pages.
+ * Base layout for substrate docs pages.
  *
  * Minimal: tab title, simple nav, content slot, footer with licensing
  * notice. No JS, no client-side framework — pure Astro static pages.
  *
  * Licensing notice (per the v0.8 brief):
- *   - Code (cadence package + adapters): MIT
+ *   - Code (substrate package + adapters): MIT
  *   - Content (standards docs, audit playbooks, this docs site): CC-BY 4.0
  * Documented in the footer + a LICENSES file at the repo root.
  */
@@ -32,7 +32,7 @@ const navItems = [
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content={Astro.generator} />
-    <title>{title} — Cadence</title>
+    <title>{title} — Substrate</title>
     {description && <meta name="description" content={description} />}
     <style is:global>
       :root {
@@ -149,7 +149,7 @@ const navItems = [
   <body>
     <header>
       <div class="container">
-        <a class="brand" href="/">Cadence</a>
+        <a class="brand" href="/">Substrate</a>
         <nav>
           {navItems.map((item) => <a href={item.href}>{item.label}</a>)}
         </nav>
@@ -166,7 +166,7 @@ const navItems = [
           <a href="https://creativecommons.org/licenses/by/4.0/">CC-BY 4.0</a>
         </div>
         <div>
-          <a href="https://github.com/BeauGoldberg/cadence">GitHub</a>
+          <a href="https://github.com/op4z/substrate">GitHub</a>
         </div>
       </div>
     </footer>

@@ -1,12 +1,12 @@
-# Cadence
+# Substrate
 
 > Repeatable automation patterns for codebases. Audits, scaffolds, standards, workflows, and AI-editor bridges — scaffolded into your repo where you own them.
 
 **Status:** v0.8 (hardening + ecosystem). Local development only; not yet published to npm.
 
-Cadence is the public extraction of a `./exc + /run` automation system
+Substrate is the public extraction of a `./exc + /run` automation system
 that grew up inside a private monorepo. It separates the **framework**
-(versioned, lives in `node_modules/cadence`) from the **opinionated
+(versioned, lives in `node_modules/@op4z/substrate`) from the **opinionated
 content** (audit playbooks, standards, scaffolds — scaffolded into
 your repo where you can edit them). Same model that made shadcn/ui
 click: install once, own forever.
@@ -21,44 +21,44 @@ contracts and three-way upgrade flow are intact; v0.8 layers on:
 | Capability (additions in v0.8)                                                       | Status |
 | ----------------------------------------------------------------------------------- | ------ |
 | `templates-history/<version>/` shipping path — real three-way merge anchors        | new    |
-| Monorepo migration — main CLI moves to `packages/cadence/`; npm workspaces at root | new    |
-| MCP server bridge (`cadence mcp serve`) — third bridge alongside Claude + Cursor   | new    |
-| `cadence init --bridge mcp` scaffolds Claude-Desktop-compatible MCP registration   | new    |
+| Monorepo migration — main CLI moves to `packages/substrate/`; npm workspaces at root | new    |
+| MCP server bridge (`substrate mcp serve`) — third bridge alongside Claude + Cursor   | new    |
+| `substrate init --bridge mcp` scaffolds Claude-Desktop-compatible MCP registration   | new    |
 | GitHub Action wrapper (`action.yml` + `dist/action/index.js`) for CI usage          | new    |
-| Three reference adapters: `@cadence/adapter-{linear,jira,github}` (workspace pkgs) | new    |
-| Astro docs site (`docs-site/`) dogfooded with cadence; builds via `docs:build`      | new    |
-| Opt-in telemetry: `cadence config --telemetry on|off`, local-log emission         | new    |
-| `cadence config --telemetry` CLI command surface                                    | new    |
+| Three reference adapters: `@op4z/substrate-adapter-{linear,jira,github}` (workspace pkgs) | new    |
+| Astro docs site (`docs-site/`) dogfooded with substrate; builds via `docs:build`      | new    |
+| Opt-in telemetry: `substrate config --telemetry on|off`, local-log emission         | new    |
+| `substrate config --telemetry` CLI command surface                                    | new    |
 
 v0.5 capabilities (unchanged):
 
 | Capability (carried from v0.5)                                                       | Status |
 | ----------------------------------------------------------------------------------- | ------ |
-| `cadence upgrade --check / --apply / --dry-run` — diff & merge scaffolded files     | yes    |
+| `substrate upgrade --check / --apply / --dry-run` — diff & merge scaffolded files     | yes    |
 | Three-way merge UX: keep / take-new / merge / eject per modified file               | yes    |
-| Plugin contract for **task adapters** (TaskAdapter) + `cadence task` CLI verbs      | yes    |
+| Plugin contract for **task adapters** (TaskAdapter) + `substrate task` CLI verbs      | yes    |
 | Plugin contract for **VCS adapters** (VcsAdapter) + built-in git adapter            | yes    |
-| `cadence workflow list / describe / start <id> --var k=v` runtime                   | yes    |
+| `substrate workflow list / describe / start <id> --var k=v` runtime                   | yes    |
 | Default `new-service` workflow shipped as a bundled template                        | yes    |
 | Three step types in workflows: `command`, `audit`, `prompt`                         | yes    |
 | Cursor bridge alongside Claude bridge — both coexist freely                         | yes    |
-| `cadence init --bridge claude,cursor` — multi-bridge scaffold                       | yes    |
+| `substrate init --bridge claude,cursor` — multi-bridge scaffold                       | yes    |
 | YAML parser swap to `yaml` (eemeli) — full spec support                            | yes    |
 
 Carried over from v0.3 (unchanged):
 
 | Capability                                                                          | Status |
 | ----------------------------------------------------------------------------------- | ------ |
-| `cadence init` — scaffold `auto/`, `cadence.config.json`, manifest stub             | yes    |
+| `substrate init` — scaffold `auto/`, `substrate.config.json`, manifest stub             | yes    |
 | Stack auto-detection (Python / TypeScript / Go / Rust)                              | yes    |
-| 15-audit catalog scaffold-able via `cadence add audit <name>`                       | yes    |
-| 21 standards docs scaffold-able via `cadence add standard <scope/area>`             | yes    |
-| `cadence add scaffold|command|workflow` — incremental item scaffolding              | yes    |
-| `auto/.cadence-manifest.json` tracks every scaffold (sha256 + template version)     | yes    |
-| `cadence audit --list` / `--type <name>` (instruction-file aware stub)              | yes    |
-| `cadence create --template <name> --name <foo>` — scaffold a package                | yes    |
-| `cadence knowledge refresh / show [--section <name>]`                               | yes    |
-| `cadence doctor` — diagnostic command (config, manifest, stack, bridge)             | yes    |
+| 15-audit catalog scaffold-able via `substrate add audit <name>`                       | yes    |
+| 21 standards docs scaffold-able via `substrate add standard <scope/area>`             | yes    |
+| `substrate add scaffold|command|workflow` — incremental item scaffolding              | yes    |
+| `auto/.substrate-manifest.json` tracks every scaffold (sha256 + template version)     | yes    |
+| `substrate audit --list` / `--type <name>` (instruction-file aware stub)              | yes    |
+| `substrate create --template <name> --name <foo>` — scaffold a package                | yes    |
+| `substrate knowledge refresh / show [--section <name>]`                               | yes    |
+| `substrate doctor` — diagnostic command (config, manifest, stack, bridge)             | yes    |
 | Test suite — **272 tests** across 31 files (unit + integration); lint+tsc+build green | yes |
 
 **Explicitly NOT in v0.8.** See the [roadmap](#roadmap) for when each
@@ -71,17 +71,17 @@ exits with code 2 and a hint. The `config` command now ships with
 ## Install
 
 v0.8 is local-only — no npm publish yet. The monorepo layout (v0.8
-landed npm workspaces with the main CLI at `packages/cadence/`):
+landed npm workspaces with the main CLI at `packages/substrate/`):
 
 ```
-cadence/                              ← monorepo root
+substrate/             ← monorepo root
 ├── packages/
-│   ├── cadence/                      ← the main CLI (publishable as `cadence`)
+│   ├── substrate/             ← the main CLI (publishable as `@op4z/substrate`)
 │   ├── adapter-stub/                 ← reference TaskAdapter (logs verbs)
-│   ├── adapter-linear/               ← @cadence/adapter-linear
-│   ├── adapter-jira/                 ← @cadence/adapter-jira
-│   └── adapter-github/               ← @cadence/adapter-github
-├── docs-site/                        ← Astro docs site (cadence-dogfooded)
+│   ├── adapter-linear/               ← @op4z/substrate-adapter-linear
+│   ├── adapter-jira/                 ← @op4z/substrate-adapter-jira
+│   └── adapter-github/               ← @op4z/substrate-adapter-github
+├── docs-site/                        ← Astro docs site (substrate-dogfooded)
 ├── action.yml                        ← GitHub Action entrypoint
 ├── dist/action/index.js              ← Action JS (checked in for `uses:` consumers)
 └── package.json                      ← workspace manager
@@ -91,35 +91,35 @@ To try it inside this repo:
 
 ```bash
 git clone <this-repo>
-cd cadence
+cd substrate
 npm install                           # installs across all workspaces
-npm run build                         # builds cadence + adapter-stub + adapters
-node packages/cadence/dist/cli.js --help
+npm run build                         # builds substrate + adapter-stub + adapters
+node packages/substrate/dist/cli.js --help
 ```
 
 To use it inside another local project, `npm link`:
 
 ```bash
-cd cadence/packages/cadence && npm link
+cd substrate/packages/substrate && npm link
 cd /path/to/your/project
-npm link cadence
-cadence init
+npm link substrate
+substrate init
 ```
 
 ### Using a reference adapter
 
 ```bash
 cd /path/to/your/project
-# In your cadence.config.json:
-#   "extensions": { "taskAdapter": "@cadence/adapter-linear" }
+# In your substrate.config.json:
+#   "extensions": { "taskAdapter": "@op4z/substrate-adapter-linear" }
 
 # Link the adapter locally (until npm publish lands in v1.0):
-cd /path/to/cadence/packages/adapter-linear && npm link
+cd /path/to/substrate/packages/adapter-linear && npm link
 cd /path/to/your/project
-npm link @cadence/adapter-linear
+npm link @op4z/substrate-adapter-linear
 
 export LINEAR_API_KEY=lin_api_xxx
-cadence task find ENG-123
+substrate task find ENG-123
 ```
 
 Each adapter has its own README under `packages/adapter-<name>/README.md`.
@@ -130,58 +130,58 @@ Each adapter has its own README under `packages/adapter-<name>/README.md`.
 
 ```bash
 # 1. Scaffold the auto/ tree, config, and (optionally) AI-editor bridges
-cadence init --bridge claude,cursor
+substrate init --bridge claude,cursor
 
-# 2. Cadence auto-detects your stack from pyproject.toml, package.json, etc.,
+# 2. Substrate auto-detects your stack from pyproject.toml, package.json, etc.,
 #    and pre-enables the appropriate audits + standards. Inspect the config:
-cat cadence.config.json | jq '.defaults'
+cat substrate.config.json | jq '.defaults'
 
 # 3. Add additional audits as you need them
-cadence add audit security
-cadence add audit performance
-cadence add audit api-contract
+substrate add audit security
+substrate add audit performance
+substrate add audit api-contract
 
 # 4. Add standards docs to your repo
-cadence add standard backend/architecture
-cadence add standard frontend/react
+substrate add standard backend/architecture
+substrate add standard frontend/react
 
 # 5. Auto-discover your local stack from docker-compose
-cadence knowledge refresh
-cadence knowledge show --section services
+substrate knowledge refresh
+substrate knowledge show --section services
 
 # 6. Register and run a workflow
-cadence add workflow new-service
-cadence workflow list
-cadence workflow describe new-service
-cadence workflow start new-service --var SERVICE_NAME=billing
+substrate add workflow new-service
+substrate workflow list
+substrate workflow describe new-service
+substrate workflow start new-service --var SERVICE_NAME=billing
 
 # 7. Inspect drift between your edits and current templates
-cadence upgrade --check
+substrate upgrade --check
 
 # 8. Verify the install is healthy
-cadence doctor
+substrate doctor
 ```
 
 ---
 
 ## Commands
 
-### `cadence init`
+### `substrate init`
 
 Scaffold the `auto/` directory, root config, and (optionally) one or
 more AI-editor bridge files.
 
 ```bash
-cadence init                                  # auto-detect stack from markers
-cadence init --name my-app --short-code MA
-cadence init --bridge claude                  # scaffold .claude/commands/cadence.md
-cadence init --bridge cursor                  # scaffold .cursor/commands/cadence.md
-cadence init --bridge claude,cursor           # both (they coexist freely)
-cadence init --with-claude                    # legacy alias for --bridge claude
-cadence init --stack python                   # explicit stack override
+substrate init                                  # auto-detect stack from markers
+substrate init --name my-app --short-code MA
+substrate init --bridge claude                  # scaffold .claude/commands/substrate.md
+substrate init --bridge cursor                  # scaffold .cursor/commands/substrate.md
+substrate init --bridge claude,cursor           # both (they coexist freely)
+substrate init --with-claude                    # legacy alias for --bridge claude
+substrate init --stack python                   # explicit stack override
 ```
 
-**Stack auto-detection.** Cadence looks for marker files at the repo
+**Stack auto-detection.** Substrate looks for marker files at the repo
 root and pre-enables appropriate defaults:
 
 | Stack      | Markers (any one)                                              |
@@ -205,29 +205,29 @@ auto/
 │   └── audit-dead-code.md
 ├── scripts/                 # local scripts
 ├── config/                  # project + scaffolds + workflows registries
-├── standards/               # standards docs (added via `cadence add standard`)
+├── standards/               # standards docs (added via `substrate add standard`)
 ├── audits/                  # audit report output
 ├── docs/                    # decisions + KNOWLEDGE.md (generated)
-└── .cadence-manifest.json   # tracked-scaffolds manifest
-cadence.config.json
-.claude/commands/cadence.md  # only with --with-claude
+└── .substrate-manifest.json   # tracked-scaffolds manifest
+substrate.config.json
+.claude/commands/substrate.md  # only with --with-claude
 ```
 
-### `cadence add <category> <item>`
+### `substrate add <category> <item>`
 
 Single-item scaffolding parallel to `shadcn add`. Each invocation
-updates `auto/.cadence-manifest.json` with the template version + a
+updates `auto/.substrate-manifest.json` with the template version + a
 SHA-256 of the scaffolded contents so the v0.5 upgrade flow can diff
 your edits against future template releases.
 
 ```bash
-cadence add audit backend
-cadence add audit security
-cadence add standard backend/architecture
-cadence add standard frontend/react
-cadence add scaffold package-ts
-cadence add command audit
-cadence add workflow new-service
+substrate add audit backend
+substrate add audit security
+substrate add standard backend/architecture
+substrate add standard frontend/react
+substrate add scaffold package-ts
+substrate add command audit
+substrate add workflow new-service
 ```
 
 Existing files are preserved by default (shadcn-style). Pass
@@ -253,8 +253,8 @@ Existing files are preserved by default (shadcn-style). Pass
 | `trend`                | Score-over-time aggregator across audit sidecars              |
 | `all`                  | Composite sweep — runs every enabled audit, rolls up findings |
 
-Run `cadence add audit <name>` to add one. The default set (per detected
-stack) is recorded in `cadence.config.json` → `defaults.audits`.
+Run `substrate add audit <name>` to add one. The default set (per detected
+stack) is recorded in `substrate.config.json` → `defaults.audits`.
 
 #### Standards catalog (21 docs)
 
@@ -270,12 +270,12 @@ Each ships with frontmatter (scope, area, rule cross-references) and a
 TODO-stub body (~40-100 lines). The *shape* ships; the *depth* comes
 per-team as you fill in the TODOs.
 
-### `cadence audit`
+### `substrate audit`
 
 ```bash
-cadence audit --list                      # enumerate scaffolded audits
-cadence audit --type pre-merge            # load instruction + stub report
-cadence audit --type security --json      # machine-readable for CI
+substrate audit --list                      # enumerate scaffolded audits
+substrate audit --type pre-merge            # load instruction + stub report
+substrate audit --type security --json      # machine-readable for CI
 ```
 
 In v0.5 `--type <name>` still emits a stub. The detector runtime (rule
@@ -283,34 +283,34 @@ execution, score aggregation) ships in v0.8. The contract (where
 instructions live, what front matter they carry) is stable now so AI
 assistants and CI integrations can lean on it today.
 
-### `cadence create --template <name> --name <foo>`
+### `substrate create --template <name> --name <foo>`
 
 Scaffold a new package or service from a bundled template.
 
 ```bash
-cadence create --template package-ts --name my-utils
-cadence create --template package-python --name my_pylib
+substrate create --template package-ts --name my-utils
+substrate create --template package-python --name my_pylib
 ```
 
 Available templates: `package-ts`, `package-python`. Path placeholders
 (`{{NAME_SNAKE}}`, `{{NAME_PASCAL}}`) are substituted at copy time.
 
-### `cadence knowledge`
+### `substrate knowledge`
 
 Auto-discover the local-stack reference from `docker-compose.yml` and
 `.env.example`. Writes `auto/docs/KNOWLEDGE.md`.
 
 ```bash
-cadence knowledge refresh
-cadence knowledge show
-cadence knowledge show --section services
-cadence knowledge show --section "environment variables"
+substrate knowledge refresh
+substrate knowledge show
+substrate knowledge show --section services
+substrate knowledge show --section "environment variables"
 ```
 
 Values matching the configured redact patterns (default: any key
 containing `PASSWORD`, `TOKEN`, `SECRET`, `KEY` — case-insensitive)
 are masked as `***REDACTED***` in the generated doc. Configure in
-`cadence.config.json`:
+`substrate.config.json`:
 
 ```jsonc
 {
@@ -321,12 +321,12 @@ are masked as `***REDACTED***` in the generated doc. Configure in
 }
 ```
 
-### `cadence doctor`
+### `substrate doctor`
 
-Diagnose the cadence installation in the current repo. Reports on:
+Diagnose the substrate installation in the current repo. Reports on:
 
 - Node runtime
-- `cadence.config.json` presence + validity
+- `substrate.config.json` presence + validity
 - `auto/` directory structure
 - Manifest entries (flags dangling entries that point at missing files)
 - Stack alignment (declared vs detected)
@@ -338,23 +338,23 @@ Exits 0 clean, non-zero with triage on error. Pass `--json` for
 machine-readable output.
 
 ```bash
-cadence doctor
-cadence doctor --json | jq '.summary'
+substrate doctor
+substrate doctor --json | jq '.summary'
 ```
 
-### `cadence upgrade`
+### `substrate upgrade`
 
 Diff every scaffolded file against the bundled template at the
-*current* cadence version, then either auto-update unmodified files or
+*current* substrate version, then either auto-update unmodified files or
 walk the user through a three-way merge for each edited file.
 
 ```bash
-cadence upgrade --check        # report drift; no writes
-cadence upgrade --dry-run      # alias for --check
-cadence upgrade --apply        # interactive; per-file resolution
+substrate upgrade --check        # report drift; no writes
+substrate upgrade --dry-run      # alias for --check
+substrate upgrade --apply        # interactive; per-file resolution
 ```
 
-State machine per tracked file (from `auto/.cadence-manifest.json`):
+State machine per tracked file (from `auto/.substrate-manifest.json`):
 
 | State           | Trigger                                          | What `--apply` does                          |
 | --------------- | ------------------------------------------------ | -------------------------------------------- |
@@ -368,12 +368,12 @@ The four interactive choices for a modified file:
 
 - **keep** — leave the user's copy unchanged; refresh the manifest hash so the next upgrade run doesn't re-prompt.
 - **take-new** — overwrite with the new template; refresh hash + version.
-- **merge** — write `<file>.cadence-merge` beside the user's copy with the new template content; user resolves manually.
+- **merge** — write `<file>.substrate-merge` beside the user's copy with the new template content; user resolves manually.
 - **eject** — flip `ejected: true` in the manifest; future upgrades skip this file.
 
 **v0.8: real three-way merge.** When `templates-history/<recordedVersion>/` ships the
 content as it shipped originally, the merge UX shows all three anchors:
-"your edits since cadence@X" (original → current), "cadence template changes"
+"your edits since substrate@X" (original → current), "substrate template changes"
 (original → new), and "raw drift to resolve" (current → new). When a recorded
 version isn't carried in `templates-history/` (e.g. running v0.8 against a manifest
 scaffolded by a non-shipped v0.4), the upgrade gracefully falls back to the v0.5
@@ -382,22 +382,22 @@ explicit. Merge files written with `choice=merge` use a git-style conflict-marke
 block (`<<<<<<< ORIGINAL` / `||||||| CURRENT` / `>>>>>>> NEW`) when three-way
 is available.
 
-### `cadence workflow`
+### `substrate workflow`
 
 Multi-step automation runtime. Workflows are YAML manifests in
-`auto/config/workflows.yaml`; cadence ships a default `new-service`
+`auto/config/workflows.yaml`; substrate ships a default `new-service`
 workflow that demonstrates all three step types.
 
 ```bash
-cadence workflow list
-cadence workflow describe new-service
-cadence workflow start new-service --var SERVICE_NAME=billing
+substrate workflow list
+substrate workflow describe new-service
+substrate workflow start new-service --var SERVICE_NAME=billing
 ```
 
 Three step types (locked schema for v0.5):
 
 - **command** — shell command (spawned with `shell: true`, stdio inherited).
-- **audit** — invokes `cadence audit --type <name>` in-process.
+- **audit** — invokes `substrate audit --type <name>` in-process.
 - **prompt** — asks the user via `@inquirer/prompts` and stores the answer in the variable bag.
 
 Variable substitution: `${NAME}` tokens are replaced with values from `--var` and from prompt-step answers. In `command` strings, unknown vars are left as-is (the spawned shell sees them literally — typos surface loudly). In `condition` strings, unknown vars resolve to empty (so `condition: "${FLAG}"` is truthy only when the flag is set).
@@ -416,70 +416,70 @@ workflows:
         var: SERVICE_NAME
       - name: Scaffold
         type: command
-        command: "cadence create --template service-fastapi --name ${SERVICE_NAME}"
+        command: "substrate create --template service-fastapi --name ${SERVICE_NAME}"
       - name: Audit
         type: audit
         audit: backend
         condition: "${SERVICE_NAME}"
 ```
 
-### `cadence task` (adapter-driven)
+### `substrate task` (adapter-driven)
 
-Cadence ships a neutral task-verb surface backed by a pluggable adapter
-contract. Set `extensions.taskAdapter` in `cadence.config.json` to an
+Substrate ships a neutral task-verb surface backed by a pluggable adapter
+contract. Set `extensions.taskAdapter` in `substrate.config.json` to an
 npm package implementing `TaskAdapter` (see `src/extensions/task-adapter.ts`);
 the verbs route through it. When no adapter is configured, the verbs
 exit non-zero with an install hint.
 
 ```bash
-cadence task find OP-660
-cadence task search "auth refresh" --limit 10
-cadence task create --title "Fix x" --description "..." --priority high --hours 3
-cadence task update OP-660 --status in_progress
-cadence task complete OP-660 --actual-hours 2.5
+substrate task find OP-660
+substrate task search "auth refresh" --limit 10
+substrate task create --title "Fix x" --description "..." --priority high --hours 3
+substrate task update OP-660 --status in_progress
+substrate task complete OP-660 --actual-hours 2.5
 ```
 
 **Four adapters ship in v0.8** (all under `packages/`):
 
 | Adapter                       | What it talks to                          | Env vars                                       |
 | ----------------------------- | ----------------------------------------- | ---------------------------------------------- |
-| `@cadence/adapter-stub`       | Nothing — logs verbs + returns synthetics | (none)                                         |
-| `@cadence/adapter-linear`     | Linear via @linear/sdk                    | `LINEAR_API_KEY`                               |
-| `@cadence/adapter-jira`       | Jira (Cloud or Server) via jira-client    | `JIRA_HOST`, `JIRA_USERNAME`, `JIRA_API_TOKEN` |
-| `@cadence/adapter-github`     | GitHub Issues via Octokit                 | `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`  |
+| `@op4z/substrate-adapter-stub`       | Nothing — logs verbs + returns synthetics | (none)                                         |
+| `@op4z/substrate-adapter-linear`     | Linear via @linear/sdk                    | `LINEAR_API_KEY`                               |
+| `@op4z/substrate-adapter-jira`       | Jira (Cloud or Server) via jira-client    | `JIRA_HOST`, `JIRA_USERNAME`, `JIRA_API_TOKEN` |
+| `@op4z/substrate-adapter-github`     | GitHub Issues via Octokit                 | `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`  |
 
 Each adapter has its own `README.md` under `packages/adapter-<name>/`.
 They all follow the same pattern: structural-typing of the adapter
-contract (no build-time import from cadence), inject a client-like
+contract (no build-time import from substrate), inject a client-like
 narrow interface for testing, dynamic `import()` at runtime.
 
 To wire a real adapter: install the package, set the env vars,
-point `extensions.taskAdapter` at the package name. Cadence loads
+point `extensions.taskAdapter` at the package name. Substrate loads
 it lazily via dynamic `import()` at runtime.
 
-### `cadence mcp serve` (v0.8)
+### `substrate mcp serve` (v0.8)
 
-Run cadence as an MCP (Model Context Protocol) server. The third
+Run substrate as an MCP (Model Context Protocol) server. The third
 bridge target alongside Claude Code and Cursor. Exposes read-only
-cadence tools to any MCP-aware agent (Claude Desktop, Continue,
+substrate tools to any MCP-aware agent (Claude Desktop, Continue,
 Cline, Claude Code's MCP client).
 
 ```bash
 # Run standalone (stdio transport):
-cadence mcp serve
+substrate mcp serve
 
 # Scaffold the host registration:
-cadence init --bridge mcp
-# → .cadence/mcp/cadence-server.json + .cadence/mcp/README.md
+substrate init --bridge mcp
+# → .substrate/mcp/substrate-server.json + .substrate/mcp/README.md
 ```
 
 Tools exposed by v0.8:
 
-- `cadence_audit_list` / `cadence_audit_run`
-- `cadence_knowledge_show`
-- `cadence_doctor`
-- `cadence_workflow_list` / `cadence_workflow_describe`
-- `cadence_upgrade_check` (dry-run only)
+- `substrate_audit_list` / `substrate_audit_run`
+- `substrate_knowledge_show`
+- `substrate_doctor`
+- `substrate_workflow_list` / `substrate_workflow_describe`
+- `substrate_upgrade_check` (dry-run only)
 
 Write operations (`init`, `add`, `apply`, `task create/update`,
 `workflow start`) are NOT exposed in v0.8. Those have side effects
@@ -490,7 +490,7 @@ explicit `confirm: true` parameter convention.
 
 The same plugin pattern applies to VCS. `extensions.vcsAdapter` either
 points at a package implementing `VcsAdapter` or stays null — in which
-case cadence uses the built-in git adapter (`src/adapters/git.ts`),
+case substrate uses the built-in git adapter (`src/adapters/git.ts`),
 which shells out to the `git` binary. Future SCM adapters (Mercurial,
 Pijul) drop into the same slot.
 
@@ -498,12 +498,12 @@ Pijul) drop into the same slot.
 
 ## Configuration
 
-`cadence init` writes `cadence.config.json` at your repo root. v0.8's
+`substrate init` writes `substrate.config.json` at your repo root. v0.8's
 shape (`bridges.mcp` added):
 
 ```jsonc
 {
-  "$schema": "https://cadence.dev/schema.json",
+  "$schema": "https://substrate.dev/schema.json",
   "version": "0.8.0",
   "project": { "name": "my-app", "shortCode": "MA" },
   "stacks": ["python", "typescript"],
@@ -517,14 +517,14 @@ shape (`bridges.mcp` added):
   "bridges": {
     "claude": { "enabled": true,  "commandsDir": ".claude/commands" },
     "cursor": { "enabled": false, "commandsDir": ".cursor/commands" },
-    "mcp":    { "enabled": false, "commandsDir": ".cadence/mcp" }
+    "mcp":    { "enabled": false, "commandsDir": ".substrate/mcp" }
   },
   "knowledge": {
     "sources": ["docker-compose.yml", ".env.example"],
     "redactPatterns": ["PASSWORD", "TOKEN", "SECRET", "KEY"]
   },
   "extensions": {
-    "taskAdapter": null,   // null → `cadence task` exits with install hint
+    "taskAdapter": null,   // null → `substrate task` exits with install hint
     "vcsAdapter":  null    // null → fall back to built-in git adapter
   },
   "telemetry": { "enabled": false }
@@ -540,22 +540,22 @@ The schema is documented inline in `src/util/types.ts`.
 Two-layer separation — the core design decision:
 
 ```
-node_modules/cadence/      (framework — versioned, upgrades freely)
-├── bin/cadence            CLI entry point (commander)
+node_modules/@op4z/substrate/      (framework — versioned, upgrades freely)
+├── bin/substrate            CLI entry point (commander)
 ├── dist/                  compiled source
 │   ├── adapters/git.js    built-in VCS adapter (shell-out to git)
 │   ├── extensions/        plugin contracts (TaskAdapter, VcsAdapter, loader)
 │   └── ...
 └── templates/             source-of-truth defaults (copied on init / add)
-    ├── init/              scaffolded by `cadence init`
-    ├── audits/            consumed by `cadence add audit <name>`
-    ├── standards/         consumed by `cadence add standard <scope>/<area>`
+    ├── init/              scaffolded by `substrate init`
+    ├── audits/            consumed by `substrate add audit <name>`
+    ├── standards/         consumed by `substrate add standard <scope>/<area>`
     ├── bridges/
     │   ├── claude/        Claude Code slash-command file
     │   └── cursor/        Cursor slash-command file (v0.5)
     ├── workflows/         bundled workflow definitions (e.g. new-service)
-    ├── package-ts/        consumed by `cadence create --template package-ts`
-    └── package-python/    consumed by `cadence create --template package-python`
+    ├── package-ts/        consumed by `substrate create --template package-ts`
+    └── package-python/    consumed by `substrate create --template package-python`
 
 packages/adapter-stub/     (in-repo reference TaskAdapter — copy-paste starting point)
 
@@ -565,8 +565,8 @@ packages/adapter-stub/     (in-repo reference TaskAdapter — copy-paste startin
 │   ├── standards/         standards docs (editable)
 │   ├── config/            scaffolds.yaml + workflows.yaml registries
 │   ├── docs/              KNOWLEDGE.md + ADRs
-│   └── .cadence-manifest.json
-├── cadence.config.json    root config (incl. extensions.taskAdapter / vcsAdapter)
+│   └── .substrate-manifest.json
+├── substrate.config.json    root config (incl. extensions.taskAdapter / vcsAdapter)
 ├── .claude/commands/      slash-command bridge (opt-in)
 └── .cursor/commands/      slash-command bridge (opt-in)
 ```
@@ -578,7 +578,7 @@ as shadcn/ui: install once, own forever.
 
 ## Roadmap
 
-Cadence is being built in phases. v0.8 lands the ecosystem layer:
+Substrate is being built in phases. v0.8 lands the ecosystem layer:
 real three-way merge anchors, MCP bridge, GitHub Action, three
 reference adapter packages (Linear, Jira, GitHub Issues), an Astro
 docs site, and opt-in telemetry. v1.0 is the GA release.
@@ -589,20 +589,20 @@ docs site, and opt-in telemetry. v1.0 is the GA release.
 | v0.3    | Content layer                        | `add`, `knowledge`, `doctor`. 15-audit catalog. 21 standards docs. Stack auto-detection.                             |
 | v0.5    | Upgrade + extensibility              | `upgrade` (three-way merge). `task` + `workflow` runtimes. Task/VCS plugin contracts. Cursor bridge. YAML lib swap.  |
 | v0.8    | **Hardening + ecosystem (current)** | `templates-history/` real three-way anchors. Monorepo migration. MCP bridge. GitHub Action. 3 reference adapters. Astro docs site. Opt-in telemetry. |
-| v1.0    | GA                                   | Semver freeze on `cadence.config`. Public RULES registry contribution mechanism. Migration guide from 0.x. 5 published case studies. npm publish. |
+| v1.0    | GA                                   | Semver freeze on `substrate.config`. Public RULES registry contribution mechanism. Migration guide from 0.x. 5 published case studies. npm publish. |
 
 ### What's deliberately deferred beyond v0.8
 
 - **Detector runtime** — `audit --type` still emits a stub. The actual
   ripgrep / vulture / pip-audit wrappers + RULES.yaml execution engine
   remain a v1.0+ concern.
-- **`cadence review`** — wraps `audit --type pre-merge` with the
+- **`substrate review`** — wraps `audit --type pre-merge` with the
   variants (pre, standards, security, deep, doc-gap). v1.0.
-- **`cadence standards init/list/for-files`** — once the standards
+- **`substrate standards init/list/for-files`** — once the standards
   bodies are filled in by real projects. v1.0.
-- **`cadence config --enable / --disable / --eject`** — v0.8 ships
+- **`substrate config --enable / --disable / --eject`** — v0.8 ships
   only `--telemetry on|off`. Full enable/disable/eject UX is v1.0
-  (today users edit `cadence.config.json` directly; `upgrade --apply`
+  (today users edit `substrate.config.json` directly; `upgrade --apply`
   exercises the eject path).
 - **MCP write-side tool exposure** — v0.8 MCP exposes read-only +
   dry-run tools. `init` / `add` / `apply` / `task create|update` /
@@ -614,14 +614,14 @@ docs site, and opt-in telemetry. v1.0 is the GA release.
   secondary consent.
 - **npm publish** — still local-only at v0.8. Each adapter declares
   `"private": true` to prevent accidental publish. v1.0 publishes
-  `cadence` + `@cadence/adapter-{stub,linear,jira,github}`.
+  `substrate` + `@op4z/substrate-adapter-{stub,linear,jira,github}`.
 - **5 case studies** — flagship v1.0 deliverable. Target: 5 external
-  repos using cadence in production.
+  repos using substrate in production.
 - **Public RULES contribution registry** — PR-based, curated. v1.0.
 
 ### v1.0 work cuts that may slip
 
-- **Trademark / CLA** on "Cadence" — open question. CC-BY 4.0 + MIT
+- **Trademark / CLA** on "Substrate" — open question. CC-BY 4.0 + MIT
   cover usage but not naming.
 - **License finalization beyond what `package.json` declares.**
 - **Sandboxed RULES detector scripts** (Deno?). Currently scripts
@@ -631,11 +631,11 @@ docs site, and opt-in telemetry. v1.0 is the GA release.
 
 ## GitHub Action (v0.8)
 
-Run cadence audits in CI without per-workflow boilerplate.
+Run substrate audits in CI without per-workflow boilerplate.
 
 ```yaml
-# .github/workflows/cadence-audit.yml
-- uses: BeauGoldberg/cadence@v0.8.0
+# .github/workflows/substrate-audit.yml
+- uses: BeauGoldberg/@op4z/substrate@v0.8.0
   with:
     command: "audit --type backend"
     working-directory: ./
@@ -653,8 +653,8 @@ into this repo so `uses:` consumers fetch a working entrypoint directly.
 ## Docs site (v0.8)
 
 The public docs site (Astro, deployed-target Cloudflare Pages) lives at
-`docs-site/`. The site is itself cadence-init'd — any standards/audits
-edits you make to cadence flow naturally through the docs site too.
+`docs-site/`. The site is itself substrate-init'd — any standards/audits
+edits you make to substrate flow naturally through the docs site too.
 
 ```bash
 npm run docs:dev       # local preview (http://localhost:4321/)
@@ -663,16 +663,16 @@ npm run docs:build     # produces docs-site/dist/
 
 ## Telemetry (v0.8, opt-in only)
 
-Cadence collects no usage data unless you opt in. To enable anonymous
-events (command name, audit type, error type, cadence version, OS family):
+Substrate collects no usage data unless you opt in. To enable anonymous
+events (command name, audit type, error type, substrate version, OS family):
 
 ```bash
-cadence config --telemetry on    # records preference; events emit going forward
-cadence config --telemetry off   # disables
-cadence config                   # prints current preference + file paths
+substrate config --telemetry on    # records preference; events emit going forward
+substrate config --telemetry off   # disables
+substrate config                   # prints current preference + file paths
 ```
 
-Events emit to `~/.config/cadence/telemetry.log` only at v0.8 (no
+Events emit to `~/.config/substrate/telemetry.log` only at v0.8 (no
 endpoint wired). v1.0 will add an optional collector with explicit
 secondary consent. **No project paths, no user identifiers, no rule
 body content, no audit findings, no message bodies** are ever recorded.
@@ -688,7 +688,7 @@ body content, no audit findings, no message bodies** are ever recorded.
   so they can be invoked from JS without spawning a subprocess. The
   CLI is a thin dispatch layer.
 - Monorepo via npm workspaces. CLI source lives under
-  `packages/cadence/`; root scripts forward to the workspace
+  `packages/substrate/`; root scripts forward to the workspace
   via `--workspaces --if-present`.
 
 ---
@@ -706,24 +706,24 @@ npm run format      # prettier --write
 
 ### Testing
 
-Cadence ships two test layers, both run by the default `npm test`:
+Substrate ships two test layers, both run by the default `npm test`:
 
 | Layer | Location | What it covers | How it runs |
 | ----- | -------- | -------------- | ----------- |
 | **Unit** | `tests/*.test.ts` | Programmatic API surface — calls `runInit`, `runAdd`, etc. directly. Fast (~0.3s for the whole layer). | `npm run test:unit` |
-| **Integration** | `tests/integration/*.test.ts` | Spawns the built CLI (`dist/cli.js`) as a Node subprocess against a fresh tmp dir per test. Catches bugs the unit layer structurally can't — the v0.3 symlink bug (`3995a60`) is the canonical example: 84 unit tests passed cleanly while `cadence --help` silently no-op'd on the global-bin install path. | `npm run test:integration` |
+| **Integration** | `tests/integration/*.test.ts` | Spawns the built CLI (`dist/cli.js`) as a Node subprocess against a fresh tmp dir per test. Catches bugs the unit layer structurally can't — the v0.3 symlink bug (`3995a60`) is the canonical example: 84 unit tests passed cleanly while `substrate --help` silently no-op'd on the global-bin install path. | `npm run test:integration` |
 
 The integration suite rebuilds `dist/` automatically before any spec runs (via vitest's `globalSetup`), so it's always testing the current source. Each spec maps directly to a smoke-test step in `.agent/SMOKE-2026-05-14.md` — adding a new CLI surface in future milestones means adding both a unit test for the programmatic API and an integration spec for the spawned-binary contract.
 
 End-to-end manual smoke test (still useful when wiring up new commands):
 
 ```bash
-mkdir -p /tmp/cadence-smoke && cd /tmp/cadence-smoke
+mkdir -p /tmp/substrate-smoke && cd /tmp/substrate-smoke
 
 # Mark this as a TypeScript repo so auto-detection has something to find
 echo '{}' > package.json
 
-CAD=/path/to/cadence/dist/cli.js
+CAD=/path/to/substrate/dist/cli.js
 node $CAD init --name smoke --bridge claude,cursor
 node $CAD add audit security
 node $CAD add standard frontend/react

@@ -1,7 +1,7 @@
 {
-  "name": "cadence-monorepo",
+  "name": "substrate-monorepo",
   "version": "1.0.0",
-  "description": "Cadence workspace root. The publishable CLI lives in packages/cadence/.",
+  "description": "Substrate workspace root. The publishable CLI lives in packages/substrate/.",
   "license": "MIT",
   "author": "Beau Goldberg",
   "private": true,
@@ -24,8 +24,8 @@
     "format": "npm run format --workspaces --if-present",
     "format:check": "npm run format:check --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "docs:dev": "npm run docs:dev --workspace cadence-docs-site",
-    "docs:build": "npm run docs:build --workspace cadence-docs-site"
+    "docs:dev": "npm run docs:dev --workspace substrate-docs-site",
+    "docs:build": "npm run docs:build --workspace substrate-docs-site"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",

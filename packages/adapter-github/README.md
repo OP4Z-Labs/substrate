@@ -1,21 +1,21 @@
-# @cadence/adapter-github
+# @op4z/substrate-adapter-github
 
-GitHub Issues `TaskAdapter` for [cadence](../../README.md). Uses
+GitHub Issues `TaskAdapter` for [substrate](../../README.md). Uses
 Octokit + the GitHub REST API.
 
 ## Install
 
 ```bash
-npm install @cadence/adapter-github
+npm install @op4z/substrate-adapter-github
 ```
 
 ## Configure
 
 ```jsonc
-// cadence.config.json
+// substrate.config.json
 {
   "extensions": {
-    "taskAdapter": "@cadence/adapter-github"
+    "taskAdapter": "@op4z/substrate-adapter-github"
   }
 }
 ```
@@ -32,25 +32,25 @@ export GITHUB_REPO=api-server      # default repo for numeric / un-prefixed task
 
 ```bash
 # Canonical ID form: owner/repo#number
-cadence task find acme/api-server#42
+substrate task find acme/api-server#42
 
 # Numeric form works when GITHUB_OWNER + GITHUB_REPO are set
-cadence task find 42
+substrate task find 42
 
-cadence task search "auth refresh" --limit 10
-cadence task create \
+substrate task search "auth refresh" --limit 10
+substrate task create \
   --project acme/api-server \
   --title "Fix login redirect race" \
   --description "Session cookie set before redirect; race in next/15." \
   --priority high \
   --type bug
-cadence task update acme/api-server#42 --status "In Progress"
-cadence task complete acme/api-server#42
+substrate task update acme/api-server#42 --status "In Progress"
+substrate task complete acme/api-server#42
 ```
 
 ## Mapping
 
-| Cadence field    | GitHub field                                              |
+| Substrate field    | GitHub field                                              |
 | ---------------- | --------------------------------------------------------- |
 | `id`             | `owner/repo#number` (e.g. `acme/api#42`)                  |
 | `title`          | `title`                                                   |
@@ -77,7 +77,7 @@ cadence task complete acme/api-server#42
   Other status strings are silently ignored — there's nowhere for them
   to go in GitHub's data model.
 - **`estimatedHours` and `actualHours` round-trip as `undefined`.**
-  GitHub Issues have no native hour tracking. Use the `cadence task
+  GitHub Issues have no native hour tracking. Use the `substrate task
   update --hours` only with adapters that support it (Linear, OP4Z).
 - **Search defaults to repo-scoped** when `GITHUB_OWNER` + `GITHUB_REPO`
   are set. Without those env vars, the search hits all of GitHub —

@@ -1,5 +1,5 @@
 /**
- * @cadence/adapter-linear — TaskAdapter implementation for Linear.
+ * @op4z/substrate-adapter-linear — TaskAdapter implementation for Linear.
  *
  * Uses Linear's official GraphQL SDK (@linear/sdk). Configured via
  * environment variable LINEAR_API_KEY (Linear personal API keys are
@@ -10,7 +10,7 @@
  * 1. **Adapter contract is duplicated inline.** Per the v0.5 stub
  *    adapter pattern (see packages/adapter-stub/src/index.ts head
  *    comment): structural typing at runtime means we don't need
- *    a build-time import from cadence. The adapter ships a copy
+ *    a build-time import from substrate. The adapter ships a copy
  *    of the interface so it can build standalone.
  *
  * 2. **Mapping decisions:**
@@ -39,10 +39,10 @@
 import { LinearClient, type Issue } from "@linear/sdk";
 
 // ---------------------------------------------------------------------- types
-// Adapter contract — duplicated from cadence's `src/extensions/task-adapter.ts`.
-// Structural typing at runtime; do not import from cadence (peer package).
+// Adapter contract — duplicated from substrate's `src/extensions/task-adapter.ts`.
+// Structural typing at runtime; do not import from substrate (peer package).
 
-interface CadenceTask {
+interface SubstrateTask {
   id: string;
   title: string;
   description?: string;
@@ -99,15 +99,15 @@ interface CompleteTaskInput {
 interface TaskAdapter {
   readonly name: string;
   readonly version: string;
-  findTask(input: FindTaskInput): Promise<CadenceTask | null>;
-  searchTasks(input: SearchTasksInput): Promise<CadenceTask[]>;
-  createTask(input: CreateTaskInput): Promise<CadenceTask>;
-  updateTask(input: UpdateTaskInput): Promise<CadenceTask>;
-  completeTask(input: CompleteTaskInput): Promise<CadenceTask>;
+  findTask(input: FindTaskInput): Promise<SubstrateTask | null>;
+  searchTasks(input: SearchTasksInput): Promise<SubstrateTask[]>;
+  createTask(input: CreateTaskInput): Promise<SubstrateTask>;
+  updateTask(input: UpdateTaskInput): Promise<SubstrateTask>;
+  completeTask(input: CompleteTaskInput): Promise<SubstrateTask>;
 }
 
 // -------------------------------------------------------------- adapter shape
-const ADAPTER_NAME = "@cadence/adapter-linear";
+const ADAPTER_NAME = "@op4z/substrate-adapter-linear";
 const ADAPTER_VERSION = "0.8.0";
 
 // Linear priority numbers: 0=No priority, 1=Urgent, 2=High, 3=Medium, 4=Low
@@ -136,13 +136,13 @@ export interface LinearAdapterOptions {
 }
 
 /**
- * Convert a Linear `Issue` to the cadence-canonical task shape.
+ * Convert a Linear `Issue` to the substrate-canonical task shape.
  *
  * Linear's Issue model lazily fetches related entities (state, assignee,
  * labels). We resolve those promises here so the adapter consumer gets
  * fully-populated objects without surprise async access.
  */
-async function toCadenceTask(issue: Issue): Promise<CadenceTask> {
+async function toSubstrateTask(issue: Issue): Promise<SubstrateTask> {
   const state = await issue.state;
   const assignee = await issue.assignee;
   const labelsConnection = await issue.labels();
@@ -171,7 +171,7 @@ export function createLinearAdapter(options: LinearAdapterOptions = {}): TaskAda
   const apiKey = options.apiKey ?? process.env.LINEAR_API_KEY ?? "";
   if (!options.client && !apiKey) {
     throw new Error(
-      "@cadence/adapter-linear: set LINEAR_API_KEY env var (or pass `apiKey`) before using.",
+      "@op4z/substrate-adapter-linear: set LINEAR_API_KEY env var (or pass `apiKey`) before using.",
     );
   }
   const client = options.client ?? new LinearClient({ apiKey });
@@ -185,9 +185,9 @@ export function createLinearAdapter(options: LinearAdapterOptions = {}): TaskAda
       try {
         const issue = await client.issue(id);
         if (!issue) return null;
-        return toCadenceTask(issue);
+        return toSubstrateTask(issue);
       } catch (err) {
-        // Linear's SDK throws on 404; translate to null for the cadence
+        // Linear's SDK throws on 404; translate to null for the substrate
         // contract (find never throws on missing).
         if (err instanceof Error && /not.*found|invalid/i.test(err.message)) {
           return null;
@@ -207,14 +207,14 @@ export function createLinearAdapter(options: LinearAdapterOptions = {}): TaskAda
         },
         first: limit ?? 25,
       });
-      const tasks = await Promise.all(results.nodes.map(toCadenceTask));
+      const tasks = await Promise.all(results.nodes.map(toSubstrateTask));
       return tasks;
     },
 
     async createTask(input) {
       if (!input.project) {
         throw new Error(
-          "@cadence/adapter-linear: createTask requires `project` (Linear team key, e.g. 'ENG').",
+          "@op4z/substrate-adapter-linear: createTask requires `project` (Linear team key, e.g. 'ENG').",
         );
       }
       // Resolve team by key.
@@ -222,7 +222,7 @@ export function createLinearAdapter(options: LinearAdapterOptions = {}): TaskAda
       const team = teams.nodes[0];
       if (!team) {
         throw new Error(
-          `@cadence/adapter-linear: no team found with key "${input.project}".`,
+          `@op4z/substrate-adapter-linear: no team found with key "${input.project}".`,
         );
       }
 
@@ -245,12 +245,12 @@ export function createLinearAdapter(options: LinearAdapterOptions = {}): TaskAda
       });
       const issue = await payload.issue;
       if (!issue) {
-        throw new Error("@cadence/adapter-linear: createIssue returned no issue.");
+        throw new Error("@op4z/substrate-adapter-linear: createIssue returned no issue.");
       }
       // Labels are attached separately; v0.8 punts on the label attachment
       // round-trip (it's a separate mutation per label) and returns the
       // freshly-created issue. v1.0 should add label sync.
-      return toCadenceTask(issue);
+      return toSubstrateTask(issue);
     },
 
     async updateTask(input) {
@@ -267,7 +267,7 @@ export function createLinearAdapter(options: LinearAdapterOptions = {}): TaskAda
       if (input.estimatedHours !== undefined) {
         update.estimate = input.estimatedHours;
       }
-      // Status updates require a state ID lookup. The cadence contract
+      // Status updates require a state ID lookup. The substrate contract
       // takes a status NAME (e.g. "In Progress"). We resolve to a state
       // ID by listing the team's workflow states.
       if (input.status) {
@@ -284,9 +284,9 @@ export function createLinearAdapter(options: LinearAdapterOptions = {}): TaskAda
       const payload = await client.updateIssue(input.id, update);
       const issue = await payload.issue;
       if (!issue) {
-        throw new Error("@cadence/adapter-linear: updateIssue returned no issue.");
+        throw new Error("@op4z/substrate-adapter-linear: updateIssue returned no issue.");
       }
-      return toCadenceTask(issue);
+      return toSubstrateTask(issue);
     },
 
     async completeTask({ id }) {
@@ -295,30 +295,30 @@ export function createLinearAdapter(options: LinearAdapterOptions = {}): TaskAda
       const issue = await client.issue(id);
       const team = await issue.team;
       if (!team) {
-        throw new Error("@cadence/adapter-linear: issue has no team.");
+        throw new Error("@op4z/substrate-adapter-linear: issue has no team.");
       }
       const states = await team.states();
       const completed = states.nodes.find((s) => s.type === "completed");
       if (!completed) {
         throw new Error(
-          `@cadence/adapter-linear: team has no workflow state with type "completed".`,
+          `@op4z/substrate-adapter-linear: team has no workflow state with type "completed".`,
         );
       }
       const payload = await client.updateIssue(id, { stateId: completed.id });
       const updated = await payload.issue;
       if (!updated) {
-        throw new Error("@cadence/adapter-linear: completeTask returned no issue.");
+        throw new Error("@op4z/substrate-adapter-linear: completeTask returned no issue.");
       }
-      return toCadenceTask(updated);
+      return toSubstrateTask(updated);
     },
   };
 }
 
 /**
  * Default export — a thin wrapper that calls `createLinearAdapter()` on
- * first access. Most cadence users will configure `extensions.taskAdapter:
- * "@cadence/adapter-linear"` and never construct the adapter manually;
- * cadence's loader imports the default export.
+ * first access. Most substrate users will configure `extensions.taskAdapter:
+ * "@op4z/substrate-adapter-linear"` and never construct the adapter manually;
+ * substrate's loader imports the default export.
  *
  * Lazy instantiation: we don't construct the LinearClient at import time
  * because that would throw on missing LINEAR_API_KEY for callers who

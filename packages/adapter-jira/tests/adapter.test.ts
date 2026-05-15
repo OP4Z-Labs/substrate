@@ -1,5 +1,5 @@
 /**
- * Unit tests for @cadence/adapter-jira.
+ * Unit tests for @op4z/substrate-adapter-jira.
  *
  * Strategy: inject a hand-rolled fake `JiraClientLike` via the
  * `createJiraAdapter({ client })` option. Tests don't touch the
@@ -33,10 +33,10 @@ function makeFakeIssue(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("@cadence/adapter-jira", () => {
+describe("@op4z/substrate-adapter-jira", () => {
   it("exports name + version metadata", () => {
     const adapter = createJiraAdapter({ client: {} as JiraClientLike });
-    expect(adapter.name).toBe("@cadence/adapter-jira");
+    expect(adapter.name).toBe("@op4z/substrate-adapter-jira");
     expect(adapter.version).toBe("0.8.0");
   });
 
@@ -47,7 +47,7 @@ describe("@cadence/adapter-jira", () => {
     if (origHost) process.env.JIRA_HOST = origHost;
   });
 
-  it("findTask returns a cadence task with mapped fields", async () => {
+  it("findTask returns a substrate task with mapped fields", async () => {
     const client = {
       findIssue: vi.fn().mockResolvedValue(makeFakeIssue()),
     } as unknown as JiraClientLike;

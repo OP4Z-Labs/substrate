@@ -1,7 +1,7 @@
 {
-  "name": "cadence-docs-site",
+  "name": "substrate-docs-site",
   "version": "0.8.0",
-  "description": "Public documentation site for cadence. Built with Astro. Deployed to Cloudflare Pages.",
+  "description": "Public documentation site for substrate. Built with Astro. Deployed to Cloudflare Pages.",
   "license": "MIT",
   "type": "module",
   "private": true,

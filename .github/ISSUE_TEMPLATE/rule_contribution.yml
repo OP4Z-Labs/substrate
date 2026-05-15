@@ -1,5 +1,5 @@
 name: RULES.yaml rule contribution
-description: Propose a new rule for cadence's curated public registry.
+description: Propose a new rule for substrate's curated public registry.
 title: "[rule] "
 labels: ["rule-contribution", "triage"]
 body:

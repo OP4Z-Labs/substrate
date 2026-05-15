@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Cadence GitHub Action — v0.8 entry point.
+ * Substrate GitHub Action — v0.8 entry point.
  *
- * Wraps the `cadence` CLI for CI use. Reads inputs from `INPUT_*` env
- * vars (the GitHub Actions convention), shells out to `npx cadence@<version>
+ * Wraps the `substrate` CLI for CI use. Reads inputs from `INPUT_*` env
+ * vars (the GitHub Actions convention), shells out to `npx @op4z/substrate@<version>
  * <command>`, captures stdout/stderr, writes a structured report to
- * `cadence-report.json`, and surfaces outputs to subsequent workflow steps.
+ * `substrate-report.json`, and surfaces outputs to subsequent workflow steps.
  *
  * Design decisions:
  *
@@ -18,8 +18,8 @@
  * 2. ESM module (the repo root's package.json is `type: "module"`).
  *    Action runs under Node 20's `node20` runtime per action.yml.
  *
- * 3. Always installs cadence via npx. The action user doesn't need a
- *    preceding `npm install` step in their workflow; `npx -y cadence@<version>`
+ * 3. Always installs substrate via npx. The action user doesn't need a
+ *    preceding `npm install` step in their workflow; `npx -y @op4z/substrate@<version>`
  *    handles fetch + run in one step.
  *
  * 4. `fail-on` is enforced at the action layer, not the CLI layer.
@@ -37,10 +37,10 @@
  *   - INPUT_FAIL_ON          : "none" | "error" | "warning", default "error"
  *
  * Outputs (written to $GITHUB_OUTPUT):
- *   - exit-code  : numeric exit code of the cadence command
+ *   - exit-code  : numeric exit code of the substrate command
  *   - stdout     : captured stdout (truncated to 64KB)
  *   - stderr     : captured stderr (truncated to 64KB)
- *   - report-path: path to cadence-report.json relative to working dir
+ *   - report-path: path to substrate-report.json relative to working dir
  */
 
 import { spawnSync } from "node:child_process";
@@ -71,7 +71,7 @@ function setOutput(name, value) {
   }
   // Multi-line outputs use heredoc framing per the GHA docs. We pick a
   // delimiter unlikely to appear in any tool output.
-  const delim = `_CADENCE_OUT_${Date.now()}_`;
+  const delim = `_SUBSTRATE_OUT_${Date.now()}_`;
   appendFileSync(path, `${name}<<${delim}\n${value}\n${delim}\n`, "utf8");
 }
 
@@ -123,7 +123,7 @@ function main() {
   // keep the surface narrow; users who need shell features can wrap the
   // action in their own bash step.
   const args = command.match(/\S+/g) ?? [];
-  const npxArgs = ["-y", `cadence@${version}`, ...args];
+  const npxArgs = ["-y", `@op4z/substrate@${version}`, ...args];
 
   log("notice", `Running: npx ${npxArgs.join(" ")}`);
   const result = spawnSync("npx", npxArgs, {
@@ -141,9 +141,9 @@ function main() {
   if (!existsSync(reportDir)) {
     mkdirSync(reportDir, { recursive: true });
   }
-  const reportPath = join(reportDir, "cadence-report.json");
+  const reportPath = join(reportDir, "substrate-report.json");
   const report = {
-    cadenceVersion: version,
+    substrateVersion: version,
     command,
     workingDirectory: workdir,
     exitCode,
@@ -162,32 +162,32 @@ function main() {
 
   // Surface output to the workflow log for visibility.
   if (stdout) {
-    console.log("--- cadence stdout ---");
+    console.log("--- substrate stdout ---");
     console.log(stdout);
   }
   if (stderr) {
-    console.log("--- cadence stderr ---");
+    console.log("--- substrate stderr ---");
     console.log(stderr);
   }
 
   // Decide pass/fail per `fail-on`.
   if (failOn === "none") {
-    log("notice", `cadence exit code: ${exitCode} (fail-on=none, ignoring).`);
+    log("notice", `substrate exit code: ${exitCode} (fail-on=none, ignoring).`);
     process.exit(0);
   }
 
   if (exitCode === 0) {
-    log("notice", "cadence completed successfully.");
+    log("notice", "substrate completed successfully.");
     process.exit(0);
   }
 
   // The CLI exits non-zero for any failure (broken command, error-level
   // finding, etc.). For v0.8 we treat any non-zero as an error.
-  // `fail-on=warning` is a forward-compatible name — when cadence
+  // `fail-on=warning` is a forward-compatible name — when substrate
   // commands grow a richer severity axis (v1.0), warning-level findings
   // will exit with a distinct code that this branch can trip on.
   if (failOn === "warning" || failOn === "error") {
-    log("error", `cadence failed (exit code ${exitCode}).`);
+    log("error", `substrate failed (exit code ${exitCode}).`);
     process.exit(exitCode);
   }
   process.exit(exitCode);

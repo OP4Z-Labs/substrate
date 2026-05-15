@@ -1,7 +1,7 @@
 {
-  "name": "@cadence/adapter-jira",
+  "name": "@op4z/substrate-adapter-jira",
   "version": "0.8.0",
-  "description": "Jira TaskAdapter for cadence. Implements find/search/create/update/complete against Jira Cloud and Server via the jira-client REST library.",
+  "description": "Jira TaskAdapter for substrate. Implements find/search/create/update/complete against Jira Cloud and Server via the jira-client REST library.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

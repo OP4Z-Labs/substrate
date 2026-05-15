@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "substrate-{{SHORT_CODE}}": {
+      "command": "npx",
+      "args": ["substrate", "mcp", "serve"],
+      "env": {}
+    }
+  }
+}

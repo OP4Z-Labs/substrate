@@ -1,5 +1,5 @@
 name: Bug report
-description: Something cadence does or doesn't do that you didn't expect.
+description: Something substrate does or doesn't do that you didn't expect.
 title: "[bug] "
 labels: ["bug", "triage"]
 body:
@@ -31,10 +31,10 @@ body:
       required: true
 
   - type: input
-    id: cadence-version
+    id: substrate-version
     attributes:
-      label: Cadence version
-      placeholder: "Output of `cadence --version`"
+      label: Substrate version
+      placeholder: "Output of `substrate --version`"
     validations:
       required: true
 
@@ -63,7 +63,7 @@ body:
   - type: textarea
     id: doctor-output
     attributes:
-      label: Output of `cadence doctor`
+      label: Output of `substrate doctor`
       description: Paste the full output. Helpful for catching environment issues.
       render: shell
 

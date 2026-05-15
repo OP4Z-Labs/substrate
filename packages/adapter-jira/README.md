@@ -1,21 +1,21 @@
-# @cadence/adapter-jira
+# @op4z/substrate-adapter-jira
 
-Jira `TaskAdapter` implementation for [cadence](../../README.md). Works
+Jira `TaskAdapter` implementation for [substrate](../../README.md). Works
 against both Jira Cloud (api.atlassian.com) and self-hosted Jira Server.
 
 ## Install
 
 ```bash
-npm install @cadence/adapter-jira
+npm install @op4z/substrate-adapter-jira
 ```
 
 ## Configure
 
 ```jsonc
-// cadence.config.json
+// substrate.config.json
 {
   "extensions": {
-    "taskAdapter": "@cadence/adapter-jira"
+    "taskAdapter": "@op4z/substrate-adapter-jira"
   }
 }
 ```
@@ -34,21 +34,21 @@ Generate API tokens at <https://id.atlassian.com/manage-profile/security/api-tok
 ## Usage
 
 ```bash
-cadence task find PROJ-123
-cadence task search "auth refresh" --limit 10
-cadence task create \
+substrate task find PROJ-123
+substrate task search "auth refresh" --limit 10
+substrate task create \
   --project PROJ \
   --title "Fix login redirect race" \
   --description "Session cookie set before redirect; race in next/15." \
   --priority High \
   --type Bug
-cadence task update PROJ-123 --status "In Progress"
-cadence task complete PROJ-123
+substrate task update PROJ-123 --status "In Progress"
+substrate task complete PROJ-123
 ```
 
 ## Mapping
 
-| Cadence field    | Jira field                                          |
+| Substrate field    | Jira field                                          |
 | ---------------- | --------------------------------------------------- |
 | `id`             | Issue key (`PROJ-123`), not numeric ID              |
 | `title`          | `summary`                                           |

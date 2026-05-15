@@ -1,5 +1,5 @@
 /**
- * Unit tests for @cadence/adapter-github.
+ * Unit tests for @op4z/substrate-adapter-github.
  *
  * Strategy: inject a hand-rolled fake `OctokitLike` via the
  * `createGitHubAdapter({ client })` option. No real HTTP, no GitHub
@@ -48,10 +48,10 @@ function makeFakeOctokit(mocks: Partial<OctokitLike["rest"]>): OctokitLike {
   } as unknown as OctokitLike;
 }
 
-describe("@cadence/adapter-github", () => {
+describe("@op4z/substrate-adapter-github", () => {
   it("exports name + version metadata", () => {
     const adapter = createGitHubAdapter({ client: makeFakeOctokit({}) });
-    expect(adapter.name).toBe("@cadence/adapter-github");
+    expect(adapter.name).toBe("@op4z/substrate-adapter-github");
     expect(adapter.version).toBe("0.8.0");
   });
 
@@ -62,7 +62,7 @@ describe("@cadence/adapter-github", () => {
     if (origToken) process.env.GITHUB_TOKEN = origToken;
   });
 
-  it("findTask parses owner/repo#number form and returns cadence task", async () => {
+  it("findTask parses owner/repo#number form and returns substrate task", async () => {
     const client = makeFakeOctokit({
       issues: {
         get: vi.fn().mockResolvedValue({ data: makeFakeIssue() }),

@@ -20,18 +20,18 @@ const audits = [
 ];
 ---
 
-<Base title="Audits" description="The 15 audits cadence ships in v0.8.">
+<Base title="Audits" description="The 15 audits substrate ships in v0.8.">
   <h1>Audits catalog</h1>
   <p>
-    Cadence ships 15 audits. Each is a markdown instruction file scaffolded
+    Substrate ships 15 audits. Each is a markdown instruction file scaffolded
     into <code>auto/instructions/main/audit-&lt;name&gt;.md</code> at
-    <code>cadence add audit &lt;name&gt;</code>. The audits encode opinions
-    — you edit them in place. Cadence reads from your copy at runtime.
+    <code>substrate add audit &lt;name&gt;</code>. The audits encode opinions
+    — you edit them in place. Substrate reads from your copy at runtime.
   </p>
 
   <p>
-    Run any audit with <code>cadence audit --type &lt;name&gt;</code>. List all with
-    <code>cadence audit --list</code>.
+    Run any audit with <code>substrate audit --type &lt;name&gt;</code>. List all with
+    <code>substrate audit --list</code>.
   </p>
 
   <ul>
@@ -44,9 +44,9 @@ const audits = [
 
   <h2>Stack-aware defaults</h2>
   <p>
-    <code>cadence init</code> pre-enables a subset of these based on stack
+    <code>substrate init</code> pre-enables a subset of these based on stack
     detection (Python → backend + python audits; TS → frontend; etc.).
-    The remaining audits are <em>available</em> via <code>cadence add audit</code>
+    The remaining audits are <em>available</em> via <code>substrate add audit</code>
     but not pre-enabled.
   </p>
 </Base>

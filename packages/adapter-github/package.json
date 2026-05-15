@@ -1,7 +1,7 @@
 {
-  "name": "@cadence/adapter-github",
+  "name": "@op4z/substrate-adapter-github",
   "version": "0.8.0",
-  "description": "GitHub Issues TaskAdapter for cadence. Implements find/search/create/update/complete against the GitHub REST API via Octokit.",
+  "description": "GitHub Issues TaskAdapter for substrate. Implements find/search/create/update/complete against the GitHub REST API via Octokit.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

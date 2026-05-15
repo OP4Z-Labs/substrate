@@ -1,4 +1,4 @@
-# Contributing to Cadence
+# Contributing to Substrate
 
 Thanks for considering a contribution. This document covers the
 build, test, and PR workflow.
@@ -6,8 +6,8 @@ build, test, and PR workflow.
 ## Build & test
 
 ```bash
-git clone https://github.com/BeauGoldberg/cadence
-cd cadence
+git clone https://github.com/op4z/substrate
+cd substrate
 npm install
 npm run build
 npm test
@@ -34,28 +34,28 @@ npm run docs:dev                  # local preview at http://localhost:4321
 npm run docs:build                # production build
 ```
 
-### Running cadence locally
+### Running substrate locally
 
 After `npm run build`, the CLI is at
-`packages/cadence/dist/cli.js`. Link it for global testing:
+`packages/substrate/dist/cli.js`. Link it for global testing:
 
 ```bash
-cd packages/cadence
+cd packages/substrate
 npm link
-cadence --version
+substrate --version
 ```
 
 Or invoke directly:
 
 ```bash
-node packages/cadence/dist/cli.js audit --help
+node packages/substrate/dist/cli.js audit --help
 ```
 
 ## Project layout
 
 ```
 packages/
-├── cadence/              the CLI (publishable)
+├── substrate/             the CLI (publishable)
 ├── adapter-stub/         reference TaskAdapter
 ├── adapter-linear/       Linear adapter
 ├── adapter-jira/         Jira adapter
@@ -118,13 +118,13 @@ Adding a new detector type is additive:
 
 ## Adding rules to the bundled RULES.yaml
 
-Cadence ships a default `RULES.yaml`. To propose a new rule:
+Substrate ships a default `RULES.yaml`. To propose a new rule:
 
 1. Open an issue describing the rule and your use case.
 2. Land the rule definition in
-   `packages/cadence/templates/standards/cross-cutting/RULES.yaml`.
+   `packages/substrate/templates/standards/cross-cutting/RULES.yaml`.
 3. Land or update the owning standards doc in
-   `packages/cadence/templates/standards/<scope>/<area>.md`.
+   `packages/substrate/templates/standards/<scope>/<area>.md`.
 4. Add detector coverage where appropriate.
 5. Test against your own repo before merging.
 

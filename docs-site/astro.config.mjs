@@ -1,5 +1,5 @@
 /**
- * Astro config for the cadence docs site.
+ * Astro config for the substrate docs site.
  *
  * Deploy target: Cloudflare Pages (consistent with the Substrate / Blaze /
  * Chorus auxiliary-site family). `npm run docs:build` produces a static
@@ -11,7 +11,7 @@
 import { defineConfig } from "astro/config";
 
 export default defineConfig({
-  site: "https://cadence.dev",
+  site: "https://substrate.dev",
   output: "static",
   build: {
     format: "directory",

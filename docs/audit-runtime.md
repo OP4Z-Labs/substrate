@@ -1,6 +1,6 @@
-# Cadence audit runtime
+# Substrate audit runtime
 
-The `cadence audit` command runs the **detector runtime** against a
+The `substrate audit` command runs the **detector runtime** against a
 `RULES.yaml` registry. This document is the contract for rule authors,
 detector implementers, and external tooling that consumes the report
 format.
@@ -14,16 +14,16 @@ format.
 ## TL;DR
 
 ```bash
-cadence audit                       # run every rule in cadence/RULES.yaml
-cadence audit --rule BE-API-001     # run one rule by id
-cadence audit --diff                # restrict ripgrep to staged-diff files
-cadence audit --trend               # read the history journal
-cadence audit --json --no-report    # machine-friendly stdout
-cadence audit --rules-path foo.yaml # override RULES.yaml location
-cadence audit --strict              # unknown YAML fields = error
+substrate audit                       # run every rule in substrate/RULES.yaml
+substrate audit --rule BE-API-001     # run one rule by id
+substrate audit --diff                # restrict ripgrep to staged-diff files
+substrate audit --trend               # read the history journal
+substrate audit --json --no-report    # machine-friendly stdout
+substrate audit --rules-path foo.yaml # override RULES.yaml location
+substrate audit --strict              # unknown YAML fields = error
 ```
 
-Output artefacts (written under `cadence/audits/` by default):
+Output artefacts (written under `substrate/audits/` by default):
 
 - `<scope>-YYYY-MM-DD.md` — human Markdown report.
 - `<scope>-latest.json`   — structured sidecar consumed by tooling.
@@ -53,7 +53,7 @@ rules:
       # ...type-specific fields...
 ```
 
-**ID convention.** Cadence does not enforce a particular ID format — it
+**ID convention.** Substrate does not enforce a particular ID format — it
 only enforces uniqueness within a single RULES.yaml. The recommended
 shape is `<SCOPE>-<CATEGORY>-<NUM>` (e.g. `BE-API-001`).
 
@@ -83,11 +83,11 @@ detector:
   multiline: false                  # optional, span multiple lines
 ```
 
-**Fast path.** When `rg` (ripgrep) is on `$PATH`, cadence shells out
+**Fast path.** When `rg` (ripgrep) is on `$PATH`, substrate shells out
 via `spawnSync` (argv array, no shell interpolation). Pattern is
 delivered after `--` to prevent flag injection.
 
-**Fallback path.** When ripgrep is unavailable, cadence runs an
+**Fallback path.** When ripgrep is unavailable, substrate runs an
 equivalent Node-only scan using `RegExp` and `readdirSync`. The two
 paths must produce identical findings; divergence is a bug.
 
@@ -110,7 +110,7 @@ Invoke a JS/MJS script in the consumer repo via Node `worker_threads`.
 ```yaml
 detector:
   type: script
-  path: cadence/detectors/no-large-files.mjs   # repo-relative or absolute
+  path: substrate/detectors/no-large-files.mjs   # repo-relative or absolute
   export: default                              # optional, default "default"
   options:                                     # optional, passed verbatim
     maxKb: 250
@@ -121,7 +121,7 @@ detector:
 `DetectorContext` and returns (or resolves) an array of findings:
 
 ```js
-// cadence/detectors/no-large-files.mjs
+// substrate/detectors/no-large-files.mjs
 export default async function detect(ctx) {
   const findings = [];
   const entries = ctx.readdir(".");
@@ -148,11 +148,11 @@ export default async function detect(ctx) {
   `worker.terminate()`.
 
 Scripts can `import` any built-in Node module (`fs`, `path`, etc.) or
-any dep installed in the consumer's `node_modules`. **Cadence does not
+any dep installed in the consumer's `node_modules`. **Substrate does not
 restrict network access at v1.0** — rule authors are responsible for
 not making outbound calls.
 
-**TS scripts.** Cadence does not transpile at runtime. Ship `.js` /
+**TS scripts.** Substrate does not transpile at runtime. Ship `.js` /
 `.mjs` (compiled by the consumer's own build).
 
 ### `composite`
@@ -182,7 +182,7 @@ abort the run.
 ```ts
 interface AuditReport {
   schemaVersion: 1;
-  cadenceVersion: string;            // e.g. "1.0.0"
+  substrateVersion: string;            // e.g. "1.0.0"
   generatedAt: string;               // ISO 8601
   repoRoot: string;                  // absolute path
   rulesPath: string;                 // absolute path to RULES.yaml
@@ -226,7 +226,7 @@ this shape (subset of the full report):
 interface TrendEntry {
   ts: string;
   scope: string;
-  cadenceVersion: string;
+  substrateVersion: string;
   executedRules: number;
   totalFindings: number;
   findingsBySeverity: { critical, high, medium, low };
@@ -239,7 +239,7 @@ interface TrendEntry {
 ## CI integration
 
 ```yaml
-- uses: BeauGoldberg/cadence@v1
+- uses: BeauGoldberg/@op4z/substrate@v1
   with:
     command: audit --diff
     fail-on: error          # error (default), warning, none
@@ -253,7 +253,7 @@ includes "warning"). `fail-on: none` makes the action report-only.
 
 ## Migration notes
 
-Cadence v0.x shipped RULES.yaml as a static manifest with the
+Substrate v0.x shipped RULES.yaml as a static manifest with the
 `detector.type` values `manual` and `shell`. The v1.0 runtime:
 
 - **Accepts** `manual` and `shell` for backward compatibility, but
@@ -281,7 +281,7 @@ detector:
 # v1.0 — option 2: script
 detector:
   type: script
-  path: cadence/detectors/dockerfile-user.mjs
+  path: substrate/detectors/dockerfile-user.mjs
 ```
 
 ---
@@ -296,5 +296,5 @@ detector:
       it skipped with a clear note).
 - [ ] Pattern (ripgrep) or script (script) tested locally first.
 - [ ] `doc:` field points at the owning standards doc when applicable.
-- [ ] `cadence audit --rule <id> --json --no-report` produces the
+- [ ] `substrate audit --rule <id> --json --no-report` produces the
       expected findings.

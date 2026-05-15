@@ -2,53 +2,53 @@
 import Base from "../layouts/Base.astro";
 ---
 
-<Base title="FAQ" description="Frequently asked questions about cadence.">
+<Base title="FAQ" description="Frequently asked questions about substrate.">
   <h1>FAQ</h1>
 
-  <h2>Is cadence stable for production use?</h2>
+  <h2>Is substrate stable for production use?</h2>
   <p>
-    Cadence is at v0.8. The CLI surface and config schema are stable for
+    Substrate is at v0.8. The CLI surface and config schema are stable for
     everyday use; v1.0 will lock semver on the schema. Production users
     should be comfortable with minor schema migrations between 0.x bumps.
   </p>
 
-  <h2>How does cadence compare to shadcn?</h2>
+  <h2>How does substrate compare to shadcn?</h2>
   <p>
-    Cadence and shadcn share a model: <em>framework + opinionated content,
-    scaffolded into your repo, owned by you</em>. Cadence is for codebase
+    Substrate and shadcn share a model: <em>framework + opinionated content,
+    scaffolded into your repo, owned by you</em>. Substrate is for codebase
     automation (audits, standards, scaffolds, AI bridges); shadcn is for
-    UI components. The upgrade story differs: cadence ships a real three-
-    way merge in <code>cadence upgrade</code> so you can pull in framework
+    UI components. The upgrade story differs: substrate ships a real three-
+    way merge in <code>substrate upgrade</code> so you can pull in framework
     improvements; shadcn punts on upgrades.
   </p>
 
-  <h2>Why "cadence"?</h2>
+  <h2>Why "substrate"?</h2>
   <p>
     "The rhythm of repeatable patterns; standards become the system's
     heartbeat." Names matching the editorial-portfolio convention
     (Blaze, Chorus, Substrate) ship best alongside their siblings.
   </p>
 
-  <h2>Why is OP4Z mentioned in some docs but not in cadence's content?</h2>
+  <h2>Why is OP4Z mentioned in some docs but not in substrate's content?</h2>
   <p>
-    OP4Z is the project where cadence's <code>./exc</code> automation system
-    was originally built. Cadence is the public framework extraction. OP4Z
+    OP4Z is the project where substrate's <code>./exc</code> automation system
+    was originally built. Substrate is the public framework extraction. OP4Z
     keeps its specific RULES content, task helpers, and brand strings
-    private; cadence ships the abstractions. Per the locked design, public
-    cadence is ~60% reusable framework, ~40% scaffold templates.
+    private; substrate ships the abstractions. Per the locked design, public
+    substrate is ~60% reusable framework, ~40% scaffold templates.
   </p>
 
-  <h2>Does cadence collect telemetry?</h2>
+  <h2>Does substrate collect telemetry?</h2>
   <p>
-    Cadence has <strong>opt-in</strong> telemetry. Off by default. On first
+    Substrate has <strong>opt-in</strong> telemetry. Off by default. On first
     run, you'll be prompted; if you opt in, anonymous usage events (command
-    name, audit type, error type, cadence version, OS family) are recorded.
+    name, audit type, error type, substrate version, OS family) are recorded.
     No project paths, no user identifiers, no rule body content. v0.8 emits
-    to <code>~/.config/cadence/telemetry.log</code> only — no real endpoint
+    to <code>~/.config/substrate/telemetry.log</code> only — no real endpoint
     is wired yet. v1.0 will add the optional collector.
   </p>
 
-  <h2>How do I license cadence?</h2>
+  <h2>How do I license substrate?</h2>
   <p>
     Code is <a href="https://opensource.org/licenses/MIT">MIT</a>. Content
     (the standards docs, audit playbooks, this site) is

@@ -1,5 +1,5 @@
-name: "Cadence"
-description: "Run cadence audits, reviews, or workflows in CI. Wraps the cadence CLI with workflow-friendly inputs and outputs."
+name: "Substrate"
+description: "Run substrate audits, reviews, or workflows in CI. Wraps the substrate CLI with workflow-friendly inputs and outputs."
 author: "Beau Goldberg"
 branding:
   icon: "git-pull-request"
@@ -8,25 +8,25 @@ branding:
 inputs:
   command:
     description: >-
-      The cadence command to run, including any flags. Examples:
+      The substrate command to run, including any flags. Examples:
       `audit --list`, `audit --type backend`, `doctor --json`,
-      `knowledge show`, `upgrade --check`. The action prepends `cadence`
+      `knowledge show`, `upgrade --check`. The action prepends `substrate`
       automatically — do NOT include it in this string.
     required: true
   working-directory:
-    description: "Directory to run cadence in. Defaults to the GitHub workspace root."
+    description: "Directory to run substrate in. Defaults to the GitHub workspace root."
     required: false
     default: ""
   version:
     description: >-
-      Cadence version to install via npm. Defaults to `latest`. Pin to a
-      specific version like `0.8.0` for reproducible CI runs.
+      Substrate version to install via npm. Defaults to `latest`. Pin to a
+      specific version like `1.0.0` for reproducible CI runs.
     required: false
     default: "latest"
   fail-on:
     description: >-
       Severity threshold for failing the action. Choices: `none`, `error`,
-      `warning`. When the underlying cadence command reports findings at
+      `warning`. When the underlying substrate command reports findings at
       or above this severity, the action exits non-zero. `none` makes the
       action report-only. Default: `error`.
     required: false
@@ -34,11 +34,11 @@ inputs:
 
 outputs:
   exit-code:
-    description: "Exit code of the cadence command (0 for success)."
+    description: "Exit code of the substrate command (0 for success)."
   stdout:
-    description: "Captured stdout of the cadence command."
+    description: "Captured stdout of the substrate command."
   stderr:
-    description: "Captured stderr of the cadence command."
+    description: "Captured stderr of the substrate command."
   report-path:
     description: >-
       Path to the JSON report file produced by the action (always written,

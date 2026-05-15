@@ -2,48 +2,48 @@
 import Base from "../layouts/Base.astro";
 ---
 
-<Base title="Quick Start" description="From zero to a scaffolded cadence project in under five minutes.">
+<Base title="Quick Start" description="From zero to a scaffolded substrate project in under five minutes.">
   <h1>Quick Start</h1>
-  <p>From zero to a scaffolded cadence project in under five minutes.</p>
+  <p>From zero to a scaffolded substrate project in under five minutes.</p>
 
   <h2>1. Scaffold your project</h2>
   <p>From your repo root:</p>
-  <pre><code>npx cadence@latest init --bridge claude</code></pre>
+  <pre><code>npx @op4z/substrate@latest init --bridge claude</code></pre>
   <p>This creates:</p>
   <ul>
-    <li><code>cadence.config.json</code> at the repo root.</li>
+    <li><code>substrate.config.json</code> at the repo root.</li>
     <li><code>auto/</code> with the seven canonical subdirectories
       (<code>commands</code>, <code>instructions</code>, <code>scripts</code>,
       <code>config</code>, <code>standards</code>, <code>audits</code>,
       <code>docs</code>).</li>
-    <li><code>auto/.cadence-manifest.json</code> tracking every scaffolded file.</li>
-    <li><code>.claude/commands/cadence.md</code> for the Claude Code slash command.</li>
+    <li><code>auto/.substrate-manifest.json</code> tracking every scaffolded file.</li>
+    <li><code>.claude/commands/substrate.md</code> for the Claude Code slash command.</li>
   </ul>
 
   <h2>2. Add an audit</h2>
-  <pre><code>npx cadence add audit backend</code></pre>
+  <pre><code>npx substrate add audit backend</code></pre>
   <p>
     Drops <code>auto/instructions/main/audit-backend.md</code> into your repo.
-    Edit it — it's yours now. Cadence reads from your copy at runtime.
+    Edit it — it's yours now. Substrate reads from your copy at runtime.
   </p>
 
   <h2>3. Run the audit</h2>
-  <pre><code>npx cadence audit --type backend</code></pre>
+  <pre><code>npx substrate audit --type backend</code></pre>
 
   <h2>4. Run via Claude Code</h2>
   <p>In Claude Code, type:</p>
-  <pre><code>/cadence audit --type backend</code></pre>
+  <pre><code>/substrate audit --type backend</code></pre>
   <p>
     The slash command dispatches to the same CLI, loading the audit's
     instruction file into Claude's context so it can produce the
     AI-guided report.
   </p>
 
-  <h2>5. Upgrade as cadence evolves</h2>
-  <pre><code>npx cadence upgrade --check       # See what's drifted
-npx cadence upgrade --apply       # Walk modified entries interactively</code></pre>
+  <h2>5. Upgrade as substrate evolves</h2>
+  <pre><code>npx substrate upgrade --check       # See what's drifted
+npx substrate upgrade --apply       # Walk modified entries interactively</code></pre>
   <p>
-    For modified files, cadence shows you a three-way diff (original
+    For modified files, substrate shows you a three-way diff (original
     template → your current copy → new template) and lets you choose
     <em>keep / take-new / merge / eject</em>.
   </p>

@@ -1,5 +1,5 @@
 /**
- * @cadence/adapter-github — TaskAdapter implementation for GitHub Issues.
+ * @op4z/substrate-adapter-github — TaskAdapter implementation for GitHub Issues.
  *
  * Backed by the official `octokit` package. Authenticates via the
  * GITHUB_TOKEN environment variable (or a personal access token passed
@@ -11,7 +11,7 @@
  *   GITHUB_OWNER  repo owner (org or user), used as default for `project`
  *   GITHUB_REPO   repo name, used as default for `project`
  *
- * The `project` option in cadence's CreateTaskInput is interpreted as
+ * The `project` option in substrate's CreateTaskInput is interpreted as
  * `<owner>/<repo>` (e.g. `acme/api-server`). If you set GITHUB_OWNER +
  * GITHUB_REPO, the `project` argument can be omitted for create.
  *
@@ -19,11 +19,11 @@
  *
  * 1. **Adapter contract is duplicated inline** — same pattern as the
  *    stub, Linear, Jira adapters. Peer package, no build-time import
- *    from cadence. Structural typing at runtime.
+ *    from substrate. Structural typing at runtime.
  *
  * 2. **Mapping decisions:**
  *    - `id` → `<owner>/<repo>#<number>` (e.g. `acme/api#42`). NOT just
- *      the issue number, because cadence's task IDs are globally unique.
+ *      the issue number, because substrate's task IDs are globally unique.
  *    - `title` → GitHub `title`
  *    - `description` → GitHub `body`
  *    - `status` → either `open` or `closed` (GitHub's binary state).
@@ -51,7 +51,7 @@ import { Octokit } from "octokit";
 
 // ---------------------------------------------------------------------- types
 
-interface CadenceTask {
+interface SubstrateTask {
   id: string;
   title: string;
   description?: string;
@@ -108,11 +108,11 @@ interface CompleteTaskInput {
 interface TaskAdapter {
   readonly name: string;
   readonly version: string;
-  findTask(input: FindTaskInput): Promise<CadenceTask | null>;
-  searchTasks(input: SearchTasksInput): Promise<CadenceTask[]>;
-  createTask(input: CreateTaskInput): Promise<CadenceTask>;
-  updateTask(input: UpdateTaskInput): Promise<CadenceTask>;
-  completeTask(input: CompleteTaskInput): Promise<CadenceTask>;
+  findTask(input: FindTaskInput): Promise<SubstrateTask | null>;
+  searchTasks(input: SearchTasksInput): Promise<SubstrateTask[]>;
+  createTask(input: CreateTaskInput): Promise<SubstrateTask>;
+  updateTask(input: UpdateTaskInput): Promise<SubstrateTask>;
+  completeTask(input: CompleteTaskInput): Promise<SubstrateTask>;
 }
 
 // ------------------------------------------------------------ octokit shape
@@ -169,7 +169,7 @@ interface GitHubIssue {
   repository_url?: string;
 }
 
-const ADAPTER_NAME = "@cadence/adapter-github";
+const ADAPTER_NAME = "@op4z/substrate-adapter-github";
 const ADAPTER_VERSION = "0.8.0";
 
 export interface GitHubAdapterOptions {
@@ -184,7 +184,7 @@ export interface GitHubAdapterOptions {
 }
 
 /**
- * Parse a cadence task ID into its `owner/repo#number` parts. Accepts:
+ * Parse a substrate task ID into its `owner/repo#number` parts. Accepts:
  *   - "owner/repo#123"  (canonical)
  *   - "owner/repo/123"  (slash form some users prefer)
  *   - "123"             (fall back to default owner/repo)
@@ -205,13 +205,13 @@ function parseTaskId(
   if (/^\d+$/.test(id)) {
     if (!defaultOwner || !defaultRepo) {
       throw new Error(
-        `@cadence/adapter-github: numeric id "${id}" requires GITHUB_OWNER + GITHUB_REPO env vars.`,
+        `@op4z/substrate-adapter-github: numeric id "${id}" requires GITHUB_OWNER + GITHUB_REPO env vars.`,
       );
     }
     return { owner: defaultOwner, repo: defaultRepo, number: parseInt(id, 10) };
   }
   throw new Error(
-    `@cadence/adapter-github: cannot parse task id "${id}". Use "owner/repo#123" or set defaults.`,
+    `@op4z/substrate-adapter-github: cannot parse task id "${id}". Use "owner/repo#123" or set defaults.`,
   );
 }
 
@@ -229,11 +229,11 @@ function findPrefixedLabel(labels: string[], prefix: string): string | undefined
   return match ? match.slice(prefix.length + 1) : undefined;
 }
 
-function toCadenceTask(
+function toSubstrateTask(
   issue: GitHubIssue,
   ownerHint: string,
   repoHint: string,
-): CadenceTask {
+): SubstrateTask {
   // The `repository_url` is the canonical place to find owner/repo for
   // a returned issue, but it isn't always set on responses. Fall back to
   // the hints we used to fetch.
@@ -279,7 +279,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions = {}): TaskAda
   } else {
     if (!token) {
       throw new Error(
-        "@cadence/adapter-github: set GITHUB_TOKEN env var (or pass `token`) before using.",
+        "@op4z/substrate-adapter-github: set GITHUB_TOKEN env var (or pass `token`) before using.",
       );
     }
     client = new Octokit({ auth: token }) as OctokitLike;
@@ -297,7 +297,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions = {}): TaskAda
           repo: parsed.repo,
           issue_number: parsed.number,
         });
-        return toCadenceTask(data, parsed.owner, parsed.repo);
+        return toSubstrateTask(data, parsed.owner, parsed.repo);
       } catch (err) {
         if (
           err instanceof Error &&
@@ -319,7 +319,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions = {}): TaskAda
         q,
         per_page: limit ?? 25,
       });
-      return data.items.map((i) => toCadenceTask(i, defaultOwner, defaultRepo));
+      return data.items.map((i) => toSubstrateTask(i, defaultOwner, defaultRepo));
     },
 
     async createTask(input) {
@@ -327,7 +327,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions = {}): TaskAda
       const parts = projectStr.split("/");
       if (parts.length !== 2 || !parts[0] || !parts[1]) {
         throw new Error(
-          `@cadence/adapter-github: project must be "owner/repo" (got "${projectStr}").`,
+          `@op4z/substrate-adapter-github: project must be "owner/repo" (got "${projectStr}").`,
         );
       }
       const [owner, repo] = parts;
@@ -347,7 +347,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions = {}): TaskAda
         labels,
         assignees: input.assignee ? [input.assignee] : undefined,
       });
-      return toCadenceTask(data, owner, repo);
+      return toSubstrateTask(data, owner, repo);
     },
 
     async updateTask(input) {
@@ -390,7 +390,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions = {}): TaskAda
       if (input.assignee) update.assignees = [input.assignee];
 
       const { data } = await client.rest.issues.update(update);
-      return toCadenceTask(data, parsed.owner, parsed.repo);
+      return toSubstrateTask(data, parsed.owner, parsed.repo);
     },
 
     async completeTask({ id }) {
@@ -402,7 +402,7 @@ export function createGitHubAdapter(options: GitHubAdapterOptions = {}): TaskAda
         state: "closed",
         state_reason: "completed",
       });
-      return toCadenceTask(data, parsed.owner, parsed.repo);
+      return toSubstrateTask(data, parsed.owner, parsed.repo);
     },
   };
 }

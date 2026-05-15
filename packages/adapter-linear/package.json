@@ -1,7 +1,7 @@
 {
-  "name": "@cadence/adapter-linear",
+  "name": "@op4z/substrate-adapter-linear",
   "version": "0.8.0",
-  "description": "Linear TaskAdapter for cadence. Implements find/search/create/update/complete against the Linear GraphQL API via @linear/sdk.",
+  "description": "Linear TaskAdapter for substrate. Implements find/search/create/update/complete against the Linear GraphQL API via @linear/sdk.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

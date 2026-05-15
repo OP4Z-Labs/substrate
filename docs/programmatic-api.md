@@ -1,7 +1,7 @@
-# Cadence — programmatic API
+# Substrate — programmatic API
 
-Cadence is primarily a CLI. The same operations are also exported as
-functions, so you can drive cadence from a Node script without
+Substrate is primarily a CLI. The same operations are also exported as
+functions, so you can drive substrate from a Node script without
 spawning a subprocess.
 
 ## Quickstart
@@ -12,10 +12,10 @@ import {
   runAuditExecute,
   runAuditTrend,
   runUpgrade,
-  CADENCE_VERSION,
-} from "cadence";
+  SUBSTRATE_VERSION,
+} from "substrate";
 
-console.log(`cadence v${CADENCE_VERSION}`);
+console.log(`substrate v${SUBSTRATE_VERSION}`);
 
 await runInit({
   projectName: "my-app",
@@ -43,12 +43,12 @@ import {
   runAuditList,       // enumerate audit instruction files
   runAuditType,       // (legacy) load an instruction stub
   runAuditExecute,    // run the detector runtime
-  runAuditTrend,      // read cadence/audits/_trend.jsonl
+  runAuditTrend,      // read substrate/audits/_trend.jsonl
   runDoctor,          // diagnose installation health
   runKnowledgeRefresh,// regenerate auto/docs/KNOWLEDGE.md
   runKnowledgeShow,   // print KNOWLEDGE.md
   runUpgrade,         // three-way merge upgrade
-} from "cadence";
+} from "substrate";
 
 // Audit subsystem
 import {
@@ -59,12 +59,12 @@ import {
   renderMarkdownReport, // pure markdown serialization
   readTrend,          // read the trend journal
   RulesLoadError,     // typed error thrown by loadRules
-} from "cadence";
+} from "substrate";
 
 // Types
 import type {
-  CadenceConfig,
-  CadenceManifest,
+  SubstrateConfig,
+  SubstrateManifest,
   ManifestEntry,
   AuditReport,
   RuleDefinition,
@@ -73,19 +73,19 @@ import type {
   Detector,
   RulesYamlDocument,
   Severity,
-} from "cadence";
+} from "substrate";
 ```
 
 ## When to prefer the programmatic API
 
-- **Embedding cadence into another tool.** A build system that runs
+- **Embedding substrate into another tool.** A build system that runs
   audits as part of its pipeline; an editor extension that surfaces
   rule violations inline.
-- **Testing.** Cadence-using projects can write tests that exercise
-  cadence functions directly without subprocess overhead.
+- **Testing.** Substrate-using projects can write tests that exercise
+  substrate functions directly without subprocess overhead.
 - **Custom report rendering.** Call `runAudit()` to get the
   structured report, then render it your own way instead of
-  cadence's default Markdown / JSON.
+  substrate's default Markdown / JSON.
 
 ## When to prefer the CLI
 
@@ -109,7 +109,7 @@ The exported surface is the **v1.0 public API**. Within the v1.x line:
   types are breaking — they wait for v2.
 
 If you need a stable structural contract for cross-language tooling,
-use the JSON sidecar that `cadence audit` writes (schema documented in
+use the JSON sidecar that `substrate audit` writes (schema documented in
 `docs/audit-runtime.md`).
 
 ## Example: custom audit reporter
@@ -120,7 +120,7 @@ import {
   locateRulesFile,
   runAudit,
   RulesLoadError,
-} from "cadence";
+} from "substrate";
 
 async function customAudit(repoRoot: string): Promise<void> {
   const rulesPath = locateRulesFile(repoRoot);
@@ -160,7 +160,7 @@ async function customAudit(repoRoot: string): Promise<void> {
 
 ## Error handling
 
-Most functions throw on failure. Cadence's own errors are subclasses
+Most functions throw on failure. Substrate's own errors are subclasses
 of `Error`:
 
 - `RulesLoadError` — RULES.yaml parse / validation failures.
@@ -172,17 +172,17 @@ class name as appropriate.
 
 ## Concurrency
 
-Cadence operations are mostly synchronous reads + writes. The few
+Substrate operations are mostly synchronous reads + writes. The few
 async paths (`runAuditExecute`, `runAudit`, `runUpgrade`,
 `runMcpServe`) are async functions.
 
-Concurrent calls to operations that mutate the same cadence-managed
-files (`auto/.cadence-manifest.json`, audit reports) are not safe in
+Concurrent calls to operations that mutate the same substrate-managed
+files (`auto/.substrate-manifest.json`, audit reports) are not safe in
 the same process. Sequential calls or per-repo-root isolation are.
 
 ## See also
 
 - [docs/audit-runtime.md](audit-runtime.md) — detector contract.
-- [docs/config-schema-v1.md](config-schema-v1.md) — cadence.config shape.
+- [docs/config-schema-v1.md](config-schema-v1.md) — substrate.config shape.
 - [docs/telemetry-transparency.md](telemetry-transparency.md) — what
-  cadence collects when telemetry is on.
+  substrate collects when telemetry is on.

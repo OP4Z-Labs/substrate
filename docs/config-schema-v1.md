@@ -1,25 +1,25 @@
-# `cadence.config` schema — v1.0 (frozen)
+# `substrate.config` schema — v1.0 (frozen)
 
 > **Status:** Frozen at v1.0. Any change to this schema requires a
 > major version bump (v2.0). Additive changes (new optional fields)
 > can land in v1.x.
 
-This document is the authoritative reference for `cadence.config.json`
+This document is the authoritative reference for `substrate.config.json`
 (or `.yaml`).
 
 ## Location and format
 
 ```
-<repo-root>/cadence.config.json
+<repo-root>/substrate.config.json
 ```
 
-JSON is canonical. YAML is auto-detected if `cadence.config.yaml`
-exists. TS support (`cadence.config.ts`) is on the v1.x roadmap.
+JSON is canonical. YAML is auto-detected if `substrate.config.yaml`
+exists. TS support (`substrate.config.ts`) is on the v1.x roadmap.
 
 ## Schema
 
 ```ts
-interface CadenceConfig {
+interface SubstrateConfig {
   /** Optional JSON Schema URL pointer for editor support. */
   $schema?: string;
   /** Schema version. v1.0 = "1". */
@@ -37,17 +37,17 @@ interface CadenceConfig {
   };
   /** Detected/declared stacks: "python", "typescript", "go", "rust". */
   stacks: string[];
-  /** Where the various code lives. Defaults shipped by `cadence init`. */
+  /** Where the various code lives. Defaults shipped by `substrate init`. */
   paths: {
     backend?: string;
     frontend?: string;
     packagesTs?: string;
     packagesPython?: string;
     docs?: string;
-    /** Path to the cadence auto/ tree. Required. Default "auto". */
+    /** Path to the substrate auto/ tree. Required. Default "auto". */
     auto: string;
   };
-  /** Default scaffolds for this project — what `cadence init` pre-enables. */
+  /** Default scaffolds for this project — what `substrate init` pre-enables. */
   defaults: {
     audits: string[];
     standards: string[];
@@ -60,7 +60,7 @@ interface CadenceConfig {
     cursor?: { enabled: boolean; commandsDir?: string };
     mcp?:    { enabled: boolean; commandsDir?: string };
   };
-  /** Knowledge discovery (driven by `cadence knowledge refresh`). */
+  /** Knowledge discovery (driven by `substrate knowledge refresh`). */
   knowledge?: {
     /** Files to parse for service / env discovery. Default: docker-compose.yml + .env.example */
     sources: string[];
@@ -85,8 +85,8 @@ interface CadenceConfig {
 
 ### `version`
 
-Required. The cadence schema this config conforms to. v1.0 = "1".
-Cadence reads `version` first; if it's a version cadence doesn't
+Required. The substrate schema this config conforms to. v1.0 = "1".
+Substrate reads `version` first; if it's a version substrate doesn't
 recognize, the CLI exits with an actionable error.
 
 ### `project`
@@ -98,7 +98,7 @@ their scaffold output.
 
 ### `stacks`
 
-What kind of code lives in this repo. Set by `cadence init` via
+What kind of code lives in this repo. Set by `substrate init` via
 auto-detection of marker files (`pyproject.toml`, `package.json`,
 `go.mod`, `Cargo.toml`). Manual override:
 
@@ -106,7 +106,7 @@ auto-detection of marker files (`pyproject.toml`, `package.json`,
 "stacks": ["typescript", "python"]
 ```
 
-Drives which audits and standards `cadence init` pre-enables.
+Drives which audits and standards `substrate init` pre-enables.
 
 ### `paths`
 
@@ -117,8 +117,8 @@ core CLI behavior.
 ### `defaults`
 
 The scaffolds, audits, standards, and workflows this project
-expects to have. `cadence doctor` warns if a default isn't
-scaffolded. `cadence init` writes these on first run.
+expects to have. `substrate doctor` warns if a default isn't
+scaffolded. `substrate init` writes these on first run.
 
 ### `bridges`
 
@@ -136,7 +136,7 @@ match the upstream tool conventions.
 
 ### `knowledge`
 
-`cadence knowledge refresh` walks the configured `sources` and
+`substrate knowledge refresh` walks the configured `sources` and
 generates `auto/docs/KNOWLEDGE.md`. `redactPatterns` is a list of
 substrings (case-insensitive) that mark env-var keys as sensitive —
 their values get replaced with `***REDACTED***`.
@@ -145,13 +145,13 @@ their values get replaced with `***REDACTED***`.
 
 Plugin packages loaded at runtime:
 
-- `taskAdapter`: e.g. `"@cadence/adapter-linear"` or `null` for no
-  adapter. When null, `cadence task` exits with an install hint.
+- `taskAdapter`: e.g. `"@op4z/substrate-adapter-linear"` or `null` for no
+  adapter. When null, `substrate task` exits with an install hint.
 - `vcsAdapter`: e.g. a custom mercurial implementation, or `null`
   for the built-in git adapter.
 
 Both are loaded via dynamic `import()` so their dependencies aren't
-in cadence's install tree.
+in substrate's install tree.
 
 ### `telemetry`
 
@@ -160,29 +160,29 @@ in cadence's install tree.
 ```
 
 OFF by default. See [docs/telemetry-transparency.md](telemetry-transparency.md)
-for what cadence collects when on, and how to toggle.
+for what substrate collects when on, and how to toggle.
 
 ## Strict validation
 
 ```bash
-cadence --strict <command>
+substrate --strict <command>
 ```
 
-When `--strict` is passed (where applicable), cadence rejects unknown
-top-level fields in `cadence.config.*`. Without `--strict`, unknown
+When `--strict` is passed (where applicable), substrate rejects unknown
+top-level fields in `substrate.config.*`. Without `--strict`, unknown
 fields produce a warning but don't fail.
 
 ## Migration from v0.x
 
 The v0.x → v1.0 schema is mostly identical. The exhaustive list of
-changes (and which ones need a hand edit vs which cadence handles
+changes (and which ones need a hand edit vs which substrate handles
 automatically) lives in [docs/migration-from-0.x.md](migration-from-0.x.md).
 
 ## Example — minimal config
 
 ```json
 {
-  "$schema": "https://cadence.dev/schema/v1.json",
+  "$schema": "https://substrate.dev/schema/v1.json",
   "version": "1",
   "project": {
     "name": "my-app",
@@ -207,7 +207,7 @@ automatically) lives in [docs/migration-from-0.x.md](migration-from-0.x.md).
 
 ```json
 {
-  "$schema": "https://cadence.dev/schema/v1.json",
+  "$schema": "https://substrate.dev/schema/v1.json",
   "version": "1",
   "project": {
     "name": "Acme Platform",
@@ -246,7 +246,7 @@ automatically) lives in [docs/migration-from-0.x.md](migration-from-0.x.md).
     "redactPatterns": ["KEY", "SECRET", "PASSWORD", "TOKEN"]
   },
   "extensions": {
-    "taskAdapter": "@cadence/adapter-linear",
+    "taskAdapter": "@op4z/substrate-adapter-linear",
     "vcsAdapter": null
   },
   "telemetry": { "enabled": false }
