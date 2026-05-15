@@ -24,3 +24,59 @@ export type {
   RunWorkflowResult,
   RunStepResult,
 } from "./run-command.js";
+
+// Session event log (B3 Component A).
+export {
+  SessionEventWriter,
+  computeManifestHash,
+  indexSessionLogs,
+  readSessionLog,
+  resolveSessionLogPath,
+  sanitiseEvent,
+  TEXT_FIELD_MAX_CHARS,
+} from "./session-log.js";
+export type {
+  AdhocStepEvent,
+  ContextLoadedEvent,
+  PromptIssuedEvent,
+  ReadSessionLogResult,
+  SessionEvent,
+  SessionEventWriterOptions,
+  SessionLogIndexEntry,
+  SessionLogPaths,
+  StepCompletionEvent,
+  StepConfirmEvent,
+  StepStartEvent,
+  WorkflowCompletionEvent,
+  WorkflowStartEvent,
+} from "./session-log.js";
+
+// Drift detectors (B3 Component B). Detectors are pure functions over
+// session-event logs; the deterministic-layer proposal pipeline glues
+// them to the classifier + queue.
+export {
+  REPEATED_PROMPT_THRESHOLD,
+  detectAdhocSteps,
+  detectContextGaps,
+  detectOutOfOrder,
+  detectRepeatedPrompts,
+  detectRuleViolationRecurrence,
+  detectSkippedSteps,
+  runDriftDetectors,
+} from "./drift-detectors.js";
+export type {
+  DriftDetectorRun,
+  DriftFinding,
+  DriftKind,
+  DriftLoadedContext,
+  RuleViolationRecord,
+  RunDriftDetectorsOptions,
+} from "./drift-detectors.js";
+
+// Hook dispatch + handler registry.
+export { dispatchHooks, registerHookHandler } from "./hook-dispatch.js";
+export type {
+  HookDispatchOptions,
+  HookRunRecord,
+  NoopHandler,
+} from "./hook-dispatch.js";

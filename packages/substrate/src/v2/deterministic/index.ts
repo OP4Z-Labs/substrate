@@ -102,6 +102,107 @@ export {
 } from "../discoverer.js";
 export { loadContext } from "../context-loader.js";
 
+// Proposal pipeline (B3) — drift detection happens in the
+// orchestrator layer, but classification, queue I/O, and applicators
+// all live here. Single entry point: `runProposalPipeline`.
+export {
+  parseSessionLogFilename,
+  runProposalPipeline,
+} from "./proposals/pipeline.js";
+export type {
+  RunProposalPipelineOptions,
+  RunProposalPipelineResult,
+} from "./proposals/pipeline.js";
+export {
+  classifyDrifts,
+} from "./proposals/classifier.js";
+export type { ClassifyOptions } from "./proposals/classifier.js";
+export {
+  deferProposal,
+  ensureQueueLayout,
+  listByStatus,
+  listPending,
+  moveProposal,
+  parsePendingFile,
+  queueStats,
+  renderPendingFile,
+  resolveQueueLayout,
+  updatePendingProposal,
+  writePendingFile,
+} from "./proposals/queue.js";
+export type {
+  ListByStatusOptions,
+  MoveProposalOptions,
+  MoveProposalResult,
+  ParsedPendingFile,
+  QueueLayout,
+  QueueStats,
+  UpdatePendingOptions,
+  WritePendingFileOptions,
+  WritePendingFileResult,
+} from "./proposals/queue.js";
+export { applyProposal } from "./proposals/applicators.js";
+export type {
+  ApplicatorOptions,
+  ApplicatorResult,
+} from "./proposals/applicators.js";
+export { walkProposals } from "./proposals/review-command.js";
+export type {
+  WalkAction,
+  WalkDecision,
+  WalkProposalsOptions,
+  WalkProposalsOutcome,
+  WalkProposalsResult,
+} from "./proposals/review-command.js";
+export type {
+  AddToAdrProposal,
+  AddToDocCheckRegistryProposal,
+  AddToMemoryProposal,
+  AddToRuleProposal,
+  AddToStandardsDocProposal,
+  AddToWorkflowStepProposal,
+  CrossLinkExistingProposal,
+  Proposal,
+  ProposalBase,
+  ProposalConfidence,
+  ProposalKind,
+  ProposalStatus,
+  StrengthenContextLoadProposal,
+} from "./proposals/types.js";
+
+// Scheduler (B3 / Primitive 8).
+export {
+  bumpCommitCounter,
+  checkSchedule,
+  clearSchedulerState,
+  isScheduled,
+  loadSchedulerState,
+  recordWorkflowRun,
+  saveSchedulerState,
+} from "./scheduler.js";
+export type {
+  DueWorkflow,
+  SchedulerCheckOptions,
+  SchedulerCheckResult,
+  SchedulerState,
+  SchedulerWorkflowRecord,
+} from "./scheduler.js";
+export { runSchedulerCheck } from "./scheduler-command.js";
+export type {
+  SchedulerCommandOptions,
+  SchedulerCommandResult,
+} from "./scheduler-command.js";
+
+// Comment-preserving YAML edit helpers (used by applicators; exposed
+// so consumer-side tooling can reuse the same surgical-edit primitives).
+export {
+  YamlEditError,
+  appendListItem,
+  appendToMapKey,
+  insertListItemAfter,
+} from "./yaml-edit.js";
+export type { YamlEditOptions } from "./yaml-edit.js";
+
 // And the v1 deterministic primitives — explicit re-export so the
 // surface is discoverable from one place.
 export {

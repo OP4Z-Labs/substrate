@@ -33,6 +33,10 @@ import {
   resolveSessionLogPath,
   type SessionLogPaths,
 } from "./session-log.js";
+import {
+  isScheduled,
+  recordWorkflowRun,
+} from "../deterministic/scheduler.js";
 import type { WorkflowDescriptor, WorkflowStep } from "../types.js";
 
 export interface RunWorkflowOptions {
@@ -269,6 +273,15 @@ export async function runV2Workflow(
     exit: exitCode === 0 ? "pass" : exitCode === 1 ? "fail" : "conditional",
     duration: Date.now() - sessionStartedAt.getTime(),
   });
+
+  // If the workflow declares `trigger: schedule`, stamp the scheduler
+  // state so the next `substrate scheduler --check` sees it as
+  // recently run. We do this only on disk-writable runs (skip dryRun)
+  // and only for scheduled workflows — non-scheduled workflows skip
+  // the state file entirely.
+  if (!options.dryRun && isScheduled(workflow.manifest)) {
+    recordWorkflowRun(workflow.manifest.id, { cwd });
+  }
 
   // workflow-completion hooks fire once the workflow exits (even on
   // failure / deferral). exitCode is the workflow's final code so

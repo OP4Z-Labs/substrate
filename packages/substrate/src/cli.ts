@@ -56,6 +56,8 @@ import {
   runHooksList,
 } from "./v2/deterministic/hooks-command.js";
 import { runV2Workflow } from "./v2/orchestrator/run-command.js";
+import { walkProposals } from "./v2/deterministic/proposals/review-command.js";
+import { runSchedulerCheck } from "./v2/deterministic/scheduler-command.js";
 import {
   emitTelemetryEvent,
   logPath,
@@ -749,8 +751,89 @@ function buildProgram(): Command {
       },
     );
 
+  // -------------------------------------------------- scheduler (v2)
+  // Reports which `trigger: schedule` workflows are due. Non-invasive
+  // by design — callers pipe due ids into `substrate run`.
+  program
+    .command("scheduler")
+    .description(
+      "Inspect `trigger: schedule` workflows (deterministic — never invokes anything).",
+    )
+    .option("--check", "Print scheduled workflows and their due-in status", false)
+    .option("--due-only", "Restrict output to currently-due workflows", false)
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (options: {
+        check?: boolean;
+        dueOnly?: boolean;
+        json?: boolean;
+        quiet?: boolean;
+      }) => {
+        if (!options.check) {
+          console.error(
+            kleur.yellow(
+              "substrate scheduler: pass --check to inspect schedule state.",
+            ),
+          );
+          process.exitCode = 2;
+          return;
+        }
+        runSchedulerCheck({
+          dueOnly: options.dueOnly,
+          json: options.json,
+          quiet: options.quiet,
+        });
+      },
+    );
+
+  // -------------------------------------------------- review (v2 walker)
+  // Orchestration-adjacent: the proposal walker lives in the
+  // deterministic layer (it's pure file I/O once decisions are
+  // resolved). `--proposals` is the only subcommand wired in B3; future
+  // verbs (`--pre`, `--deep`) land later.
+  program
+    .command("review")
+    .description(
+      "Walk the substrate proposal queue (substrate/proposals/pending/).",
+    )
+    .option("--proposals", "Walk the pending proposals queue", false)
+    .option("--dry-run", "Preview without writing / moving files", false)
+    .option(
+      "--batch-confirm",
+      "Auto-accept high-confidence proposals; defer the rest. Used by `weekly-proposal-walk`.",
+      false,
+    )
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      async (options: {
+        proposals?: boolean;
+        dryRun?: boolean;
+        batchConfirm?: boolean;
+        json?: boolean;
+        quiet?: boolean;
+      }) => {
+        if (!options.proposals) {
+          console.error(
+            kleur.yellow(
+              "substrate review: pass --proposals to walk the queue. Other review verbs are planned.",
+            ),
+          );
+          process.exitCode = 2;
+          return;
+        }
+        await walkProposals({
+          dryRun: options.dryRun,
+          batchConfirm: options.batchConfirm,
+          json: options.json,
+          quiet: options.quiet,
+        });
+      },
+    );
+
   // Provide a soft hint when a deferred command is invoked.
-  for (const deferred of ["review", "standards"]) {
+  for (const deferred of ["standards"]) {
     program
       .command(deferred)
       .description(`(Not yet available — planned for a later version.)`)

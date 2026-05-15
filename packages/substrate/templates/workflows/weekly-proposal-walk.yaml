@@ -1,0 +1,27 @@
+schema_version: v2.0
+id: weekly-proposal-walk
+name: Weekly proposal walk
+description: >-
+  Walks the substrate proposal queue every Monday at 09:00 UTC. Auto-
+  accepts high-confidence proposals; defers everything else for human
+  review. The trigger relies on substrate's `trigger: schedule` runtime
+  (see docs/scheduling.md for the three invocation paths: CI, local
+  scheduler, and AI-session prompt).
+kind: other
+trigger:
+  - schedule:
+      cron: "0 9 * * MON"
+context: {}
+steps:
+  - id: walk
+    type: invoke-deterministic
+    name: substrate review --proposals --batch-confirm
+    run: "substrate review --proposals --batch-confirm"
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+authors:
+  - substrate
+last_updated: "2026-05-15"

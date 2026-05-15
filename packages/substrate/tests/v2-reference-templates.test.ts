@@ -54,6 +54,7 @@ const REFERENCE_IDS = [
   "audit-package",
   "tackle-task",
   "audit-composite",
+  "weekly-proposal-walk",
 ];
 
 describe("reference workflow templates", () => {

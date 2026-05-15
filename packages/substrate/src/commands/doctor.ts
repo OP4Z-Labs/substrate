@@ -20,6 +20,7 @@ import kleur from "kleur";
 import { detectStacks } from "../util/detect.js";
 import { readManifest } from "../util/manifest.js";
 import { AUTO_SUBDIRS, resolveTargetRoot } from "../util/paths.js";
+import { queryMemory } from "../v2/memory.js";
 import type { SubstrateConfig } from "../util/types.js";
 
 type Severity = "ok" | "warn" | "error";
@@ -52,6 +53,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorReport {
     ...checkManifest(root),
     ...checkStackAlignment(root),
     ...checkBridge(root),
+    ...checkMemoryFrontmatter(root),
   ];
 
   const summary = { ok: 0, warn: 0, error: 0 };
@@ -409,6 +411,64 @@ function checkBridge(root: string): Check[] {
   return out;
 }
 
+/**
+ * Aggregate per-memory frontmatter warnings emitted by the v2 memory
+ * subsystem. The memory module flags each memory entry whose
+ * frontmatter lacks recommended fields (type/scope/tags) or whose
+ * expiry has passed. The doctor surfaces these as a single check.
+ *
+ * Semantics:
+ *   - No memory store discovered  → severity=ok with informational
+ *     message (memory is optional; absence is fine).
+ *   - All memories have recommended frontmatter → ok.
+ *   - >= 1 memory missing fields  → severity=warn with the count and
+ *     a per-memory bullet list (capped at 5 examples).
+ */
+function checkMemoryFrontmatter(root: string): Check[] {
+  // `queryMemory` returns expired memories as filtered-out by default,
+  // so warnings on expiry don't surface here. The per-memory
+  // recommended-fields warning is the load-bearing signal for adoption.
+  const result = queryMemory({ cwd: root });
+  if (!result.memoryPath) {
+    return [
+      {
+        id: "memory.store",
+        title: "memory store",
+        severity: "ok",
+        message:
+          "no memory store discovered (set --memory-path, SUBSTRATE_MEMORY_PATH, or substrate.config.json memory.path).",
+      },
+    ];
+  }
+  const flagged = result.memories.filter((m) => (m.warnings ?? []).length > 0);
+  if (flagged.length === 0) {
+    return [
+      {
+        id: "memory.frontmatter",
+        title: "memory frontmatter",
+        severity: "ok",
+        message: `${result.memories.length} memories at ${result.memoryPath} all carry recommended substrate frontmatter.`,
+      },
+    ];
+  }
+  const examples = flagged
+    .slice(0, 5)
+    .map((m) => `${m.name} — ${m.warnings[0]}`)
+    .join("; ");
+  const remainder =
+    flagged.length > 5 ? `; …${flagged.length - 5} more` : "";
+  return [
+    {
+      id: "memory.frontmatter",
+      title: "memory frontmatter",
+      severity: "warn",
+      message: `${flagged.length} of ${result.memories.length} memories at ${result.memoryPath} lack recommended substrate fields. ${examples}${remainder}`,
+      fix:
+        "Add `metadata.type` / `metadata.scope` / `metadata.tags` to each memory's frontmatter so workflow context filters pick them up.",
+    },
+  ];
+}
+
 // ---------------------------------------------------------- rendering
 function renderHumanReport(report: DoctorReport): void {
   console.log(kleur.bold("\nSubstrate doctor\n"));
@@ -441,6 +501,7 @@ export const _internals = {
   checkManifest,
   checkStackAlignment,
   checkBridge,
+  checkMemoryFrontmatter,
   // Use a wrapper rather than mutating readdirSync for tests
   readdir: (dir: string): string[] => (existsSync(dir) ? readdirSync(dir).filter((e) => statSync(join(dir, e))) : []),
 };
