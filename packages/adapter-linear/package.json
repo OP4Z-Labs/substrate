@@ -1,0 +1,24 @@
+{
+  "name": "@cadence/adapter-linear",
+  "version": "0.8.0",
+  "description": "Linear TaskAdapter for cadence. Implements find/search/create/update/complete against the Linear GraphQL API via @linear/sdk.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@linear/sdk": "^84.0.0"
+  },
+  "private": true
+}
