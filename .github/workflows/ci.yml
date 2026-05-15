@@ -1,0 +1,54 @@
+name: ci
+
+# Run on every push to main and every PR. Fast gate; the full suite
+# (unit + integration) completes in under a minute on a cold runner.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: lint + typecheck + test + build
+    runs-on: ubuntu-latest
+
+    # Cadence's CLI is invoked as a node subprocess by the integration
+    # tests, so the runtime version matters. Pin to the package.json
+    # `engines.node` minimum (20) and one current LTS line (22) so
+    # version drift catches us at PR time, not after release.
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # `npm test` runs vitest across BOTH tests/ and tests/integration/.
+      # The integration suite has a `globalSetup` step that runs
+      # `npm run build` first, so the dist/ artifact under test is
+      # always fresh against the current source.
+      - name: Test (unit + integration)
+        run: npm test
+
+      # Explicit build step at the end is belt-and-braces: integration
+      # tests already build via globalSetup, but a separate build job
+      # surfaces tsc errors that integration globalSetup might mask
+      # under its own error wrapper.
+      - name: Build
+        run: npm run build
