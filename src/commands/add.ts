@@ -113,6 +113,14 @@ export function listAvailableAudits(templatesDir: string): string[] {
 // ------------------------------------------------------------- standard
 function addStandard(root: string, autoDir: string, opts: AddOptions): AddResult {
   // Item is `<scope>/<area>` (e.g. "backend/architecture").
+  //
+  // Delimiter decision (2026-05-14 cleanup): canonical delimiter is `/`,
+  // mirroring how `templates/standards/<scope>/<area>` is laid out on disk.
+  // Considered accepting `.` as an alias (some docs / smoke briefs reach
+  // for `backend.architecture` by reflex) — skipped because the current
+  // error message is already actionable ("must be `<scope>/<area>` ...
+  // Got `backend.architecture`") and a single canonical form keeps the
+  // error/help surface predictable. Revisit if users keep hitting it.
   const parts = opts.item.split("/");
   if (parts.length !== 2) {
     throw new Error(
