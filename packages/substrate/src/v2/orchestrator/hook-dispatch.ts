@@ -25,6 +25,11 @@ import {
   type HookDescriptor,
   type HookFiringContext,
 } from "../hooks.js";
+import {
+  parseSessionLogFilename,
+  runProposalPipeline,
+} from "../deterministic/proposals/pipeline.js";
+import type { WorkflowManifest } from "../types.js";
 
 export interface HookDispatchOptions {
   cwd?: string;
@@ -63,20 +68,63 @@ export type NoopHandler = (
  */
 const BUILTIN_HANDLERS: Record<string, NoopHandler> = {
   /**
-   * `auto-drift-detect` — placeholder for the B3 proposal pipeline.
+   * `auto-drift-detect` — B3 proposal pipeline integration.
    *
-   * In B2 it logs that the proposal pipeline is pending and exits
-   * cleanly. The hook itself ships in `templates/hooks/` so workflows
-   * can already reference it; B3 swaps in a handler that runs drift
-   * detection on the workflow's session-event-log.
+   * Reads the just-finished workflow's session-event-log, runs the six
+   * drift detectors, classifies findings into typed proposals, and
+   * writes the pending queue file. Returns `status: "ok"` with the
+   * pending file path when proposals were generated, or `status:
+   * "skipped"` when the firing context lacks the inputs required for
+   * the pipeline.
+   *
+   * Why a noop handler instead of a `run-deterministic` shell-out?
+   * The pipeline runs in-process so it can share the orchestrator's
+   * already-parsed manifest + the session-log path without
+   * re-discovery. Consumer-authored drift handlers route through
+   * `run-deterministic`.
    */
-  "auto-drift-detect": (_context, hook) => ({
-    hookId: hook.manifest.id,
-    trigger: _context.trigger,
-    status: "deferred",
-    message:
-      "proposal pipeline pending (B3). Hook recorded but no drift detection performed.",
-  }),
+  "auto-drift-detect": (context, hook) => {
+    const manifest = context.manifest as WorkflowManifest | undefined;
+    const sessionLogPath = context.sessionLogPath;
+    if (!manifest || !sessionLogPath) {
+      return {
+        hookId: hook.manifest.id,
+        trigger: context.trigger,
+        status: "skipped",
+        message:
+          "auto-drift-detect: firing context missing manifest or sessionLogPath; nothing to analyse",
+      };
+    }
+    const parsed = parseSessionLogFilename(sessionLogPath);
+    if (!parsed) {
+      return {
+        hookId: hook.manifest.id,
+        trigger: context.trigger,
+        status: "skipped",
+        message: `auto-drift-detect: session log filename "${sessionLogPath}" does not match the <id>-<sha>.jsonl convention`,
+      };
+    }
+    const result = runProposalPipeline({
+      manifest,
+      sessionLogPath,
+      shaPrefix: parsed.shaPrefix,
+      cwd: context.cwd,
+    });
+    if (result.proposals.length === 0) {
+      return {
+        hookId: hook.manifest.id,
+        trigger: context.trigger,
+        status: "ok",
+        message: `auto-drift-detect: no drift detected (${result.drifts.length} findings, 0 proposals)`,
+      };
+    }
+    return {
+      hookId: hook.manifest.id,
+      trigger: context.trigger,
+      status: "ok",
+      message: `auto-drift-detect: wrote ${result.proposals.length} proposal(s) to ${result.pendingPath ?? "(queue)"}`,
+    };
+  },
 };
 
 /**

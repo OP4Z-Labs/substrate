@@ -19,7 +19,7 @@
 import { spawnSync } from "node:child_process";
 import kleur from "kleur";
 import { discoverWorkflows, type DiscoveryResult } from "../discoverer.js";
-import { loadContext } from "../context-loader.js";
+import { loadContext, type ResolvedContext } from "../context-loader.js";
 import { resolveTargetRoot } from "../../util/paths.js";
 import { discoverHooks } from "../hooks.js";
 import { dispatchHooks, type HookRunRecord } from "./hook-dispatch.js";
@@ -27,6 +27,12 @@ import {
   checkComposition,
   type CompositionCheckResult,
 } from "../composition.js";
+import {
+  SessionEventWriter,
+  computeManifestHash,
+  resolveSessionLogPath,
+  type SessionLogPaths,
+} from "./session-log.js";
 import type { WorkflowDescriptor, WorkflowStep } from "../types.js";
 
 export interface RunWorkflowOptions {
@@ -63,6 +69,8 @@ export interface RunWorkflowResult {
   hookRuns?: HookRunRecord[];
   /** Result of evaluating `composes_findings_of` declarations. */
   composition?: CompositionCheckResult;
+  /** Path to the session-event-log written for this run. */
+  sessionLogPath?: string;
 }
 
 export async function runV2Workflow(
@@ -94,6 +102,27 @@ export async function runV2Workflow(
   // each dispatchHooks() call to avoid re-walking the filesystem.
   const hooksDiscovery = discoverHooks({ cwd });
   const allHookRuns: HookRunRecord[] = [];
+
+  // Open the session-event-log. Dry runs use the in-memory writer so
+  // we never pollute substrate/sessions/ with skipped-step runs that
+  // would muddy the drift signal.
+  const sessionStartedAt = new Date();
+  const sessionPaths: SessionLogPaths = resolveSessionLogPath(
+    workflow.manifest.id,
+    { cwd, startedAt: sessionStartedAt },
+  );
+  const sessionWriter = new SessionEventWriter({
+    paths: sessionPaths,
+    inMemoryOnly: options.dryRun === true,
+  });
+  const manifestHash = computeManifestHash(workflow.manifest);
+  sessionWriter.emit({
+    ts: sessionStartedAt.toISOString(),
+    event: "workflow-start",
+    workflow: workflow.manifest.id,
+    "manifest-hash": manifestHash,
+  });
+  emitContextLoadedEvents(sessionWriter, context);
 
   // Composition freshness check (`composes_findings_of`). Stale deps
   // surface as warnings BEFORE the workflow runs so the user can
@@ -155,6 +184,12 @@ export async function runV2Workflow(
       console.log(kleur.bold(label) + kleur.dim(`  [${step.type}]`));
     }
 
+    sessionWriter.emit({
+      ts: new Date().toISOString(),
+      event: "step-start",
+      step: step.id,
+    });
+
     if (options.dryRun) {
       stepResults.push({
         stepId: step.id,
@@ -170,6 +205,12 @@ export async function runV2Workflow(
 
     const result = await runStep(step, cwd);
     stepResults.push(result);
+    sessionWriter.emit({
+      ts: new Date().toISOString(),
+      event: "step-completion",
+      step: step.id,
+      output: result.message,
+    });
 
     if (!options.quiet && !options.json) {
       switch (result.status) {
@@ -219,9 +260,22 @@ export async function runV2Workflow(
     }
   }
 
+  // Emit workflow-completion BEFORE the completion hook fires — the
+  // auto-drift-detect handler reads the log from disk, so it needs
+  // the completion event present.
+  sessionWriter.emit({
+    ts: new Date().toISOString(),
+    event: "workflow-completion",
+    exit: exitCode === 0 ? "pass" : exitCode === 1 ? "fail" : "conditional",
+    duration: Date.now() - sessionStartedAt.getTime(),
+  });
+
   // workflow-completion hooks fire once the workflow exits (even on
   // failure / deferral). exitCode is the workflow's final code so
   // `matches.exit-code: { pass | fail | <int> }` filters work.
+  // The firing context also carries the parsed manifest + the
+  // session-log path so the proposal pipeline handler can read them
+  // without re-discovery.
   if (!options.dryRun) {
     const completionHooks = await dispatchHooks(
       {
@@ -229,6 +283,9 @@ export async function runV2Workflow(
         workflowId: workflow.manifest.id,
         workflowKind: workflow.manifest.kind,
         exitCode,
+        manifest: workflow.manifest,
+        sessionLogPath: sessionPaths.path,
+        cwd,
       },
       { cwd, quiet: options.quiet, hooks: hooksDiscovery.hooks },
     );
@@ -236,6 +293,7 @@ export async function runV2Workflow(
   }
 
   const ok = exitCode === 0;
+
   const summary: RunWorkflowResult = {
     workflowId: workflow.manifest.id,
     ok,
@@ -244,6 +302,7 @@ export async function runV2Workflow(
     contextSummary,
     hookRuns: allHookRuns,
     composition,
+    sessionLogPath: options.dryRun ? undefined : sessionPaths.path,
   };
 
   if (options.json) {
@@ -334,6 +393,51 @@ function runShellStep(step: WorkflowStep, cwd: string): RunStepResult {
     type: step.type,
     status: "ok",
   };
+}
+
+/**
+ * Translate the loaded context into one `context-loaded` event per
+ * context kind. Skipped kinds (empty arrays) don't get an event — the
+ * drift detector's `context-gap` heuristic needs to know what WAS
+ * loaded; absence of an event for a kind means "nothing of that kind".
+ */
+function emitContextLoadedEvents(
+  writer: SessionEventWriter,
+  context: ResolvedContext,
+): void {
+  const now = new Date().toISOString();
+  if (context.standards.length > 0) {
+    writer.emit({
+      ts: now,
+      event: "context-loaded",
+      kind: "standards",
+      ids: context.standards.map((s) => s.relativePath),
+    });
+  }
+  if (context.memories.length > 0) {
+    writer.emit({
+      ts: now,
+      event: "context-loaded",
+      kind: "memory",
+      ids: context.memories.map((m) => m.name),
+    });
+  }
+  if (context.rules.length > 0) {
+    writer.emit({
+      ts: now,
+      event: "context-loaded",
+      kind: "rules",
+      ids: context.rules.map((r) => r.id),
+    });
+  }
+  if (context.knowledge.length > 0) {
+    writer.emit({
+      ts: now,
+      event: "context-loaded",
+      kind: "knowledge",
+      ids: context.knowledge.map((k) => k.name),
+    });
+  }
 }
 
 function emitFatal(

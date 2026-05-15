@@ -199,7 +199,10 @@ step:
       (h) => h.hookId === "after-audit",
     );
     expect(completionHook).toBeDefined();
-    expect(completionHook!.status).toBe("deferred");
+    // B3: real auto-drift-detect handler now runs. The 1-step workflow
+    // executes clean (every manifest step started); zero proposals.
+    expect(completionHook!.status).toBe("ok");
+    expect(completionHook!.message).toMatch(/no drift detected/);
   });
 
   it("surfaces composes_findings_of stale-dependency warnings", async () => {

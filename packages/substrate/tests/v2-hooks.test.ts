@@ -289,7 +289,11 @@ describe("dispatchHooks", () => {
     expect(records[0].status).toBe("failed");
   });
 
-  it("auto-drift-detect noop handler returns status=deferred (B3 placeholder)", async () => {
+  it("auto-drift-detect skips cleanly when firing context lacks manifest + sessionLogPath", async () => {
+    // B3: the handler returns status=skipped (with a clear message)
+    // when invoked without the pipeline inputs the orchestrator
+    // normally provides. Used as a defensive default when the hook
+    // fires from outside the run-command path.
     seedHook(
       tmp,
       "drift.yaml",
@@ -299,8 +303,8 @@ describe("dispatchHooks", () => {
       { trigger: "workflow-completion" },
       { cwd: tmp, quiet: true },
     );
-    expect(records[0].status).toBe("deferred");
-    expect(records[0].message).toMatch(/B3/);
+    expect(records[0].status).toBe("skipped");
+    expect(records[0].message).toMatch(/missing manifest or sessionLogPath/);
   });
 
   it("noop with unknown handler returns status=skipped", async () => {

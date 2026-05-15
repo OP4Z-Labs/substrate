@@ -264,6 +264,20 @@ export interface HookFiringContext {
   workflowKind?: string;
   exitCode?: number;
   stepId?: string;
+  /**
+   * B3 addition — optional pipeline payload. The orchestrator
+   * populates these on `workflow-completion` so the proposal-pipeline
+   * handler (auto-drift-detect) has the manifest + the session log
+   * path without re-discovery. Other hooks ignore these fields.
+   *
+   * The fields are typed as `unknown` here to keep `hooks.ts` free of
+   * a circular dep on `./types.ts`. The handler casts internally.
+   */
+  manifest?: unknown;
+  sessionLogPath?: string;
+  /** Working-tree root the workflow ran against. Used by the handler
+   *  to locate substrate/proposals/. */
+  cwd?: string;
 }
 
 /**
