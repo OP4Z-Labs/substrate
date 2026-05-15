@@ -1,6 +1,6 @@
 {
   "name": "@cadence/adapter-stub",
-  "version": "0.5.0",
+  "version": "0.8.0",
   "description": "Reference TaskAdapter for cadence — prints every call rather than touching a tracker. Useful for testing the plugin contract and as a copy-paste starting point for real adapters.",
   "license": "MIT",
   "type": "module",

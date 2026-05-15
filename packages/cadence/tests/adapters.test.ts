@@ -31,8 +31,12 @@ import { isVcsAdapter } from "../src/extensions/vcs-adapter.js";
 import { runInit } from "../src/commands/init.js";
 import { makeTempDir, removeTempDir } from "./helpers.js";
 
+// Post-monorepo (v0.8): we're at packages/cadence/tests/*, so the stub
+// is at ../../../packages/adapter-stub/dist (up to packages/ then sideways).
 const STUB_ADAPTER_PATH = resolve(
   __dirname,
+  "..",
+  "..",
   "..",
   "packages",
   "adapter-stub",

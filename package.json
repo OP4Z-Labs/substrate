@@ -1,44 +1,28 @@
 {
-  "name": "cadence",
+  "name": "cadence-monorepo",
   "version": "0.8.0",
-  "description": "Repeatable automation patterns for codebases. Audits, scaffolds, standards, and bridges to AI coding assistants.",
+  "description": "Cadence workspace root. The publishable CLI lives in packages/cadence/.",
   "license": "MIT",
   "author": "Beau Goldberg",
+  "private": true,
   "type": "module",
-  "bin": {
-    "cadence": "./dist/cli.js"
-  },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "files": [
-    "dist",
-    "templates",
-    "templates-history",
-    "README.md",
-    "LICENSE"
+  "workspaces": [
+    "packages/*"
   ],
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "tsc -b",
-    "clean": "rimraf dist",
-    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "lint:fix": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --fix",
-    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"*.md\" \"*.json\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"*.md\" \"*.json\"",
-    "test": "vitest run",
-    "test:unit": "vitest run --exclude \"tests/integration/**\"",
-    "test:integration": "vitest run tests/integration",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run clean && npm run build"
-  },
-  "dependencies": {
-    "@inquirer/prompts": "^7.0.0",
-    "commander": "^12.1.0",
-    "kleur": "^4.1.5",
-    "yaml": "^2.9.0"
+    "build": "npm run build --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "test:integration": "npm run test:integration --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "lint:fix": "npm run lint:fix --workspaces --if-present",
+    "format": "npm run format --workspaces --if-present",
+    "format:check": "npm run format:check --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
@@ -49,14 +33,5 @@
     "rimraf": "^5.0.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.6"
-  },
-  "keywords": [
-    "automation",
-    "audit",
-    "scaffold",
-    "standards",
-    "cli",
-    "shadcn-style",
-    "claude-code"
-  ]
+  }
 }

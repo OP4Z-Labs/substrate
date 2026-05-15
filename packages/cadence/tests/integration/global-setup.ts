@@ -14,10 +14,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(HERE, "..", "..");
-const CLI_PATH = join(REPO_ROOT, "dist", "cli.js");
+// HERE = .../packages/cadence/tests/integration
+// CADENCE_ROOT = .../packages/cadence
+// MONOREPO_ROOT = .../  (one above packages/)
+const CADENCE_ROOT = resolve(HERE, "..", "..");
+const MONOREPO_ROOT = resolve(CADENCE_ROOT, "..", "..");
+const CLI_PATH = join(CADENCE_ROOT, "dist", "cli.js");
 const STUB_PATH = join(
-  REPO_ROOT,
+  MONOREPO_ROOT,
   "packages",
   "adapter-stub",
   "dist",
@@ -29,7 +33,7 @@ export default async function globalSetup(): Promise<void> {
   // case is ~150ms. Cheap insurance against running integration tests
   // against a stale dist/.
   const build = spawnSync("npm", ["run", "build"], {
-    cwd: REPO_ROOT,
+    cwd: CADENCE_ROOT,
     encoding: "utf8",
     stdio: "pipe",
   });
@@ -48,9 +52,10 @@ export default async function globalSetup(): Promise<void> {
   // v0.5: build the reference stub adapter so the adapter integration
   // tests can load it via absolute path. The stub lives outside cadence's
   // main tsbuildinfo graph (separate tsconfig + dist) so it needs its
-  // own build invocation.
+  // own build invocation. Post-monorepo (v0.8), the stub package is a
+  // peer at the monorepo root rather than a subdir of cadence's package.
   const stubBuild = spawnSync("npx", ["tsc"], {
-    cwd: join(REPO_ROOT, "packages", "adapter-stub"),
+    cwd: join(MONOREPO_ROOT, "packages", "adapter-stub"),
     encoding: "utf8",
     stdio: "pipe",
   });

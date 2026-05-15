@@ -18,8 +18,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeTmpDir, removeTmpDir, runCli } from "./helpers.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// Post-monorepo (v0.8): HERE = packages/cadence/tests/integration, so the
+// stub adapter is up four levels (../../.. → monorepo root → packages/...).
 const STUB_ADAPTER_PATH = resolve(
   HERE,
+  "..",
+  "..",
   "..",
   "..",
   "packages",

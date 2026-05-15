@@ -86,7 +86,7 @@ interface TaskAdapter {
 }
 
 const ADAPTER_NAME = "@cadence/adapter-stub";
-const ADAPTER_VERSION = "0.5.0";
+const ADAPTER_VERSION = "0.8.0";
 
 function log(verb: string, inputs: object): void {
   // Stream to stderr so test harnesses can separate adapter chatter from
