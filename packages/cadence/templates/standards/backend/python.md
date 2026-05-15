@@ -48,18 +48,33 @@ No `setup.py`, no separate `requirements.txt` checked in alongside.
 
 Cross-link: rule `BE-PY-002`.
 
-### 3. Formatter: black or ruff format
+**Always work inside a virtual environment.** Never `pip install`
+into the system Python — that's how dev machines acquire mystery
+shared-state bugs. Poetry / uv / Hatch each manage the venv for you
+(`poetry env use`, `uv venv`, `hatch shell`); `python -m venv .venv`
+is the plain-stdlib fallback. The venv lives next to the project,
+gitignored, and is recreated from the lockfile.
+
+### 3. Formatter: ruff format (or black) — pick one
+
+`ruff format` is now substantially black-compatible and ships in the
+same binary as the linter, so most 2026 codebases lean toward
+`ruff format` for the one-tool-one-pass story. `black` remains a
+defensible choice if you're already on it.
 
 Auto-format on save and in pre-commit. The setting bar:
 
 ```toml
-[tool.black]
+[tool.ruff]
 line-length = 100
-target-version = ["py312"]
+target-version = "py312"
+
+# (equivalent block under [tool.black] if you stay on black)
 ```
 
-(or `tool.ruff` equivalent). 100 columns over 88 because modern
-displays handle it.
+100 columns over 88 because modern displays handle it. Whichever
+formatter you pick, the codebase commits to one — mixing them
+produces line-by-line churn no one needs.
 
 ### 4. Linter: ruff with a sane preset
 
@@ -75,6 +90,7 @@ select = [
   "F",    # pyflakes
   "I",    # isort
   "B",    # bugbear
+  "N",    # pep8-naming (enforces rule 6 below)
   "UP",   # pyupgrade
   "RUF",  # ruff-specific
 ]
@@ -87,14 +103,16 @@ Run in CI. Failing lint blocks merge.
 ```toml
 [tool.mypy]
 python_version = "3.12"
-strict = true
-disallow_untyped_defs = true
-warn_unused_ignores = true
+strict = true                  # enables disallow_untyped_defs, no_implicit_optional, etc.
+warn_unused_ignores = true     # additive: flags # type: ignore that no longer suppresses anything
+warn_redundant_casts = true    # additive: flags `cast()` that the inferred type already covered
 ```
 
-Strict from the start, not "we'll turn it on later." Existing
-untyped code can opt out via per-file overrides; new code must be
-typed.
+Strict from the start, not "we'll turn it on later." `strict = true`
+turns on the standard family (`disallow_untyped_defs`,
+`no_implicit_optional`, `disallow_any_generics`, etc.) — only list
+the flags that add something on top. Existing untyped code can opt
+out via per-file overrides; new code must be typed.
 
 ### 6. Names: PEP 8 throughout
 
@@ -178,7 +196,7 @@ markers = [
   "integration: tests that hit a real DB / Redis",
   "slow: tests > 1 second",
 ]
-asyncio_mode = "auto"
+asyncio_mode = "auto"   # requires pytest-asyncio >= 0.21
 ```
 
 Mark every test. `pytest -m unit` for the fast loop; `pytest -m

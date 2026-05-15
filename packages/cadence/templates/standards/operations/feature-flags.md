@@ -42,6 +42,12 @@ A release flag has 30 days. After that:
 - The feature is shipped → remove the flag.
 - The feature was scrapped → remove the flag AND the dead code.
 
+Why 30 specifically? Stale-flag bug rate climbs sharply once neither
+branch is exercised in production for more than a release cycle — at
+weekly deploy cadence, 4-6 weeks is when "we'll clean it up" stops
+being credible. Teams on slower cadences (monthly+ deploys) can
+push to 60-90 days, but write the limit down and enforce it.
+
 Stale release flags rot:
 
 - Code branches both behind them become unmaintained.
@@ -126,7 +132,7 @@ Or two separate tests covering both branches. A flag with only the
 
 ### 7. Flag rollouts are gradual + monitored
 
-A rollout sequence:
+A rollout sequence for a user-facing feature with real blast radius:
 
 1. Internal users (employees) — 100 %.
 2. Beta cohort — explicit opt-in.
@@ -135,6 +141,11 @@ A rollout sequence:
 5. 50 % — monitor metrics.
 6. 100 % — flag stays for 1 week (so rollback is possible), then
    removed.
+
+Not every flag earns the full ladder. Internal-tooling-only features,
+non-customer-facing changes, or low-blast-radius experiments can
+ship at 100 % to the relevant cohort directly. Scale the rollout to
+the failure mode you're hedging against.
 
 If error rate or latency regresses, the rollout pauses. The flag
 service supports this directly; don't roll your own.
@@ -187,9 +198,18 @@ The flag service falls back gracefully:
 
 - If unreachable: use the cached value.
 - If no cache: use the in-code default.
-- If neither: feature stays off (safe).
+- If neither: fall back to the **category-appropriate safe default**:
+  - Release / experiment flags → feature OFF (rollout halts; users
+    see the existing behavior).
+  - Ops / kill-switch flags → feature ON (the kill switch is the
+    inverted form; "no signal" means "run normally").
+  - Permission flags → most-restrictive permission (deny by
+    default, matching rule 4 of `backend/security.md`).
 
-NEVER let a flag-service outage take down the application.
+NEVER let a flag-service outage take down the application — but
+"safe" depends on which flag is failing open. Write the safe default
+in the flag's metadata so the fallback isn't a guess at incident
+time.
 
 ### 12. No personal data in flag targeting payloads
 

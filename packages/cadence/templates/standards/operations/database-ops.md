@@ -105,7 +105,9 @@ the team has agreed to keep. Make that explicit, don't let it drift.
 
 ### 6. Capacity has watermarks and triggers
 
-Track for each database:
+Track for each database. **Numbers below are Postgres-OLTP-tuned
+starting points** — a Redis cache, a MongoDB document store, or a
+heavy-write analytics Postgres will all want different thresholds:
 
 | Metric                | Watch | Page  |
 | --------------------- | ----- | ----- |
@@ -116,7 +118,9 @@ Track for each database:
 | Lock wait p95         | 100ms | 500ms |
 
 Adjust to fit your workload. The point is: define what "concerning"
-and "alarming" mean BEFORE the incident.
+and "alarming" mean BEFORE the incident, and write the per-DB
+calibration into the runbook so the next on-call doesn't relearn
+it.
 
 ### 7. No long-running transactions in user-facing paths
 
@@ -144,6 +148,55 @@ problems. Add:
 
 Wire each to an alert with a runbook.
 
+### 9. Read replicas: own the lag at the application level
+
+Read replicas are a standard horizontal-scale lever, but they
+introduce **replication lag** — the replica is N milliseconds (or
+seconds) behind the primary. The application has to know which
+reads tolerate lag and which don't:
+
+- **Lag-tolerant reads** (lists, search, dashboards, analytics) →
+  send to a replica.
+- **Read-your-own-write reads** (the response immediately after a
+  write; "did my comment post?") → send to the primary, OR carry a
+  high-water-mark token (e.g. WAL LSN on Postgres) and wait for
+  the replica to catch up.
+- **Strong-consistency reads** (auth, billing, audit) → primary,
+  always.
+
+Codify the routing at the data-access layer (a `readonly=True` flag
+on the session, a `db_role="replica"` argument) so handlers don't
+make this choice ad-hoc. Alert on replica lag against the watermark
+in rule 6 — sustained lag is usually a primary-load problem, not a
+replica problem.
+
+### 10. Postgres autovacuum: tuned, monitored, and never disabled
+
+Autovacuum is what keeps Postgres tables from bloating, prevents
+transaction-ID wraparound, and updates the planner's statistics. It
+is operational machinery, not optional cleanup:
+
+- **Never disable autovacuum globally.** Per-table tuning is fine
+  (large append-only tables, hot rapidly-changing tables). Global
+  off is a "wait until the table is unusable" timer.
+- **Tune the thresholds for hot tables.** Defaults (
+  `autovacuum_vacuum_scale_factor = 0.2`) wait for 20 % dead tuples
+  before vacuuming. For a 100M-row hot table that's 20M dead rows
+  — way too late. Lower it (`0.05` or `0.01`) on those tables.
+- **Watch `n_dead_tup`, `last_autovacuum`, and
+  `pg_stat_progress_vacuum`.** Alert when a table goes more than
+  24h without an autovacuum despite high churn.
+- **Plan for VACUUM FREEZE storms** — at transaction-ID horizons
+  (default ~200M tx), Postgres force-runs aggressive freeze
+  vacuums that can saturate I/O. Monitor `age(datfrozenxid)`;
+  schedule controlled `VACUUM FREEZE` in maintenance windows
+  before it bites.
+
+For non-Postgres databases, find the equivalent maintenance
+operation (MySQL: `OPTIMIZE TABLE` for InnoDB fragmentation;
+MongoDB: compact; etc.) and apply the same "tuned, monitored, never
+disabled" discipline.
+
 ## Examples
 
 ### Do — expand/contract for a column rename
@@ -168,6 +221,31 @@ ALTER TABLE users DROP COLUMN email;
 ```
 
 Each deploy is independently reversible.
+
+### Do — expand/contract for a NOT NULL constraint on existing data
+
+```sql
+-- Deploy 1 (expand): add the column nullable, with a default
+ALTER TABLE tasks ADD COLUMN priority text DEFAULT 'medium';
+
+-- Backfill: set the value for existing rows (in batches if large)
+UPDATE tasks SET priority = 'medium' WHERE priority IS NULL;
+
+-- Deploy 2: application code starts always providing priority
+-- (still no DB-level NOT NULL yet)
+
+-- Verify: no rows have NULL after a quiet period
+SELECT count(*) FROM tasks WHERE priority IS NULL;  -- expect 0
+
+-- Deploy 3 (contract): add the constraint, drop the default
+ALTER TABLE tasks ALTER COLUMN priority SET NOT NULL;
+ALTER TABLE tasks ALTER COLUMN priority DROP DEFAULT;
+```
+
+Adding a NOT NULL constraint in one shot on a populated table either
+(a) rejects the migration if any NULLs exist, or (b) takes a long
+ACCESS EXCLUSIVE lock while it scans. Splitting it out keeps every
+step under a few seconds of lock time.
 
 ### Don't — a single migration that does everything
 

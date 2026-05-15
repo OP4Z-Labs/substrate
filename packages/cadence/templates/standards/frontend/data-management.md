@@ -14,8 +14,10 @@ update_triggers:
 # Frontend Data Management
 
 > **Cadence default standard.** How the frontend talks to the backend
-> and what it does with the data. Assumes a TanStack Query / SWR /
-> RTK Query-class library; principles apply across them.
+> and what it does with the data. Examples use TanStack Query (the
+> most common 2026 choice); the principles — key factories, mutation
+> invalidation, two-tier strategy, optimistic updates — port to SWR
+> and RTK Query directly with surface-level rename.
 
 ## Scope
 
@@ -99,11 +101,19 @@ function useCreateTask() {
 }
 ```
 
-The matching test asserts the invalidation:
+The matching test asserts the invalidation. With a `vi.spyOn` on
+`queryClient.invalidateQueries`:
 
 ```ts
-expect(qc).toHaveBeenInvalidatedFor(taskKeys.list());
+const invalidate = vi.spyOn(qc, "invalidateQueries");
+await createTask(data);
+expect(invalidate).toHaveBeenCalledWith({ queryKey: taskKeys.list() });
 ```
+
+(Teams that test invalidation often often write a thin custom
+matcher — e.g. `toHaveBeenInvalidatedFor(qc, key)` — over this same
+spy. Keep it in your local testing-config package; don't expect it
+to exist in `@tanstack/react-query`.)
 
 Forgetting an invalidation is the most common "the UI says stale
 data" bug.
@@ -165,6 +175,17 @@ Plus a global handler for unrecoverable errors (auth expired, network
 down):
 
 ```ts
+function is4xx(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof (error as { status: unknown }).status === "number" &&
+    (error as { status: number }).status >= 400 &&
+    (error as { status: number }).status < 500
+  );
+}
+
 const qc = new QueryClient({
   defaultOptions: {
     queries: { retry: (failureCount, error) => failureCount < 3 && !is4xx(error) },
@@ -220,7 +241,28 @@ useEffect(() => {
 Don't try to PATCH the cache directly from the socket payload —
 your invalidation handler is already the source of truth.
 
-### 11. Stale-while-revalidate is the default
+### 11. Offline / spotty network: queue mutations, don't drop them
+
+Optimistic updates assume the network is "usually there." On
+unreliable connections (mobile, in-flight, transit) you also need to
+**queue** mutations so they retry in order when the network returns.
+
+- TanStack Query: enable `persistQueryClient` plus
+  `onlineManager` + `mutationCache.getAll().filter(...).map(m => m.execute())`
+  on reconnect. Mutations carry their own
+  `retry` + `retryDelay` settings.
+- The queue MUST preserve order — a "create task" followed by a
+  "complete task" must apply in that sequence on the server, even
+  if both were issued offline.
+- Surface a queue indicator in the UI (badge: "3 pending changes")
+  so users know writes are not yet durable. Failures after retry
+  exhaustion need an "undo / fix" flow.
+
+Don't try to merge concurrent writes client-side — let the server
+be the conflict authority and reconcile via the standard
+invalidate-after-mutate flow.
+
+### 12. Stale-while-revalidate is the default
 
 Show cached data immediately; fetch fresh data in the background;
 update when fresh data arrives. This is how TanStack Query and SWR

@@ -14,7 +14,7 @@ update_triggers:
 # React
 
 > **Cadence default standard.** Component conventions for any React
-> codebase (Next.js, Remix, Vite, plain CRA). Targets React 18+.
+> codebase (Next.js, Remix, Vite, plain CRA). Targets React 19+.
 
 ## Scope
 
@@ -131,12 +131,20 @@ Use memoization when:
 - A deps array drives a `useEffect` and you want to avoid spurious
   re-runs.
 
-React 19's compiler will eat most of this concern; manual memoization
-is a stopgap.
+React 19's compiler will eat most of this concern when it's on.
+At the time of writing it's still opt-in in most setups (`babel-plugin-react-compiler`
+or the Vite/Next plugin), so manual memoization remains a stopgap.
+Once the compiler is enabled across your repo, you can lean on it
+and audit existing `useMemo` / `useCallback` for removal.
 
 ### 8. Server Components vs Client Components
 
-In a Server Components framework (Next.js App Router):
+This rule applies only on RSC-enabled frameworks (Next.js App Router,
+Remix v2+, Waku, TanStack Start with RSC). If you're on Vite, CRA,
+or Remix Pages router, you don't have Server Components — skip this
+rule.
+
+When you ARE on an RSC framework:
 
 - **Server Components by default.** Don't ship to the browser; can
   fetch data directly.
@@ -224,7 +232,7 @@ export default function ({ task, save }) {
 ```
 
 Five problems: no name (bad stack traces), no types, fetch in
-render (runs on every paint), `<div>` for an interactive element
+render (runs on every render), `<div>` for an interactive element
 (a11y), inline JSON without validation.
 
 ## Rationale

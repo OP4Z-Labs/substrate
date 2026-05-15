@@ -67,12 +67,26 @@ Run a secret scanner in pre-commit (`gitleaks`, `detect-secrets`) so
 
 ### 3. Authentication: short-lived access tokens, rotating refresh tokens
 
-- Access token: short TTL (15-60 minutes). JWT or opaque, your call.
+- Access token: short TTL (15-60 minutes). JWT or opaque — see
+  trade-off below.
 - Refresh token: longer TTL, single-use rotation, server-side
   revocation list.
 - Logout invalidates the refresh token.
 - Password reset / 2FA bypass / device approval each trigger refresh
   rotation.
+
+**JWT vs opaque** is a real trade-off, not just preference:
+
+- **JWTs** are self-contained — every service can validate them
+  without a round-trip. The catch: revocation is hard. A compromised
+  JWT is valid until expiry unless you keep a denylist (which
+  reintroduces the central lookup JWTs were meant to avoid). Lean
+  JWT when downstream services need to validate without contacting
+  auth, and you accept the revocation gap.
+- **Opaque tokens** require a session lookup per validation — a
+  Redis hit, typically. Slower but revocation is instant. Lean
+  opaque for high-trust scenarios (financial, healthcare) or when
+  the auth service can absorb the read load.
 
 Don't ship "1-year access tokens." Convenience for the developer is
 risk for the user.
@@ -90,11 +104,18 @@ async def list_all_users(...):
 The default for an undeclared endpoint is "authentication required."
 Public endpoints (`/health`, `/login`, `/docs`) opt out explicitly.
 
-Authorization is policy:
-- **RBAC** (role-based) for simple "admins vs users" splits.
-- **ABAC** (attribute-based) when access depends on relationships
-  (you can edit a task IF you own it OR you're an admin of the
-  owning tenant).
+Authorization is policy. Most production systems combine two layers:
+
+- **RBAC** (role-based) at the coarse level — admin vs user vs
+  guest. Easy to reason about, easy to audit.
+- **ABAC** (attribute-based) for resource-ownership and
+  relationship checks — "you can edit a task IF you own it OR
+  you're an admin of the owning tenant."
+
+The question is rarely "RBAC or ABAC" — it's "which is the primary
+axis for this check." Routes and admin features go RBAC; per-row
+access goes ABAC. Make the model explicit so future authors don't
+guess.
 
 Whichever model: a single function makes the call. Don't sprinkle
 `if user.role == 'admin'` across handlers.
@@ -134,8 +155,11 @@ Two layers:
 - **Per-user**: protects against single-account abuse. Set in
   middleware or a dedicated service.
 
-Login endpoints get aggressive rate limiting (5 / minute / IP, lock
-after 10 failed attempts).
+Login endpoints get aggressive rate limiting. Starting point: 5 /
+minute / IP, lock the account after 10 failed attempts in 15
+minutes. These numbers are anchored to OWASP ASVS 4.0 §2.2.1
+("anti-automation") — calibrate against your threat model and
+abuse-team data, but treat anything looser than this as a finding.
 
 ### 8. Input validation is mandatory and explicit
 
@@ -179,6 +203,13 @@ scenarios + audit visibility all want TLS on internal calls too.
 
 Local dev can run plaintext for ergonomics; production must not.
 
+The operational cost — cert issuance, rotation, mTLS — is real.
+A service mesh (Istio, Linkerd, Consul Connect) or
+`cert-manager` + Kubernetes makes this tractable; trying to manage
+internal certs by hand at scale is where teams give up and drop
+back to plaintext. Pick the mesh / cert-management story BEFORE
+mandating internal TLS.
+
 ### 11. Audit log for sensitive operations
 
 Every "sensitive" action (auth events, permission changes, admin
@@ -200,11 +231,47 @@ overrides, data exports) writes an immutable audit log entry:
 Audit logs go to a separate storage (different DB / dataset) so
 they survive an app-DB compromise.
 
+Note that `ip` and `user_agent` are PII under GDPR / similar
+regimes. The audit-log retention contract is therefore a separate
+privacy regime from app-data retention — write it down (typical
+shape: longer retention for compliance, redacted or pseudonymized
+after the immediate investigation window).
+
 ### 12. Patch dependencies on a schedule
 
 `pip-audit`, `npm audit`, `cargo audit` — one of these runs in CI
 weekly. Critical / high findings get a 7-day SLA; medium / low get a
 30-day SLA. No CVE goes unaddressed for a quarter.
+
+### 13. Content Security Policy on every HTML response
+
+CSP is set by the server (`Content-Security-Policy` response
+header) and is one of the highest-leverage modern defenses against
+XSS, clickjacking, and data exfiltration. A reasonable starting
+policy:
+
+```
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self';
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: https:;
+  font-src 'self' data:;
+  connect-src 'self' https://api.example.com;
+  frame-ancestors 'none';
+  base-uri 'self';
+  form-action 'self';
+```
+
+Tighten from there. `'unsafe-inline'` on `script-src` defeats the
+point — use nonces or hashes for the few inline scripts you genuinely
+need. Ship CSP in `Content-Security-Policy-Report-Only` mode first
+to catch violations without breaking the app, then promote to
+enforcing once the report stream is clean.
+
+Pair with sensible defaults on `Strict-Transport-Security`,
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`,
+and `Permissions-Policy` for the features you don't use.
 
 ## Examples
 

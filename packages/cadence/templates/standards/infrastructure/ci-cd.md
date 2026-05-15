@@ -34,7 +34,9 @@ Every pull request runs:
 5. **Pre-merge audit** — `cadence audit --diff` (rule `INF-CICD-001`).
 
 Total target: < 5 minutes for the PR pipeline. Slower means PRs
-queue, devs context-switch, throughput drops.
+queue, devs context-switch, throughput drops. The audit step itself
+takes time on large repos — budget for it when sizing the target,
+and parallelize aggressively to keep the wall-clock under five.
 
 Branches that fail any gate cannot merge.
 
@@ -170,6 +172,13 @@ A bot proposes weekly PRs for dependency bumps. The team reviews +
 merges them on a cadence. Stale deps become the security debt
 described in `backend/security.md`.
 
+Renovate is the more configurable choice (grouped updates, custom
+schedules, batching by ecosystem) and travels across GitHub /
+GitLab / Bitbucket; Dependabot is GitHub-native and zero-config to
+turn on. **Lean toward Renovate** unless you're a small team on
+GitHub that wants the default to "just work" — at which point
+Dependabot is fine.
+
 ## Examples
 
 ### Do — fast, gated PR pipeline
@@ -193,8 +202,7 @@ jobs:
   audit:
     needs: lint
     steps:
-      - uses: BeauGoldberg/cadence@v1
-        with: { command: "audit --diff", fail-on: error }
+      - run: npx @op4z/cadence audit --diff --fail-on error
 ```
 
 ### Don't — single monolithic job

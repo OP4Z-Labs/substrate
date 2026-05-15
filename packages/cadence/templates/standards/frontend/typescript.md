@@ -66,7 +66,11 @@ function legacyShim(payload: any) {  // HACK: third-party returns untyped
 `unknown` is the type to reach for. It forces a narrowing step that
 makes the assumption visible.
 
-### 3. Type vs Interface: type by default
+### 3. Type vs Interface: pick one, be consistent
+
+For most app-level shapes `type` and `interface` are interchangeable.
+The TypeScript handbook explicitly calls this a style choice. The
+guidance below is a default, not a hard rule:
 
 ```ts
 type Task = {
@@ -75,13 +79,17 @@ type Task = {
 };
 ```
 
+`type` is a reasonable default because it composes more naturally
+with unions, intersections, and mapped types — and a codebase that
+leans on those (most do) ends up converting `interface` to `type` at
+the first union.
+
 Use `interface` when:
-- You need declaration merging (rare).
+- You need declaration merging (rare, mostly module augmentation).
 - You're consuming a library that uses `interface` and you want to
   extend it.
-
-Otherwise, `type` — it composes more naturally with unions,
-intersections, and mapped types.
+- You've inherited a codebase that already standardized on `interface`
+  — consistency beats churning every file.
 
 ### 4. Discriminated unions for state machines
 
@@ -121,17 +129,31 @@ In both cases, comment the cast.
 
 ### 6. Enums: prefer string union types
 
-```ts
-// PREFERRED
-type Priority = "low" | "medium" | "high" | "critical";
+TypeScript ships three enum flavors, each with a different
+trade-off:
 
-// AVOID
+```ts
+// 1. Numeric enum — values are 0, 1, 2, 3. Reverse-mapping leaks
+//    onto the runtime object; serialization is fragile.
 enum Priority { Low, Medium, High, Critical }
+
+// 2. String enum — values are explicit strings. Better than numeric
+//    on the wire, but still emits a runtime object and isn't a
+//    structural type (so widening / narrowing is awkward).
+enum Priority { Low = "low", Medium = "medium", High = "high", Critical = "critical" }
+
+// 3. `const enum` — fully inlined at compile time. Zero runtime.
+//    But breaks under `isolatedModules` and most build tools
+//    (esbuild, swc) need an explicit flag to handle it.
+
+// PREFERRED: string union type
+type Priority = "low" | "medium" | "high" | "critical";
 ```
 
-`enum` ships runtime overhead and has surprising semantics
-(reverse mapping). String unions are zero-cost and
-narrow-friendly.
+String unions are zero-cost, narrow-friendly, work with every
+build tool, and serialize 1:1 as JSON. They beat all three enum
+flavors for most app code. Reach for `enum` only when interop with
+a library or generated code demands it.
 
 ### 7. Imports: stable order, type-only when applicable
 
@@ -149,7 +171,10 @@ import type { TaskRowProps } from "./TaskRow";
 ```
 
 `import type` for type-only imports — it lets the bundler strip
-them. ESLint can auto-fix this.
+them. ESLint can auto-fix this. Under `verbatimModuleSyntax` or
+`isolatedModules` (recommended in any modern setup), `import type`
+is sometimes required, not just a preference — the compiler can't
+always tell which imports survive emit.
 
 ### 8. Module boundaries: explicit exports
 
@@ -212,6 +237,54 @@ export async function getTask(id: string): Promise<Task | null> { ... }
 ```
 
 The IDE surfaces this on hover.
+
+### 12. Use `satisfies` for config / literal shapes you want to constrain without widening
+
+`satisfies` (TS 4.9+) is the right tool when you want to verify a
+value matches a type but keep the precise literal types intact:
+
+```ts
+// WITHOUT satisfies — `routes` widens to Record<string, string>
+const routes: Record<string, string> = {
+  home: "/",
+  tasks: "/tasks",
+  profile: "/profile",
+};
+// routes.home is now `string`, not `"/"`
+
+// WITH satisfies — checked against the constraint, but keys and
+// values keep their literal types
+const routes = {
+  home: "/",
+  tasks: "/tasks",
+  profile: "/profile",
+} satisfies Record<string, string>;
+// routes.home is `"/"`; typeof routes is the precise shape
+```
+
+Lean on `satisfies` for:
+- Configuration objects (theme tokens, route maps, feature flags).
+- Discriminated-union literal tables (e.g. mapping `kind` →
+  handler functions).
+- Anywhere you'd otherwise lose information to a type annotation.
+
+### 13. `tsconfig.json` inheritance for monorepos
+
+In a monorepo, ship one root `tsconfig.base.json` with the strict
+settings, then have each package extend it:
+
+```json
+// tsconfig.base.json (root)
+{ "compilerOptions": { "strict": true, ... } }
+
+// packages/forms/tsconfig.json
+{ "extends": "../../tsconfig.base.json", "compilerOptions": { "outDir": "dist" } }
+```
+
+For typed cross-package references, use project references
+(`references: [{ "path": "../shared" }]`) — they give you per-
+package incremental builds and enforce that one package can't reach
+into another's source without an explicit dependency.
 
 ## Examples
 
