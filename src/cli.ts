@@ -19,6 +19,7 @@ import { runCreate } from "./commands/create.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runInit } from "./commands/init.js";
 import { runKnowledgeRefresh, runKnowledgeShow } from "./commands/knowledge.js";
+import { runUpgrade } from "./commands/upgrade.js";
 import { CADENCE_VERSION } from "./util/version.js";
 
 function buildProgram(): Command {
@@ -158,8 +159,25 @@ function buildProgram(): Command {
       runDoctor({ json: options.json });
     });
 
+  // ----------------------------------------------------------- upgrade
+  program
+    .command("upgrade")
+    .description("Diff scaffolded files against current templates; merge or eject drift.")
+    .option("--check", "Report drift without writing anything", false)
+    .option("--apply", "Walk the modified entries interactively", false)
+    .option("--dry-run", "Alias for --check (no writes)", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(async (options: UpgradeCliOptions) => {
+      await runUpgrade({
+        check: options.check,
+        apply: options.apply,
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+      });
+    });
+
   // Provide a soft hint when a deferred command is invoked.
-  for (const deferred of ["review", "standards", "workflow", "config", "upgrade"]) {
+  for (const deferred of ["review", "standards", "config"]) {
     program
       .command(deferred)
       .description(`(Not yet available — planned for a later version.)`)
@@ -209,6 +227,13 @@ interface KnowledgeCliOptions {
 
 interface DoctorCliOptions {
   json?: boolean;
+}
+
+interface UpgradeCliOptions {
+  check?: boolean;
+  apply?: boolean;
+  dryRun?: boolean;
+  quiet?: boolean;
 }
 
 /**
