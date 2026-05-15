@@ -42,14 +42,14 @@ import { makeTmpDir, removeTmpDir, runCli } from "./helpers.js";
  * asked for a second test using OP4Z's real compose; we copy that file into
  * the tmp dir so the test never mutates the source.
  *
- * If the OP4Z repo isn't present on this machine (CI box without a clone),
- * the test self-skips via `it.skipIf` so substrate stays portable. The check
- * lives at module top so vitest's collection phase sees it.
+ * Set `OP4Z_COMPOSE_PATH` env var to an absolute path on the runner to enable
+ * this fixture (used during maintainer-side dogfood runs). On any machine
+ * without it, the test self-skips via `it.skipIf` so substrate stays portable.
+ * The check lives at module top so vitest's collection phase sees it.
  */
-const OP4Z_COMPOSE_PATH =
-  process.env.OP4Z_COMPOSE_PATH ??
-  "/home/beaug/dev/TheNexusProject/docker-compose.yml";
-const OP4Z_COMPOSE_AVAILABLE = existsSync(OP4Z_COMPOSE_PATH);
+const OP4Z_COMPOSE_PATH = process.env.OP4Z_COMPOSE_PATH;
+const OP4Z_COMPOSE_AVAILABLE =
+  OP4Z_COMPOSE_PATH != null && OP4Z_COMPOSE_PATH.length > 0 && existsSync(OP4Z_COMPOSE_PATH);
 
 // Compose fixture: 3 services, shapes the v0.3 mini-parser handles.
 // (No `command: >` block scalars — see note above for why.)
