@@ -12,7 +12,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import type { CompositeDetector, Detector, RipgrepDetector, RuleDefinition, RulesYamlDocument, ScriptDetector, Severity } from "./types.js";
+import type { CompositeDetector, Detector, EscalationStep, RipgrepDetector, RuleDefinition, RulesYamlDocument, ScriptDetector, Severity } from "./types.js";
 
 const ALLOWED_SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
 const ALLOWED_DETECTOR_TYPES = ["ripgrep", "script", "composite", "shell", "manual"] as const;
@@ -158,6 +158,11 @@ function validateRule(
     if (detector) rule.detector = detector;
   }
 
+  if (o.escalate_after !== undefined) {
+    const steps = validateEscalateAfter(o.escalate_after, id, strict, warnings);
+    if (steps && steps.length > 0) rule.escalate_after = steps;
+  }
+
   // Surface unknown top-level fields when strict.
   const allowed = new Set([
     "id",
@@ -168,6 +173,7 @@ function validateRule(
     "category",
     "tags",
     "detector",
+    "escalate_after",
   ]);
   for (const key of Object.keys(o)) {
     if (!allowed.has(key)) {
@@ -270,4 +276,56 @@ function arrayField(o: Record<string, unknown>, key: string): string[] | undefin
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Validate a rule's `escalate_after` declaration. Each entry must be
+ * `{ age_days: <int>, target_severity: <severity|bump> }`.
+ *
+ * Steps are sorted by `age_days` ascending so the runtime can walk them
+ * in order and pick the highest-age step that applies.
+ */
+function validateEscalateAfter(
+  raw: unknown,
+  ruleId: string,
+  strict: boolean,
+  warnings: string[],
+): EscalationStep[] | null {
+  if (!Array.isArray(raw)) {
+    const msg = `rule "${ruleId}" has malformed escalate_after (not an array)`;
+    if (strict) throw new RulesLoadError(msg);
+    warnings.push(msg);
+    return null;
+  }
+  const out: EscalationStep[] = [];
+  const allowedTargets = new Set([...ALLOWED_SEVERITIES, "bump"]);
+  for (let i = 0; i < raw.length; i += 1) {
+    const e = raw[i];
+    if (!isObject(e)) {
+      const msg = `rule "${ruleId}" escalate_after[${i}] is not an object`;
+      if (strict) throw new RulesLoadError(msg);
+      warnings.push(msg);
+      continue;
+    }
+    const ageRaw = (e as Record<string, unknown>).age_days;
+    const targetRaw = (e as Record<string, unknown>).target_severity;
+    if (typeof ageRaw !== "number" || !Number.isFinite(ageRaw) || ageRaw < 0) {
+      const msg = `rule "${ruleId}" escalate_after[${i}] has invalid age_days (must be a non-negative integer)`;
+      if (strict) throw new RulesLoadError(msg);
+      warnings.push(msg);
+      continue;
+    }
+    if (typeof targetRaw !== "string" || !allowedTargets.has(targetRaw)) {
+      const msg = `rule "${ruleId}" escalate_after[${i}] has invalid target_severity "${String(targetRaw)}" — expected one of ${[...allowedTargets].join(", ")}`;
+      if (strict) throw new RulesLoadError(msg);
+      warnings.push(msg);
+      continue;
+    }
+    out.push({
+      age_days: Math.floor(ageRaw),
+      target_severity: targetRaw as EscalationStep["target_severity"],
+    });
+  }
+  out.sort((a, b) => a.age_days - b.age_days);
+  return out;
 }

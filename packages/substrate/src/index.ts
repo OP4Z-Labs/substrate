@@ -59,6 +59,64 @@ export type {
   ResolvedContext,
   WorkingTreeState,
 } from "./v2/context-loader.js";
+export {
+  discoverHooks,
+  findMatchingHooks,
+  validateHookManifest,
+} from "./v2/hooks.js";
+export type {
+  HookDescriptor,
+  HookDiscoveryOptions,
+  HookDiscoveryResult,
+  HookFiringContext,
+  HookManifest,
+  HookStep,
+  HookStepType,
+  HookTrigger,
+  InvalidHookManifest,
+} from "./v2/hooks.js";
+export {
+  discoverDocChecks,
+  evaluateDocCheck,
+  findMatchingDocChecks,
+  matchGlob,
+  validateDocCheckManifest,
+} from "./v2/doc-checks.js";
+export type {
+  DocCheckDescriptor,
+  DocCheckDiscoveryOptions,
+  DocCheckDiscoveryResult,
+  DocCheckFinding,
+  DocCheckManifest,
+  DocCheckMatch,
+  DocCheckRequire,
+  DocCheckSeverity,
+  InvalidDocCheckManifest,
+} from "./v2/doc-checks.js";
+export {
+  encodeProjectPath,
+  locateMemoryDir,
+  parseMemoryFrontmatter,
+  queryMemory,
+  renderMemoryInjection,
+} from "./v2/memory.js";
+export type {
+  MemoryEntry,
+  MemoryFrontmatter,
+  MemoryQueryOptions,
+  MemoryQueryResult,
+  MemoryType as SubstrateMemoryType,
+} from "./v2/memory.js";
+export {
+  checkComposition,
+  findLatestSidecar,
+  parseDuration,
+} from "./v2/composition.js";
+export type {
+  CompositionCheckResult,
+  SidecarLookupOptions,
+  SidecarRecord,
+} from "./v2/composition.js";
 export type {
   Acceptance,
   ComposedFinding,

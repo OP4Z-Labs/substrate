@@ -26,6 +26,7 @@ import {
   RulesLoadError,
 } from "../audit/rules.js";
 import type { RuleDefinition } from "../audit/types.js";
+import { queryMemory, renderMemoryInjection } from "./memory.js";
 import type { ContextClause, WorkflowManifest } from "./types.js";
 
 export interface WorkingTreeState {
@@ -56,6 +57,12 @@ export interface LoadedMemory {
   ageDays?: number;
   /** Memory type per frontmatter (`feedback` | `project` | etc.). */
   type?: string;
+  /** Memory scope (e.g. `backend`). */
+  scope?: string;
+  /** Tags. */
+  tags?: string[];
+  /** Absolute path on disk (so callers can show provenance). */
+  path?: string;
 }
 
 export interface KnowledgeBlock {
@@ -65,10 +72,14 @@ export interface KnowledgeBlock {
 
 export interface ResolvedContext {
   standards: LoadedStandard[];
-  /** Stub in B1; first-class loading in B2. */
   memories: LoadedMemory[];
   rules: RuleDefinition[];
   knowledge: KnowledgeBlock[];
+  /**
+   * Pre-rendered memory injection block (plan §6.4). Empty string when
+   * no memories matched. Orchestrators prepend this to the AI prompt.
+   */
+  memoryInjection: string;
   /** Warnings recorded during resolution (missing standards, etc.). */
   warnings: string[];
 }
@@ -86,6 +97,10 @@ export interface LoadContextOptions {
   standardsRoot?: string;
   /** Override the RULES.yaml path. */
   rulesPath?: string;
+  /** Override the memory store path (highest precedence; see plan §6.1). */
+  memoryPath?: string;
+  /** Test seam: stub homedir() lookup for Claude Code memory bridge. */
+  homeDir?: string;
 }
 
 export function loadContext(options: LoadContextOptions): ResolvedContext {
@@ -95,17 +110,16 @@ export function loadContext(options: LoadContextOptions): ResolvedContext {
 
   const standards = resolveStandards(context.standards ?? [], root, options.standardsRoot, warnings);
   const rules = resolveRules(context.rules ?? [], root, options.rulesPath, warnings);
-  // TODO (B2): wire up first-class memory integration per plan §6.
-  // The seam is intentional: workflows can already declare
-  // `context.memory.*` in their manifest; B2 turns those declarations
-  // into actual memory file reads. For B1 we return empty + a warning
-  // when the workflow declared memory expectations.
-  const memories: LoadedMemory[] = [];
-  if (context.memory) {
-    warnings.push(
-      "context.memory is declared but first-class memory loading lands in B2 (Substrate v2 phase B2).",
-    );
-  }
+
+  // First-class memory loading (B2). The workflow's `context.memory`
+  // block drives the filters; `intersect-with-changed-files: true`
+  // additionally intersects against `tree.changedFiles`.
+  const { memories, memoryInjection, memoryWarnings } = resolveMemories(
+    context,
+    options,
+  );
+  warnings.push(...memoryWarnings);
+
   // TODO (B4): knowledge-sections resolution.
   const knowledge: KnowledgeBlock[] = [];
   if (context["knowledge-sections"] && context["knowledge-sections"].length > 0) {
@@ -114,7 +128,58 @@ export function loadContext(options: LoadContextOptions): ResolvedContext {
     );
   }
 
-  return { standards, memories, rules, knowledge, warnings };
+  return { standards, memories, rules, knowledge, memoryInjection, warnings };
+}
+
+function resolveMemories(
+  context: ContextClause,
+  options: LoadContextOptions,
+): {
+  memories: LoadedMemory[];
+  memoryInjection: string;
+  memoryWarnings: string[];
+} {
+  if (!context.memory) {
+    return { memories: [], memoryInjection: "", memoryWarnings: [] };
+  }
+  const mem = context.memory;
+  const intersectFiles =
+    mem["intersect-with-changed-files"] && options.tree?.changedFiles
+      ? options.tree.changedFiles
+      : undefined;
+
+  const queryResult = queryMemory({
+    types: mem.types,
+    scope: mem.scope,
+    tags: mem.tags,
+    intersectWithFiles: intersectFiles,
+    memoryPath: options.memoryPath,
+    cwd: options.cwd,
+    homeDir: options.homeDir,
+  });
+
+  const memories: LoadedMemory[] = queryResult.memories.map((m) => ({
+    name: m.name,
+    description: m.description,
+    body: m.body,
+    ageDays: m.ageDays,
+    type: m.type,
+    scope: m.scope,
+    tags: m.tags,
+    path: m.path,
+  }));
+
+  const memoryInjection = renderMemoryInjection(queryResult.memories, {
+    types: mem.types,
+    scope: mem.scope,
+    tags: mem.tags,
+  });
+
+  return {
+    memories,
+    memoryInjection,
+    memoryWarnings: queryResult.warnings,
+  };
 }
 
 function resolveStandards(

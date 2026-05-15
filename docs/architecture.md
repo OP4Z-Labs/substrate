@@ -1,8 +1,8 @@
 # Substrate — architecture
 
-> **Status:** v2.0 draft (Phase B1). The two-layer model and primitives
-> 1–2 ship in this release; primitives 3–11 layer in over B2/B3/B4.
-> See the project plan for the full eleven-primitive roadmap.
+> **Status:** v2.0 draft (Phase B2). The two-layer model + primitives
+> 1–7 ship in this release; primitives 8–11 layer in over B3/B4. See
+> the project plan for the full eleven-primitive roadmap.
 
 Substrate is built as a **layered runtime** with one bright line in the
 middle: **deterministic primitives below, AI-aware orchestration above.**
@@ -59,16 +59,19 @@ command takes `--json`.
 
 ### Commands and modules
 
-| Command                     | Module                                           | Notes                                                    |
-| --------------------------- | ------------------------------------------------ | -------------------------------------------------------- |
-| `substrate audit`           | `src/audit/`                                     | v1.0; runs RULES.yaml detector runtime.                  |
-| `substrate doctor`          | `src/commands/doctor.ts`                         | v1.0; installation + config sanity checks.               |
-| `substrate validate [path]` | `src/v2/deterministic/validate-command.ts`       | v2.0; JSON-Schema validation of workflow manifests.      |
-| `substrate query rules`     | `src/v2/deterministic/query-command.ts`          | v2.0; filter RULES.yaml by id glob.                      |
-| `substrate query standards` | `src/v2/deterministic/query-command.ts`          | v2.0; list standards docs.                               |
-| `substrate query memory`    | `src/v2/deterministic/query-command.ts`          | v2.0 stub; full impl lands in B2 (plan §6).              |
-| `substrate knowledge`       | `src/commands/knowledge.ts`                      | v1.0; regenerate KNOWLEDGE.md from docker-compose.       |
-| `substrate emit-sidecar`    | (planned, B3)                                    | Writes audit sidecar JSON.                               |
+| Command                          | Module                                           | Notes                                                          |
+| -------------------------------- | ------------------------------------------------ | -------------------------------------------------------------- |
+| `substrate audit`                | `src/audit/`                                     | v1.0; runs RULES.yaml detector runtime. v2.0 (B2) applies `escalate_after`. |
+| `substrate doctor`               | `src/commands/doctor.ts`                         | v1.0; installation + config sanity checks.                     |
+| `substrate validate [path]`      | `src/v2/deterministic/validate-command.ts`       | v2.0; JSON-Schema validation of workflow manifests.            |
+| `substrate query rules`          | `src/v2/deterministic/query-command.ts`          | v2.0; filter RULES.yaml by id glob.                            |
+| `substrate query standards`      | `src/v2/deterministic/query-command.ts`          | v2.0; list standards docs.                                     |
+| `substrate query memory`         | `src/v2/deterministic/query-command.ts`          | v2.0 (B2); first-class memory with Claude Code bridge.         |
+| `substrate query doc-checks`     | `src/v2/deterministic/query-command.ts`          | v2.0 (B2); evaluate conditional-doc-check registry.            |
+| `substrate hooks list`           | `src/v2/deterministic/hooks-command.ts`          | v2.0 (B2); inspect cross-cutting hooks.                        |
+| `substrate hooks describe <id>`  | `src/v2/deterministic/hooks-command.ts`          | v2.0 (B2); show one hook's full manifest.                      |
+| `substrate knowledge`            | `src/commands/knowledge.ts`                      | v1.0; regenerate KNOWLEDGE.md from docker-compose.             |
+| `substrate emit-sidecar`         | (planned, B3)                                    | Writes audit sidecar JSON.                                     |
 
 The Discoverer (`src/v2/discoverer.ts`) and Context loader
 (`src/v2/context-loader.ts`) are deterministic library modules that
@@ -97,6 +100,18 @@ const context = deterministic.loadContext({
 // Queries
 deterministic.runQueryRules({ byPrefix: ["BE-PY-*"], json: true });
 deterministic.runQueryStandards({ patterns: ["backend/*.md"], json: true });
+deterministic.runQueryMemory({ types: ["feedback"], scope: "backend" });
+deterministic.runQueryDocChecks({ forFiles: ["apps/foo.py"] });
+
+// Hooks (cross-cutting)
+deterministic.runHooksList({ trigger: ["workflow-completion"] });
+deterministic.runHooksDescribe({ id: "auto-emit-sidecar" });
+
+// Memory (programmatic)
+const { memories } = deterministic.queryMemory({
+  types: ["feedback"],
+  scope: "backend",
+});
 ```
 
 The `deterministic.*` namespace is the recommended import path for v2
@@ -138,24 +153,32 @@ output.
 | `substrate review --proposals`     | (B3)                                    | Walks the proposal queue.                                                            |
 | `substrate workflow create`        | (later)                                 | Interactive workflow authoring.                                                      |
 
-### B1 step support
+### B1/B2 step support
 
-`substrate run` ships in B1 with **partial** step coverage:
+`substrate run` step coverage as of B2:
 
 - `invoke-deterministic` and `run-tool` — fully runnable. The step's
   `run` shell command executes under the consumer's CWD. Stdout/stderr
   are inherited.
-- All AI-step types (`prompt`, `prompt-and-action`,
-  `invoke-sub-workflow`, `gate`, `discover`, `propose-doc-change`) —
-  surface `status: "deferred"` with a clear message pointing at B2.
-  The workflow halts at the first deferred step and the CLI exits
-  with code 2.
+- AI-step types (`prompt`, `prompt-and-action`, `invoke-sub-workflow`,
+  `gate`, `discover`, `propose-doc-change`) — surface
+  `status: "deferred"` with a clear message pointing at B3. The
+  workflow halts at the first deferred step and the CLI exits with
+  code 2. The full AI step engine (prompt loops, mid-workflow user
+  confirms, sub-workflow dispatch, gates) is B3 work.
 
-This means workflows whose steps are all `invoke-deterministic` shell
-commands run end-to-end today. Workflows with prompt steps run up to
-the first prompt step and stop. The full AI step engine (prompt loops,
-mid-workflow user confirms, sub-workflow dispatch, gates) is the
-substantive Phase B2 deliverable.
+What B2 adds around the step engine:
+
+- **Cross-cutting hooks fire** at `workflow-start`,
+  `workflow-step-completion`, and `workflow-completion`. Each hook
+  invocation surfaces in `result.hookRuns` and (by default) does not
+  fail the workflow.
+- **`composes_findings_of` freshness check** runs before the first
+  step. Stale sidecar dependencies surface as warnings at workflow
+  start.
+- **Memory injection** is rendered into `ResolvedContext.memoryInjection`
+  during context-load and is available to the orchestrator before
+  step dispatch.
 
 ### Programmatic surface
 

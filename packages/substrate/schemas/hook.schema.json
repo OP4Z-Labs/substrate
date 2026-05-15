@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://op4z.dev/substrate/schemas/hook.schema.json",
+  "title": "Substrate v2 Cross-Cutting Hook",
+  "description": "Declarative manifest for a substrate v2 cross-cutting hook. Hooks fire at lifecycle events (workflow-start, workflow-step-completion, workflow-completion, session-start, session-end, file-change) regardless of which workflow ran. They are matched against the firing context via the `matches` filter and executed by the orchestrator.",
+  "type": "object",
+  "required": ["id", "schema_version", "trigger", "step"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "description": "Manifest schema version. Only `v2.0` is recognized in this release.",
+      "type": "string",
+      "enum": ["v2.0"]
+    },
+    "id": {
+      "description": "Unique hook id within the workspace.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "description": "Optional human-readable description of what this hook does and when it fires.",
+      "type": "string"
+    },
+    "trigger": {
+      "description": "Lifecycle event(s) at which this hook fires. ALL listed triggers will invoke the hook.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "workflow-start",
+          "workflow-step-completion",
+          "workflow-completion",
+          "session-start",
+          "session-end",
+          "file-change"
+        ]
+      },
+      "minItems": 1
+    },
+    "matches": {
+      "description": "Filter for which firing contexts invoke this hook. ALL fields must match.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workflow-id": {
+          "description": "Match only firings of this exact workflow id.",
+          "type": "string"
+        },
+        "workflow-kind": {
+          "description": "Match only firings whose workflow.kind equals this value.",
+          "type": "string",
+          "enum": ["audit", "review", "scaffold", "task-tackle", "other"]
+        },
+        "exit-code": {
+          "description": "Match only firings whose exit code equals this value, or `any` for unconditional. Only meaningful for `workflow-completion`.",
+          "oneOf": [
+            { "type": "integer" },
+            { "type": "string", "enum": ["any", "pass", "fail"] }
+          ]
+        },
+        "step-id": {
+          "description": "Match only firings of this exact step id. Only meaningful for `workflow-step-completion`.",
+          "type": "string"
+        }
+      }
+    },
+    "enabled": {
+      "description": "Whether the hook is active. Defaults to true.",
+      "type": "boolean",
+      "default": true
+    },
+    "order": {
+      "description": "Execution priority when multiple hooks match. Lower numbers run first. Defaults to 100.",
+      "type": "integer",
+      "default": 100
+    },
+    "step": {
+      "description": "The action to perform when the hook fires.",
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "description": "Step type. `run-deterministic` shells out to a deterministic command; `noop` is a placeholder for hooks whose handler is implemented in-process.",
+          "type": "string",
+          "enum": ["run-deterministic", "noop"]
+        },
+        "command": {
+          "description": "Shell command to invoke for `run-deterministic` steps.",
+          "type": "string"
+        },
+        "pass-result": {
+          "description": "Pass the firing context's exit code / result to the command via stdin (JSON).",
+          "type": "boolean",
+          "default": false
+        },
+        "fail-on-error": {
+          "description": "If true, a non-zero exit from the hook fails the workflow. Defaults to false (hooks are advisory).",
+          "type": "boolean",
+          "default": false
+        },
+        "handler": {
+          "description": "Substrate-internal handler name for `noop` steps. Used by built-in hooks whose logic lives in TS (e.g. `auto-drift-detect` skeleton for B3).",
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "run-deterministic" } } },
+          "then": { "required": ["command"] }
+        }
+      ]
+    },
+    "authors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "last_updated": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    }
+  }
+}

@@ -175,6 +175,12 @@ rules:
       type: ripgrep
       pattern: '^\s*print\s*\('
       paths: ["apps", "packages", "src"]
+    # Demonstrates Primitive 7 (escalate_after). A stray print()
+    # surviving in `main` for a month signals worse hygiene than a
+    # one-off; for three months it's a "what's blocking?" item.
+    escalate_after:
+      - { age_days: 30, target_severity: medium }
+      - { age_days: 90, target_severity: high }
 
   - id: BE-PY-002
     title: pyproject.toml is the single source of truth
@@ -352,7 +358,7 @@ rules:
     title: Pin base image versions
     doc: infrastructure/docker.md
     severity: medium
-    description: `FROM node:latest` is a vulnerability surface. Pin to a digest or at minimum a major.minor tag.
+    description: "`FROM node:latest` is a vulnerability surface. Pin to a digest or at minimum a major.minor tag."
     category: infrastructure
     detector:
       type: ripgrep

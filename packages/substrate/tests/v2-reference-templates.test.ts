@@ -49,7 +49,12 @@ function seedTemplates(targetRoot: string): string[] {
   return copied;
 }
 
-const REFERENCE_IDS = ["audit-service", "audit-package", "tackle-task"];
+const REFERENCE_IDS = [
+  "audit-service",
+  "audit-package",
+  "tackle-task",
+  "audit-composite",
+];
 
 describe("reference workflow templates", () => {
   let tmp: string;

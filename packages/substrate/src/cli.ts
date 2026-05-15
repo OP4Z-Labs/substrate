@@ -46,10 +46,15 @@ import {
 } from "./commands/workflow.js";
 import { runValidate } from "./v2/deterministic/validate-command.js";
 import {
+  runQueryDocChecks,
   runQueryMemory,
   runQueryRules,
   runQueryStandards,
 } from "./v2/deterministic/query-command.js";
+import {
+  runHooksDescribe,
+  runHooksList,
+} from "./v2/deterministic/hooks-command.js";
 import { runV2Workflow } from "./v2/orchestrator/run-command.js";
 import {
   emitTelemetryEvent,
@@ -601,12 +606,16 @@ function buildProgram(): Command {
   query
     .command("memory")
     .description(
-      "Query memories (STUB in B1 — first-class memory loads in B2; see plan §6).",
+      "Query memories from the active memory store (Claude Code bridge by default; see plan §6).",
     )
     .option("--types <list>", "Comma-separated memory types (feedback,project,…)")
     .option("--scope <scope>", "Memory scope filter")
     .option("--tags <list>", "Comma-separated tag filter")
     .option("--for-files <list>", "Comma-separated changed-file paths")
+    .option(
+      "--memory-path <dir>",
+      "Override memory storage path (highest precedence; see plan §6.1)",
+    )
     .option("--json", "Emit machine-readable JSON", false)
     .option("--quiet", "Suppress informational output", false)
     .action(
@@ -615,6 +624,7 @@ function buildProgram(): Command {
         scope?: string;
         tags?: string;
         forFiles?: string;
+        memoryPath?: string;
         json?: boolean;
         quiet?: boolean;
       }) => {
@@ -625,11 +635,89 @@ function buildProgram(): Command {
           forFiles: options.forFiles
             ? options.forFiles.split(",").map((f) => f.trim())
             : undefined,
+          memoryPath: options.memoryPath,
           json: options.json,
           quiet: options.quiet,
         });
       },
     );
+  query
+    .command("doc-checks")
+    .description(
+      "List or evaluate conditional-doc-checks (plan §3.4). Pass --for-files to evaluate which checks fire.",
+    )
+    .option(
+      "--for-files <list>",
+      "Comma-separated changed-file paths to evaluate registry against",
+    )
+    .option(
+      "--changelog-touched",
+      "Treat CHANGELOG.md as touched (suppresses changelog-on-feat-or-fix-style checks)",
+      false,
+    )
+    .option(
+      "--commit-message <text>",
+      "Commit message context for checks that match on commit-message-pattern",
+    )
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (options: {
+        forFiles?: string;
+        changelogTouched?: boolean;
+        commitMessage?: string;
+        json?: boolean;
+        quiet?: boolean;
+      }) => {
+        runQueryDocChecks({
+          forFiles: options.forFiles
+            ? options.forFiles.split(",").map((f) => f.trim())
+            : undefined,
+          changelogTouched: options.changelogTouched,
+          commitMessage: options.commitMessage,
+          json: options.json,
+          quiet: options.quiet,
+        });
+      },
+    );
+
+  // ------------------------------------------------------- hooks (v2 deterministic)
+  // Read-only inspection of substrate/hooks/*.yaml. Dispatch happens
+  // automatically inside `substrate run`; these commands are for
+  // discovery + debugging.
+  const hooks = program
+    .command("hooks")
+    .description(
+      "Inspect cross-cutting hooks declared under substrate/hooks/.",
+    );
+  hooks
+    .command("list")
+    .description("List all discovered hooks (id, trigger, description).")
+    .option(
+      "--trigger <names>",
+      "Comma-separated trigger kinds to filter by (workflow-start,workflow-completion,…)",
+    )
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (options: { trigger?: string; json?: boolean; quiet?: boolean }) => {
+        runHooksList({
+          trigger: options.trigger
+            ? options.trigger.split(",").map((t) => t.trim()).filter(Boolean)
+            : undefined,
+          json: options.json,
+          quiet: options.quiet,
+        });
+      },
+    );
+  hooks
+    .command("describe <id>")
+    .description("Print one hook's full manifest (trigger, matches, step).")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((id: string, options: { json?: boolean; quiet?: boolean }) => {
+      runHooksDescribe({ id, json: options.json, quiet: options.quiet });
+    });
 
   // ------------------------------------------------------- run (v2 orchestration)
   // Orchestration-layer command. Executes a v2 workflow by id. In B1 only

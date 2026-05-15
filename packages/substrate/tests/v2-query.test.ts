@@ -133,19 +133,43 @@ describe("runQueryStandards", () => {
   });
 });
 
-describe("runQueryMemory (B1 stub)", () => {
+describe("runQueryMemory (B2: first-class)", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
+  let tmp: string;
   beforeEach(() => {
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    tmp = makeTempDir();
   });
   afterEach(() => {
     logSpy.mockRestore();
+    removeTempDir(tmp);
   });
 
-  it("returns empty list with a B2-deferred warning", () => {
-    const result = runQueryMemory({ quiet: true });
+  it("returns empty list with a no-store warning when no store is configured", () => {
+    // Use a fresh tmp dir with no substrate.config.json memory.path
+    // and a tmp homedir override so Claude Code's default also misses.
+    const result = runQueryMemory({
+      memoryPath: undefined,
+      cwd: tmp,
+      quiet: true,
+    });
     expect(result.memories).toEqual([]);
-    expect(result.warnings[0]).toMatch(/B2/);
+    expect(result.source).toBe("none");
+    expect(result.warnings.some((w) => /No memory store found/.test(w))).toBe(
+      true,
+    );
+  });
+
+  it("reads memories from --memory-path and surfaces them with source=flag", () => {
+    mkdirSync(tmp, { recursive: true });
+    writeFileSync(
+      join(tmp, "m1.md"),
+      `---\nname: m1\ndescription: m1 desc\nmetadata:\n  type: feedback\n  scope: backend\n---\nbody`,
+    );
+    const result = runQueryMemory({ memoryPath: tmp, quiet: true });
+    expect(result.memories.length).toBe(1);
+    expect(result.memories[0].name).toBe("m1");
+    expect(result.source).toBe("flag");
   });
 });
 
@@ -184,10 +208,14 @@ describe("JSON output shape", () => {
     expect(parsed.rules[0].id).toBe("X-001");
   });
 
-  it("emits parseable JSON for query memory stub", () => {
-    runQueryMemory({ json: true });
+  it("emits parseable JSON for query memory", () => {
+    // Pass an empty tmp dir via --memory-path so source is `flag` and
+    // memories resolves to []. We avoid relying on the absence of a
+    // global memory store.
+    runQueryMemory({ memoryPath: tmp, json: true });
     const parsed = JSON.parse(stdoutBuf);
     expect(parsed.memories).toEqual([]);
     expect(Array.isArray(parsed.warnings)).toBe(true);
+    expect(typeof parsed.source).toBe("string");
   });
 });

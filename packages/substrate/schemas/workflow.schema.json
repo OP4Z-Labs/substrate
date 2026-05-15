@@ -53,9 +53,14 @@
     "when": { "$ref": "#/definitions/when" },
     "context": { "$ref": "#/definitions/context" },
     "composes_findings_of": {
-      "description": "Cross-workflow dependencies. (Behavior is B2/B3; recognized in the schema for forward-compat.)",
+      "description": "Cross-workflow dependencies. Runtime checks the freshness of each declared workflow's sidecar before this workflow executes and surfaces warnings when any dep is stale beyond `require-fresh-within`.",
       "type": "array",
       "items": { "$ref": "#/definitions/composedFinding" }
+    },
+    "escalate_after": {
+      "description": "Workflow-level age-based severity escalation. Applied across all findings produced by this workflow. Equivalent to placing the same `escalate_after` block on each rule the workflow can flag.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/escalationStep" }
     },
     "hooks": {
       "type": "object",
@@ -195,6 +200,26 @@
         "workflow": { "type": "string" },
         "section": { "type": "string" },
         "require-fresh-within": { "type": "string" }
+      }
+    },
+
+    "escalationStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["age_days", "target_severity"],
+      "properties": {
+        "age_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Apply this step when a finding's age in whole days is >= this value."
+        },
+        "target_severity": {
+          "description": "Effective severity to apply. `bump` raises one level (low→medium→high→critical).",
+          "oneOf": [
+            { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+            { "type": "string", "enum": ["bump"] }
+          ]
+        }
       }
     },
 

@@ -30,6 +30,7 @@ export {
   runQueryRules,
   runQueryStandards,
   runQueryMemory,
+  runQueryDocChecks,
 } from "./query-command.js";
 export type {
   QueryRulesOptions,
@@ -38,7 +39,59 @@ export type {
   QueryStandardsResult,
   QueryMemoryOptions,
   QueryMemoryResult,
+  QueryDocChecksOptions,
+  QueryDocChecksResult,
 } from "./query-command.js";
+
+export { runHooksList, runHooksDescribe } from "./hooks-command.js";
+export type {
+  HooksListOptions,
+  HooksListResult,
+  HooksDescribeOptions,
+  HooksDescribeResult,
+} from "./hooks-command.js";
+
+export {
+  discoverHooks,
+  findMatchingHooks,
+  validateHookManifest,
+} from "../hooks.js";
+export type {
+  HookDescriptor,
+  HookDiscoveryOptions,
+  HookDiscoveryResult,
+  HookFiringContext,
+  HookManifest,
+  HookMatches,
+  HookStep,
+  HookStepType,
+  HookTrigger,
+  InvalidHookManifest,
+} from "../hooks.js";
+
+export {
+  discoverDocChecks,
+  findMatchingDocChecks,
+  validateDocCheckManifest,
+} from "../doc-checks.js";
+export type {
+  DocCheckDescriptor,
+  DocCheckDiscoveryOptions,
+  DocCheckDiscoveryResult,
+  DocCheckManifest,
+  DocCheckMatch,
+  DocCheckRequire,
+  DocCheckSeverity,
+  InvalidDocCheckManifest,
+} from "../doc-checks.js";
+
+export { queryMemory, locateMemoryDir } from "../memory.js";
+export type {
+  MemoryEntry,
+  MemoryQueryOptions,
+  MemoryQueryResult,
+  MemoryFrontmatter,
+} from "../memory.js";
 
 // Re-export pure modules so consumers don't need a separate import.
 export { validateManifest, validateManifestFile } from "../validate.js";

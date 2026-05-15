@@ -73,6 +73,18 @@ export interface ComposedFinding {
   "require-fresh-within"?: string;
 }
 
+export type EscalationTargetSeverity =
+  | "critical"
+  | "high"
+  | "medium"
+  | "low"
+  | "bump";
+
+export interface WorkflowEscalationStep {
+  age_days: number;
+  target_severity: EscalationTargetSeverity;
+}
+
 export interface WorkflowStep {
   id: string;
   name?: string;
@@ -115,6 +127,7 @@ export interface WorkflowManifest {
   when?: WhenClause;
   context?: ContextClause;
   composes_findings_of?: ComposedFinding[];
+  escalate_after?: WorkflowEscalationStep[];
   hooks?: { "cross-cutting"?: string[] };
   steps?: WorkflowStep[];
   followups?: Followup[];

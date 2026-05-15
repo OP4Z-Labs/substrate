@@ -21,6 +21,12 @@ import kleur from "kleur";
 import { discoverWorkflows, type DiscoveryResult } from "../discoverer.js";
 import { loadContext } from "../context-loader.js";
 import { resolveTargetRoot } from "../../util/paths.js";
+import { discoverHooks } from "../hooks.js";
+import { dispatchHooks, type HookRunRecord } from "./hook-dispatch.js";
+import {
+  checkComposition,
+  type CompositionCheckResult,
+} from "../composition.js";
 import type { WorkflowDescriptor, WorkflowStep } from "../types.js";
 
 export interface RunWorkflowOptions {
@@ -53,6 +59,10 @@ export interface RunWorkflowResult {
     memoriesLoaded: number;
     rulesMatched: number;
   };
+  /** Cross-cutting hook invocations (workflow-start / step / completion). */
+  hookRuns?: HookRunRecord[];
+  /** Result of evaluating `composes_findings_of` declarations. */
+  composition?: CompositionCheckResult;
 }
 
 export async function runV2Workflow(
@@ -80,6 +90,27 @@ export async function runV2Workflow(
     rulesMatched: context.rules.length,
   };
 
+  // Discover hooks once per workflow run — pass the descriptor list to
+  // each dispatchHooks() call to avoid re-walking the filesystem.
+  const hooksDiscovery = discoverHooks({ cwd });
+  const allHookRuns: HookRunRecord[] = [];
+
+  // Composition freshness check (`composes_findings_of`). Stale deps
+  // surface as warnings BEFORE the workflow runs so the user can
+  // decide whether to refresh first. We never fail the workflow on
+  // stale composition deps — they're advisory.
+  const composition = checkComposition(workflow.manifest, { cwd });
+  if (
+    composition.warnings.length > 0 &&
+    !options.quiet &&
+    !options.json
+  ) {
+    for (const warning of composition.warnings) {
+      console.log(kleur.yellow(`  ! ${warning}`));
+    }
+    console.log();
+  }
+
   if (!options.quiet && !options.json) {
     console.log(kleur.bold(`\nRunning v2 workflow: ${workflow.manifest.id}`));
     if (workflow.manifest.description) {
@@ -101,6 +132,21 @@ export async function runV2Workflow(
   const steps = workflow.manifest.steps ?? [];
   const stepResults: RunStepResult[] = [];
   let exitCode: 0 | 1 | 2 = 0;
+
+  // workflow-start hooks fire before the first step. In dry-run we
+  // still fire them — they may be cheap registrations (telemetry) and
+  // skipping them silently would hide configuration drift.
+  if (!options.dryRun) {
+    const startHooks = await dispatchHooks(
+      {
+        trigger: "workflow-start",
+        workflowId: workflow.manifest.id,
+        workflowKind: workflow.manifest.kind,
+      },
+      { cwd, quiet: options.quiet, hooks: hooksDiscovery.hooks },
+    );
+    allHookRuns.push(...startHooks);
+  }
 
   for (let i = 0; i < steps.length; i += 1) {
     const step = steps[i];
@@ -142,6 +188,23 @@ export async function runV2Workflow(
       }
     }
 
+    // workflow-step-completion hooks fire after each step (regardless
+    // of step outcome). This is the primary hook for "after every step,
+    // do X" patterns (e.g. checkpoint sidecar updates).
+    if (!options.dryRun) {
+      const stepHooks = await dispatchHooks(
+        {
+          trigger: "workflow-step-completion",
+          workflowId: workflow.manifest.id,
+          workflowKind: workflow.manifest.kind,
+          stepId: step.id,
+          exitCode: result.status === "ok" ? 0 : result.status === "failed" ? 1 : undefined,
+        },
+        { cwd, quiet: options.quiet, hooks: hooksDiscovery.hooks },
+      );
+      allHookRuns.push(...stepHooks);
+    }
+
     if (result.status === "failed") {
       exitCode = 1;
       break;
@@ -156,6 +219,22 @@ export async function runV2Workflow(
     }
   }
 
+  // workflow-completion hooks fire once the workflow exits (even on
+  // failure / deferral). exitCode is the workflow's final code so
+  // `matches.exit-code: { pass | fail | <int> }` filters work.
+  if (!options.dryRun) {
+    const completionHooks = await dispatchHooks(
+      {
+        trigger: "workflow-completion",
+        workflowId: workflow.manifest.id,
+        workflowKind: workflow.manifest.kind,
+        exitCode,
+      },
+      { cwd, quiet: options.quiet, hooks: hooksDiscovery.hooks },
+    );
+    allHookRuns.push(...completionHooks);
+  }
+
   const ok = exitCode === 0;
   const summary: RunWorkflowResult = {
     workflowId: workflow.manifest.id,
@@ -163,6 +242,8 @@ export async function runV2Workflow(
     exitCode,
     steps: stepResults,
     contextSummary,
+    hookRuns: allHookRuns,
+    composition,
   };
 
   if (options.json) {

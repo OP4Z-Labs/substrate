@@ -1,0 +1,26 @@
+schema_version: v2.0
+id: auto-propose-tasks
+description: >-
+  After a workflow with `kind: audit` completes with findings (exit
+  code 1 or 2), invoke `substrate query rules` so the AI session can
+  surface candidate task creations to the user. The full
+  proposal-pipeline integration lands in B3; B2 ships this hook as
+  the entry point.
+trigger:
+  - workflow-completion
+matches:
+  workflow-kind: audit
+  exit-code: fail
+enabled: true
+order: 30
+step:
+  type: run-deterministic
+  # Calls the deterministic query so the orchestrator can surface what
+  # rules fired. The proposal pipeline (B3) will replace this with a
+  # task-creation primitive.
+  command: 'echo "auto-propose-tasks: would invoke substrate query rules + task creation primitive (B3)"'
+  pass-result: true
+  fail-on-error: false
+authors:
+  - substrate
+last_updated: "2026-05-15"

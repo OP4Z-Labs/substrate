@@ -15,10 +15,22 @@ export type { WriteReportOptions, WriteReportResult } from "./report.js";
 export { listDiffPaths } from "./diff-paths.js";
 export { readTrend } from "./trend.js";
 export type { TrendEntry, TrendSummary } from "./trend.js";
+export {
+  applyEscalations,
+  buildFirstSeenIndex,
+  computeEffectiveSeverity,
+  fingerprintFinding,
+  readHistoricalSidecars,
+} from "./escalation.js";
+export type {
+  ApplyEscalationsOptions,
+  HistoricalSidecar,
+} from "./escalation.js";
 export type {
   AuditReport,
   CompositeDetector,
   Detector,
+  EscalationStep,
   Finding,
   RipgrepDetector,
   RuleDefinition,

@@ -177,7 +177,7 @@ describe("loadContext — rules", () => {
   });
 });
 
-describe("loadContext — memory stub", () => {
+describe("loadContext — memory (B2: first-class loading)", () => {
   let tmp: string;
   beforeEach(() => {
     tmp = makeTempDir();
@@ -186,15 +186,46 @@ describe("loadContext — memory stub", () => {
     removeTempDir(tmp);
   });
 
-  it("returns empty memories with a B2-deferred warning when memory is declared", () => {
+  it("warns about no memory store when memory is declared but no store is configured", () => {
+    // No --memory-path, no $SUBSTRATE_MEMORY_PATH, no
+    // substrate.config.json memory.path, and tmp's encoded
+    // Claude Code dir doesn't exist either. Result: warning, no memories.
     const result = loadContext({
       workflow: buildManifest({
         context: { memory: { types: ["feedback"], scope: "backend" } },
       }),
       cwd: tmp,
+      homeDir: tmp, // ensure Claude Code default resolves to a missing dir
     });
     expect(result.memories).toEqual([]);
-    expect(result.warnings.some((w) => w.includes("B2"))).toBe(true);
+    expect(
+      result.warnings.some((w) => w.includes("No memory store found")),
+    ).toBe(true);
+  });
+
+  it("loads memories from a directory passed via memoryPath", () => {
+    const memDir = join(tmp, "mem");
+    mkdirSync(memDir, { recursive: true });
+    writeFileSync(
+      join(memDir, "feedback-x.md"),
+      `---\nname: feedback-x\ndescription: a feedback memory\nmetadata:\n  type: feedback\n  scope: backend\n  tags:\n    - api\n---\nbody content here`,
+    );
+    const result = loadContext({
+      workflow: buildManifest({
+        context: { memory: { types: ["feedback"], scope: "backend" } },
+      }),
+      cwd: tmp,
+      memoryPath: memDir,
+      homeDir: tmp,
+    });
+    expect(result.memories.length).toBe(1);
+    expect(result.memories[0].name).toBe("feedback-x");
+    expect(result.memories[0].type).toBe("feedback");
+    expect(result.memories[0].scope).toBe("backend");
+    expect(result.memoryInjection).toContain(
+      "Relevant prior decisions and feedback",
+    );
+    expect(result.memoryInjection).toContain("feedback-x");
   });
 
   it("does not warn when memory is not declared", () => {

@@ -1,0 +1,25 @@
+schema_version: v2.0
+id: auto-update-trend
+description: >-
+  After any workflow completes, append a one-line summary to the
+  trend journal at substrate/audits/_trend.jsonl. Useful for
+  score-over-time analysis. v1.0's `substrate audit` already writes
+  trend entries on its own; this hook covers non-audit workflows.
+trigger:
+  - workflow-completion
+matches:
+  exit-code: any
+enabled: true
+order: 20
+step:
+  type: run-deterministic
+  # The hook receives the firing context on stdin as JSON when
+  # pass-result is true. A real implementation would parse stdin and
+  # append a JSONL entry; B2 ships an echo placeholder to keep hook
+  # dispatch tests hermetic.
+  command: 'echo "auto-update-trend: completion event seen"'
+  pass-result: true
+  fail-on-error: false
+authors:
+  - substrate
+last_updated: "2026-05-15"

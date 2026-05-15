@@ -75,6 +75,16 @@ export interface CompositeDetector {
 
 export type Detector = RipgrepDetector | ScriptDetector | CompositeDetector;
 
+export interface EscalationStep {
+  /** Age threshold in days at which this escalation applies. */
+  age_days: number;
+  /**
+   * Either an explicit target severity, or `"bump"` to increase by one
+   * level (low → medium → high → critical).
+   */
+  target_severity: Severity | "bump";
+}
+
 export interface RuleDefinition {
   id: string;
   title: string;
@@ -94,6 +104,13 @@ export interface RuleDefinition {
    * Tags for filtering. The CLI's `--tag foo` flag matches against this list.
    */
   tags?: string[];
+  /**
+   * Age-based severity escalation steps. Findings flagged by this rule
+   * have their severity raised (per the matching step's target_severity)
+   * once their first-seen date is older than the step's `age_days`.
+   * Steps are applied in order; the highest-age step that applies wins.
+   */
+  escalate_after?: EscalationStep[];
 }
 
 export interface RulesYamlMeta {
@@ -116,7 +133,21 @@ export interface RulesYamlDocument {
  */
 export interface Finding {
   ruleId: string;
+  /**
+   * Effective severity at report time. When `originalSeverity` is set
+   * and differs, this is the post-escalation value (see Primitive 7,
+   * `escalate_after`).
+   */
   severity: Severity;
+  /**
+   * Pre-escalation severity. Set only when escalation actually raised
+   * the finding's severity; identical to `severity` otherwise.
+   */
+  originalSeverity?: Severity;
+  /** ISO timestamp of the earliest historical sidecar that flagged this finding. */
+  firstSeenAt?: string;
+  /** Whole-days since `firstSeenAt`. Set when escalation evaluated history. */
+  ageDays?: number;
   message: string;
   path?: string;
   line?: number;

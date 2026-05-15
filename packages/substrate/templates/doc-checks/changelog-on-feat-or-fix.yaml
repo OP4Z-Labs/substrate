@@ -1,0 +1,23 @@
+schema_version: v2.0
+id: changelog-on-feat-or-fix
+description: >-
+  When a commit is labelled feat/fix/perf/refactor and no CHANGELOG.md
+  is touched, prompt about updating the changelog. Conventional commits
+  without changelog updates accumulate undocumented user-visible
+  changes — a top cause of release-note drift.
+when:
+  commit-message-pattern: "^(feat|fix|perf|refactor)(\\([^)]+\\))?:"
+require:
+  one-of:
+    - CHANGELOG.md
+    - packages/**/CHANGELOG.md
+    - apps/**/CHANGELOG.md
+prompt: >-
+  Conventional-commit type (feat/fix/perf/refactor) detected but no
+  CHANGELOG.md is in the diff. Update the relevant CHANGELOG.md unless
+  this change is purely internal (no user-visible behaviour) — in which
+  case prefix with `chore` instead.
+severity: should-fix
+authors:
+  - substrate
+last_updated: "2026-05-15"

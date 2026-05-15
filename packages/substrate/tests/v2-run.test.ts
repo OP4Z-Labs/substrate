@@ -160,6 +160,74 @@ steps:
     expect(result.steps[0].message).toBe("dry-run");
   });
 
+  it("dispatches matching workflow-completion hooks", async () => {
+    seedWorkflow(
+      tmp,
+      "hooked.yaml",
+      `schema_version: v2.0
+id: hooked
+name: Hooked
+kind: audit
+steps:
+  - id: noop
+    type: invoke-deterministic
+    run: "true"
+`,
+    );
+    // Seed a hook that matches kind=audit
+    const hookDir = join(tmp, "substrate", "hooks");
+    mkdirSync(hookDir, { recursive: true });
+    writeFileSync(
+      join(hookDir, "after-audit.yaml"),
+      `schema_version: v2.0
+id: after-audit
+trigger: [workflow-completion]
+matches:
+  workflow-kind: audit
+step:
+  type: noop
+  handler: auto-drift-detect
+`,
+    );
+    const result = await runV2Workflow({
+      workflowId: "hooked",
+      cwd: tmp,
+      quiet: true,
+    });
+    expect(result.exitCode).toBe(0);
+    const completionHook = result.hookRuns?.find(
+      (h) => h.hookId === "after-audit",
+    );
+    expect(completionHook).toBeDefined();
+    expect(completionHook!.status).toBe("deferred");
+  });
+
+  it("surfaces composes_findings_of stale-dependency warnings", async () => {
+    seedWorkflow(
+      tmp,
+      "composite.yaml",
+      `schema_version: v2.0
+id: composite
+name: Composite
+composes_findings_of:
+  - workflow: audit-service
+    require-fresh-within: 7d
+steps:
+  - id: noop
+    type: invoke-deterministic
+    run: "true"
+`,
+    );
+    const result = await runV2Workflow({
+      workflowId: "composite",
+      cwd: tmp,
+      quiet: true,
+    });
+    expect(result.composition).toBeDefined();
+    expect(result.composition!.hasStale).toBe(true);
+    expect(result.composition!.warnings.length).toBeGreaterThan(0);
+  });
+
   it("reports context summary counts when context is loaded", async () => {
     const stdRoot = join(tmp, "substrate", "standards", "backend");
     mkdirSync(stdRoot, { recursive: true });

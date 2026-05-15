@@ -1,0 +1,28 @@
+schema_version: v2.0
+id: adr-on-architecture-change
+description: >-
+  When architecture-shaped files change, prompt about an Architecture
+  Decision Record (ADR). Long-running architectural shifts without
+  documented rationale are a top driver of "why did we do it this
+  way?" prompts in later sessions.
+when:
+  files-changed-any:
+    - apps/**/architecture/**
+    - docs/architecture/**
+    - docs/standards/backend/architecture.md
+    - docs/standards/frontend/react.md
+    - docs/ARCHITECTURE_OVERVIEW.md
+    - packages/**/architecture/**
+require:
+  one-of:
+    - docs/decisions/**
+    - auto/docs/decisions/**
+prompt: >-
+  Architecture-shaped files changed. If this is a structural decision
+  (new pattern, new boundary, new service), record an ADR via
+  `/run docs --decision`. Skip if this is a pure refactor with no new
+  decision to capture.
+severity: should-fix
+authors:
+  - substrate
+last_updated: "2026-05-15"

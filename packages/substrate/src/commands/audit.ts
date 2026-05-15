@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import kleur from "kleur";
 import {
+  applyEscalations,
   listDiffPaths,
   loadRules,
   locateRulesFile,
@@ -386,6 +387,14 @@ export async function runAuditExecute(
     pathFilter,
     totalRules: allRules.length,
   });
+
+  // Apply `escalate_after` (Primitive 7). Reads historical sidecars to
+  // determine first-seen dates for each finding, then bumps severity
+  // per the matching rule's escalation steps. Findings now carry
+  // `originalSeverity` + `severity` (= effective) so reports show
+  // both. We pass the full rule set so escalations apply to any rule
+  // that declares them, not just the filtered-in set.
+  applyEscalations(report, { rules: allRules, repoRoot });
 
   // Surface load warnings as informational lines (one shot, before reports).
   if (!options.quiet && !options.json && loaded.warnings.length > 0) {

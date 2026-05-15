@@ -1,0 +1,28 @@
+schema_version: v2.0
+id: auto-drift-detect
+description: >-
+  Skeleton entry point for the B3 proposal pipeline. Fires after every
+  workflow completion and (in B2) logs that the proposal pipeline is
+  pending. In B3, swaps in a handler that:
+    1. Reads the session-event-log for the just-completed workflow
+    2. Diffs it against the workflow manifest
+    3. Classifies drifts into typed proposals
+    4. Writes proposals to substrate/proposals/
+  See plan §3.9 + §7 for the full design.
+trigger:
+  - workflow-completion
+matches:
+  exit-code: any
+enabled: true
+order: 50
+step:
+  # noop step type — resolves to a substrate-internal handler. The
+  # `auto-drift-detect` handler is registered in `hook-dispatch.ts`
+  # and in B2 returns status=deferred with a "proposal pipeline
+  # pending (B3)" message. B3 replaces the handler implementation.
+  type: noop
+  handler: auto-drift-detect
+  fail-on-error: false
+authors:
+  - substrate
+last_updated: "2026-05-15"

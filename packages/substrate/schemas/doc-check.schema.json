@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://op4z.dev/substrate/schemas/doc-check.schema.json",
+  "title": "Substrate v2 Conditional Doc-Check",
+  "description": "Declarative file-glob → required-doc-or-prompt registry entry (plan §3.4). Walked by audit and review workflows via `substrate query doc-checks --for-files <files>`. Findings surface in --json output.",
+  "type": "object",
+  "required": ["id", "schema_version", "when", "prompt"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["v2.0"]
+    },
+    "id": {
+      "description": "Unique doc-check id within the workspace.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "description": "Optional human-readable description.",
+      "type": "string"
+    },
+    "when": {
+      "description": "Conditions; ALL must match for the doc-check to fire.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "files-changed-any": {
+          "description": "Doc-check fires when any changed file matches one of these globs.",
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "files-changed-all": {
+          "description": "Doc-check fires when all listed globs are matched among the changed files.",
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "commit-message-pattern": {
+          "description": "Doc-check fires when the commit message matches this regex.",
+          "type": "string"
+        },
+        "branch-pattern": {
+          "description": "Doc-check fires when the current branch matches this regex.",
+          "type": "string"
+        }
+      }
+    },
+    "require": {
+      "description": "Optional concrete docs the user is expected to have touched / created. The doc-check fires (and lists these as missing) when none of `one-of` was touched, or any `all-of` is missing.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "one-of": {
+          "description": "At least one of these paths must appear in changed-files for the check to be satisfied.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "all-of": {
+          "description": "All of these paths must appear in changed-files for the check to be satisfied.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "prompt": {
+      "description": "Human-readable prompt to surface when the check fires. Should explain WHY the doc update matters.",
+      "type": "string",
+      "minLength": 1
+    },
+    "severity": {
+      "description": "Severity assigned to the finding when the check fires.",
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low", "should-fix", "nice-to-have"],
+      "default": "should-fix"
+    },
+    "authors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "last_updated": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    }
+  }
+}

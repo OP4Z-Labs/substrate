@@ -1,0 +1,26 @@
+schema_version: v2.0
+id: migration-guide-on-schema-change
+description: >-
+  When database migration files are added/changed, prompt about a
+  migration guide. Schema changes without operator guidance are a
+  top cause of failed-deploy incidents.
+when:
+  files-changed-any:
+    - apps/**/migrations/**
+    - apps/**/alembic/versions/**
+    - db/migrations/**
+    - packages/**/migrations/**
+require:
+  one-of:
+    - docs/DATABASE_OPERATIONS.md
+    - docs/operations/database-ops.md
+    - docs/migrations/**
+prompt: >-
+  Migration files changed. Confirm the migration is documented:
+  destructive operations called out, rollback path described,
+  data-backfill plan included if applicable. Update
+  docs/DATABASE_OPERATIONS.md or the appropriate migration doc.
+severity: high
+authors:
+  - substrate
+last_updated: "2026-05-15"
