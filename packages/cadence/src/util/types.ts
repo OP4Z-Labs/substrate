@@ -48,6 +48,16 @@ export interface CadenceConfig {
      * enabled simultaneously — they read the same dispatch table.
      */
     cursor?: { enabled: boolean; commandsDir?: string };
+    /**
+     * v0.8: MCP bridge support. Unlike Claude/Cursor (which scaffold a
+     * slash-command markdown file the editor reads at startup), the MCP
+     * bridge scaffolds a JSON server-registration snippet at
+     * `.cadence/mcp/cadence-server.json` that the user copies into their
+     * MCP host's config (e.g. Claude Desktop's
+     * `claude_desktop_config.json`). Cadence itself runs as the MCP
+     * server via `cadence mcp serve` (stdio transport).
+     */
+    mcp?: { enabled: boolean; commandsDir?: string };
   };
   /**
    * Knowledge-discovery configuration. Drives `cadence knowledge refresh`.

@@ -175,4 +175,100 @@ describe("cadence bridges (integration)", () => {
     expect(missing).toBeDefined();
     expect(missing?.severity).toBe("error");
   });
+
+  // ---------------------------------------------------------------- v0.8
+  // MCP bridge — third bridge target. Different file shape than the
+  // markdown slash-command bridges (cadence-server.json + README.md).
+  it("--bridge mcp scaffolds the MCP server registration + README", () => {
+    const result = runCli(
+      ["init", "--name", "mcp-only", "--short-code", "MC", "--bridge", "mcp"],
+      { cwd: tmp },
+    );
+    expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+
+    const serverPath = join(tmp, ".cadence", "mcp", "cadence-server.json");
+    const readmePath = join(tmp, ".cadence", "mcp", "README.md");
+    expect(existsSync(serverPath)).toBe(true);
+    expect(existsSync(readmePath)).toBe(true);
+
+    // Server JSON shape: top-level mcpServers, keyed by `cadence-<SHORT_CODE>`.
+    const registration = JSON.parse(readFileSync(serverPath, "utf8"));
+    expect(registration.mcpServers).toBeDefined();
+    expect(Object.keys(registration.mcpServers)).toContain("cadence-MC");
+    const entry = registration.mcpServers["cadence-MC"];
+    expect(entry.command).toBe("npx");
+    expect(entry.args).toEqual(["cadence", "mcp", "serve"]);
+
+    // None of the slash-command bridge files should exist.
+    expect(existsSync(join(tmp, ".claude", "commands", "cadence.md"))).toBe(false);
+    expect(existsSync(join(tmp, ".cursor", "commands", "cadence.md"))).toBe(false);
+
+    const config = JSON.parse(
+      readFileSync(join(tmp, "cadence.config.json"), "utf8"),
+    );
+    expect(config.bridges.mcp.enabled).toBe(true);
+  });
+
+  it("--bridge claude,cursor,mcp scaffolds all three bridges", () => {
+    const result = runCli(
+      [
+        "init",
+        "--name",
+        "triple",
+        "--short-code",
+        "TR",
+        "--bridge",
+        "claude,cursor,mcp",
+      ],
+      { cwd: tmp },
+    );
+    expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+
+    expect(existsSync(join(tmp, ".claude", "commands", "cadence.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".cursor", "commands", "cadence.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".cadence", "mcp", "cadence-server.json"))).toBe(true);
+
+    const config = JSON.parse(
+      readFileSync(join(tmp, "cadence.config.json"), "utf8"),
+    );
+    expect(config.bridges.claude.enabled).toBe(true);
+    expect(config.bridges.cursor.enabled).toBe(true);
+    expect(config.bridges.mcp.enabled).toBe(true);
+  });
+
+  it("doctor reports mcp bridge as ok when scaffolded", () => {
+    runCli(
+      ["init", "--name", "d", "--short-code", "D", "--bridge", "mcp", "--quiet"],
+      { cwd: tmp },
+    );
+    const result = runCli(["doctor", "--json"], { cwd: tmp });
+    expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+    interface DoctorCheck {
+      id: string;
+      severity: string;
+    }
+    const report = JSON.parse(result.stdout);
+    const checks = report.checks as DoctorCheck[];
+    const mcp = checks.find((c) => c.id === "bridge.mcp");
+    expect(mcp?.severity).toBe("ok");
+  });
+
+  it("doctor flags missing mcp server json as an error", () => {
+    runCli(
+      ["init", "--name", "e", "--short-code", "E", "--bridge", "mcp", "--quiet"],
+      { cwd: tmp },
+    );
+    unlinkSync(join(tmp, ".cadence", "mcp", "cadence-server.json"));
+
+    const result = runCli(["doctor", "--json"], { cwd: tmp });
+    interface DoctorCheck {
+      id: string;
+      severity: string;
+    }
+    const report = JSON.parse(result.stdout);
+    const checks = report.checks as DoctorCheck[];
+    const missing = checks.find((c) => c.id === "bridge.mcp.missing");
+    expect(missing).toBeDefined();
+    expect(missing?.severity).toBe("error");
+  });
 });

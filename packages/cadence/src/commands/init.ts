@@ -13,7 +13,7 @@ import { AUTO_SUBDIRS, getTemplatesDir, resolveTargetRoot } from "../util/paths.
 import type { CadenceConfig, CadenceManifest } from "../util/types.js";
 import { CADENCE_VERSION } from "../util/version.js";
 
-export type BridgeName = "claude" | "cursor";
+export type BridgeName = "claude" | "cursor" | "mcp";
 
 export interface InitOptions {
   /** Override the target directory (defaults to cwd). */
@@ -48,6 +48,8 @@ export interface InitResult {
   claudeBridgeCreated: boolean;
   /** Whether the Cursor bridge was scaffolded. */
   cursorBridgeCreated: boolean;
+  /** Whether the MCP bridge was scaffolded (v0.8). */
+  mcpBridgeCreated: boolean;
   /** Bridges scaffolded by this invocation, by canonical name. */
   bridgesScaffolded: BridgeName[];
   /** Files created from the init template (relative paths). */
@@ -164,33 +166,41 @@ export function runInit(options: InitOptions = {}): InitResult {
   );
 
   // Bridge files. v0.5: every bridge name in `bridges[]` is scaffolded
-  // from `templates/bridges/<name>/cadence.md` into
-  // `<bridgeTargetDir>/<name>/cadence.md` where the target dir is
-  // canonical per bridge:
-  //   - claude → .claude/commands/cadence.md
-  //   - cursor → .cursor/commands/cadence.md
+  // from `templates/bridges/<name>/<file>` into
+  // `<bridgeTargetDir>/<file>` where the target dir is canonical per bridge:
+  //   - claude → .claude/commands/cadence.md      (slash-command markdown)
+  //   - cursor → .cursor/commands/cadence.md      (slash-command markdown)
+  //   - mcp    → .cadence/mcp/cadence-server.json (MCP host registration JSON)
+  //              + .cadence/mcp/README.md         (how to wire it up)
   // Multiple bridges coexist freely — they read the same dispatch table.
   let claudeBridgeCreated = false;
   let cursorBridgeCreated = false;
+  let mcpBridgeCreated = false;
   const bridgesScaffolded: BridgeName[] = [];
   for (const bridge of bridges) {
-    const sourcePath = join(templatesDir, "bridges", bridge, "cadence.md");
-    const targetPath = join(root, bridgeTargetDir(bridge), "cadence.md");
-    const content = applyBridgeReplacements(
-      readBridgeTemplate(sourcePath),
-      projectName,
-      shortCode,
-    );
-    const created = writeFileIfMissing(targetPath, content);
-    if (bridge === "claude") claudeBridgeCreated = created;
-    if (bridge === "cursor") cursorBridgeCreated = created;
-    if (created) bridgesScaffolded.push(bridge);
-    const relPath = bridgeTargetDir(bridge) + "/cadence.md";
-    log(
-      created
-        ? kleur.green("✓") + ` ${relPath}`
-        : kleur.dim(`  skipped ${relPath} (exists)`),
-    );
+    const files = bridgeFiles(bridge);
+    let anyCreated = false;
+    for (const filename of files) {
+      const sourcePath = join(templatesDir, "bridges", bridge, filename);
+      const targetPath = join(root, bridgeTargetDir(bridge), filename);
+      const content = applyBridgeReplacements(
+        readBridgeTemplate(sourcePath),
+        projectName,
+        shortCode,
+      );
+      const created = writeFileIfMissing(targetPath, content);
+      if (created) anyCreated = true;
+      const relPath = bridgeTargetDir(bridge) + "/" + filename;
+      log(
+        created
+          ? kleur.green("✓") + ` ${relPath}`
+          : kleur.dim(`  skipped ${relPath} (exists)`),
+      );
+    }
+    if (bridge === "claude") claudeBridgeCreated = anyCreated;
+    if (bridge === "cursor") cursorBridgeCreated = anyCreated;
+    if (bridge === "mcp") mcpBridgeCreated = anyCreated;
+    if (anyCreated) bridgesScaffolded.push(bridge);
   }
 
   log(
@@ -213,6 +223,7 @@ export function runInit(options: InitOptions = {}): InitResult {
     manifestCreated,
     claudeBridgeCreated,
     cursorBridgeCreated,
+    mcpBridgeCreated,
     bridgesScaffolded,
     filesCreated: created,
     filesSkipped: skipped,
@@ -230,7 +241,7 @@ export function runInit(options: InitOptions = {}): InitResult {
  */
 function resolveBridges(options: InitOptions): BridgeName[] {
   if (options.bridges && options.bridges.length > 0) {
-    const validNames: BridgeName[] = ["claude", "cursor"];
+    const validNames: BridgeName[] = ["claude", "cursor", "mcp"];
     for (const name of options.bridges) {
       if (!validNames.includes(name)) {
         throw new Error(
@@ -254,6 +265,14 @@ function resolveBridges(options: InitOptions): BridgeName[] {
  * `templates/bridges/cursor/cadence.md` — the location is an explicit
  * v0.5 assumption that can be corrected by regenerating the bridge
  * without breaking the dispatch contract.
+ *
+ * For MCP (v0.8): the "bridge file" is a JSON server-registration snippet
+ * the user copies into their MCP host's config (e.g. Claude Desktop's
+ * `claude_desktop_config.json`). We scaffold it to `.cadence/mcp/` rather
+ * than `.claude/...` because (a) MCP isn't Claude-specific (Continue,
+ * Cline, others consume the same registration shape), and (b) Claude
+ * Desktop's actual config file lives outside the repo (in the user's app
+ * support dir), so we never write to that path directly.
  */
 function bridgeTargetDir(bridge: BridgeName): string {
   switch (bridge) {
@@ -261,6 +280,24 @@ function bridgeTargetDir(bridge: BridgeName): string {
       return ".claude/commands";
     case "cursor":
       return ".cursor/commands";
+    case "mcp":
+      return ".cadence/mcp";
+  }
+}
+
+/**
+ * The file(s) scaffolded for a given bridge. Most bridges ship a single
+ * `cadence.md` slash-command file; MCP (v0.8) ships both a JSON server
+ * registration snippet AND a README explaining how to wire it into the
+ * host config (which lives outside the repo).
+ */
+function bridgeFiles(bridge: BridgeName): string[] {
+  switch (bridge) {
+    case "claude":
+    case "cursor":
+      return ["cadence.md"];
+    case "mcp":
+      return ["cadence-server.json", "README.md"];
   }
 }
 
@@ -319,6 +356,9 @@ function buildDefaultConfig(
         : { enabled: false },
       cursor: bridges.includes("cursor")
         ? { enabled: true, commandsDir: ".cursor/commands" }
+        : { enabled: false },
+      mcp: bridges.includes("mcp")
+        ? { enabled: true, commandsDir: ".cadence/mcp" }
         : { enabled: false },
     },
     knowledge: {

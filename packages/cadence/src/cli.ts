@@ -19,6 +19,7 @@ import { runCreate } from "./commands/create.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runInit } from "./commands/init.js";
 import { runKnowledgeRefresh, runKnowledgeShow } from "./commands/knowledge.js";
+import { runMcpServe } from "./commands/mcp.js";
 import {
   runTaskComplete,
   runTaskCreate,
@@ -57,7 +58,7 @@ function buildProgram(): Command {
     .option("--with-claude", "[deprecated] alias for --bridge claude", false)
     .option(
       "--bridge <names>",
-      "Comma-separated bridge names to scaffold (claude, cursor). Multiple allowed.",
+      "Comma-separated bridge names to scaffold (claude, cursor, mcp). Multiple allowed.",
     )
     .option("--quiet", "Suppress informational output", false)
     .action((options: InitCliOptions) => {
@@ -72,7 +73,7 @@ function buildProgram(): Command {
         shortCode: options.shortCode,
         stacks: options.stack ? options.stack.split(",").map((s) => s.trim()) : undefined,
         withClaude: options.withClaude,
-        bridges: bridgeNames as ("claude" | "cursor")[] | undefined,
+        bridges: bridgeNames as ("claude" | "cursor" | "mcp")[] | undefined,
         quiet: options.quiet,
       });
     });
@@ -337,6 +338,19 @@ function buildProgram(): Command {
         dryRun: options.dryRun,
         quiet: options.quiet,
       });
+    });
+
+  // ---------------------------------------------------------------- mcp
+  const mcp = program
+    .command("mcp")
+    .description(
+      "Model Context Protocol bridge. `mcp serve` runs an MCP server (stdio transport) exposing read-only cadence tools.",
+    );
+  mcp
+    .command("serve")
+    .description("Start the cadence MCP server over stdio. Blocks until the host disconnects.")
+    .action(async () => {
+      await runMcpServe();
     });
 
   // Provide a soft hint when a deferred command is invoked.

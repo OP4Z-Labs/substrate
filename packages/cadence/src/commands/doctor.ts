@@ -295,34 +295,45 @@ function checkBridge(root: string): Check[] {
   } catch {
     return [];
   }
-  // v0.5: claude + cursor share the same enable-then-check pattern.
+  // v0.5: claude + cursor; v0.8 adds mcp. Each bridge declares its
+  // canonical file (slash-command markdown or MCP JSON registration).
   const out: Check[] = [];
   const bridgeMeta: Array<{
-    name: "claude" | "cursor";
+    name: "claude" | "cursor" | "mcp";
     enabled: boolean;
     defaultDir: string;
+    file: string;
     flagHint: string;
   }> = [
     {
       name: "claude",
       enabled: config.bridges?.claude?.enabled ?? false,
       defaultDir: config.bridges?.claude?.commandsDir ?? ".claude/commands",
+      file: "cadence.md",
       flagHint: "--bridge claude",
     },
     {
       name: "cursor",
       enabled: config.bridges?.cursor?.enabled ?? false,
       defaultDir: config.bridges?.cursor?.commandsDir ?? ".cursor/commands",
+      file: "cadence.md",
       flagHint: "--bridge cursor",
+    },
+    {
+      name: "mcp",
+      enabled: config.bridges?.mcp?.enabled ?? false,
+      defaultDir: config.bridges?.mcp?.commandsDir ?? ".cadence/mcp",
+      file: "cadence-server.json",
+      flagHint: "--bridge mcp",
     },
   ];
   for (const bridge of bridgeMeta) {
     if (!bridge.enabled) continue;
-    const bridgePath = join(root, bridge.defaultDir, "cadence.md");
+    const bridgePath = join(root, bridge.defaultDir, bridge.file);
     if (!existsSync(bridgePath)) {
       out.push({
         id: `bridge.${bridge.name}.missing`,
-        title: `${bridge.defaultDir}/cadence.md`,
+        title: `${bridge.defaultDir}/${bridge.file}`,
         severity: "error",
         message: `${bridge.name} bridge enabled in config but the file is missing.`,
         fix: `Run \`cadence init ${bridge.flagHint}\` to scaffold it.`,
@@ -330,7 +341,7 @@ function checkBridge(root: string): Check[] {
     } else {
       out.push({
         id: `bridge.${bridge.name}`,
-        title: `${bridge.defaultDir}/cadence.md`,
+        title: `${bridge.defaultDir}/${bridge.file}`,
         severity: "ok",
         message: `${bridge.name} bridge present.`,
       });
