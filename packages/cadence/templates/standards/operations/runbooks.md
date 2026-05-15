@@ -59,6 +59,7 @@ edit is not.
 **Owner:** team-name
 **Severity (if alert):** sev1 / sev2 / sev3
 **Last verified:** 2026-04-15
+**Last incident update:** 2026-03-20 (INC-2026-031)
 
 ## What this means
 
@@ -102,6 +103,11 @@ If the above doesn't work in 15 minutes, page <person/team>.
 
 Every runbook follows this shape. New runbook? Copy the template;
 fill the sections; commit.
+
+`Last verified` is for routine staging drills (see rule 4).
+`Last incident update` is for the last real incident that touched
+this runbook. They're different signal — a runbook can be 90 days
+since drill but updated yesterday because someone just used it.
 
 ### 4. Runbooks are tested
 
@@ -176,7 +182,12 @@ Procedures that touch user data, billing, or auth should require:
 - Action logged after the fact.
 - Postmortem if the procedure was triggered outside its normal use.
 
-The runbook spells out which procedures need this.
+The runbook spells out which procedures need this. Enforcement is
+either tooling-level (deploy gate requiring two approvers, dual-key
+secret retrieval) or process-level (paired-screenshare checklist).
+Pick one and write the enforcement mechanism into the runbook —
+"two-person review" as a vibe in the policy doc doesn't survive a
+3am page.
 
 ### 10. Quarterly review
 
@@ -191,7 +202,7 @@ Each team reviews its runbooks every quarter:
 
 ### Do — runbook with concrete commands
 
-```markdown
+````markdown
 # Restart task-service
 
 **Owner:** platform
@@ -222,7 +233,7 @@ curl https://api.example.com/health   # expect 200
 ```
 
 If `rollout status` doesn't return within 5 minutes, escalate.
-```
+````
 
 ### Don't — vague runbook
 

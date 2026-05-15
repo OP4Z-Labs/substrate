@@ -112,6 +112,8 @@ correlation ID.
 
 ### 4. Validation errors return field-level detail
 
+Returned with HTTP `422 Unprocessable Entity`:
+
 ```json
 {
   "error": "Validation error",
@@ -126,6 +128,11 @@ correlation ID.
 
 Clients can render these next to the form field they came from.
 Generic "validation failed" is not enough.
+
+> Note: `422` (not `400`) for any payload validation failure —
+> matches FastAPI / Pydantic default behavior. `400` is reserved for
+> requests the server couldn't even parse (malformed JSON, missing
+> body). See `api.md` for the full status-code table.
 
 ### 5. Errors are logged with structure, not just messages
 
@@ -150,14 +157,21 @@ Retry only:
 - Idempotent operations.
 - Transient errors (`ConnectionError`, `TimeoutError`, HTTP 5xx).
 
-Use exponential backoff with jitter:
+Use exponential backoff with jitter. With `tenacity`:
 
 ```python
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
+
 @retry(
-    retries=3,
-    backoff_factor=2,
-    jitter=0.1,
-    retryable_exceptions=(ConnectionError, TimeoutError),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=10),
+    reraise=True,
 )
 async def call_downstream(url: str) -> dict:
     ...
@@ -170,8 +184,8 @@ NEVER retry:
 ### 7. Circuit breakers for downstream dependencies
 
 When a downstream service is failing repeatedly, stop hammering it.
-Use a circuit breaker (`tenacity`, `pybreaker`, `opossum`, etc.) so
-the failure doesn't cascade.
+Use a circuit breaker (`pybreaker` or `purgatory` for Python;
+`opossum` for Node) so the failure doesn't cascade.
 
 States: closed (normal) → open (failing, fast-fail) → half-open
 (probing).
@@ -217,6 +231,9 @@ async def get_task(db, task_id: UUID, tenant_id: UUID) -> Task:
     return task
 
 # app/api/middleware/errors.py
+# Assumes the correlation-id middleware from observability.md is
+# installed earlier in the stack — it's what sets
+# request.state.correlation_id.
 @app.exception_handler(ServiceError)
 async def service_error_handler(request, exc: ServiceError):
     logger.warning(

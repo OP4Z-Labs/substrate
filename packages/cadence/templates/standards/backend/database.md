@@ -34,8 +34,23 @@ caches have their own conventions (see vendor docs).
   you have 47 users).
 - Stable when you split a table or migrate to a new schema.
 
-Use `UUIDv7` or `ULID` when you want time-ordered IDs (better
-index locality than `UUIDv4`).
+For Postgres, `gen_random_uuid()` (built-in since 13) generates
+UUIDv4 with no extension required. v4 is random — fine for most
+workloads, but the IDs aren't time-ordered, so very large tables
+can see B-tree index fragmentation over time.
+
+If you need time-ordered IDs for better index locality on big
+tables, you have three options, all reasonable:
+
+- **App-side ULID** via `python-ulid` / `ulid-py` / `ulid` (JS).
+  Time-ordered, 26 chars, lexicographic sort = chronological sort.
+- **App-side UUIDv7** via `uuid6` (Python) / `uuidv7` (JS). Same
+  benefits, fits any column typed `uuid`.
+- **`pg_uuidv7` extension** — exposes a `uuid_generate_v7()` SQL
+  function. Available from the [pg_uuidv7](https://github.com/fboulnois/pg_uuidv7)
+  project; not in core Postgres yet.
+
+Pick one strategy per service and document it.
 
 ### 2. Every tenant-scoped table has a tenant_id column with an index
 
@@ -44,13 +59,16 @@ tenant-scoped table. Every query filters by it. No exceptions.
 
 ```sql
 CREATE TABLE tasks (
-  id          uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id   uuid NOT NULL,
   title       text NOT NULL,
   ...
 );
 CREATE INDEX tasks_tenant_id ON tasks (tenant_id);
 ```
+
+(Swap `gen_random_uuid()` for your chosen time-ordered strategy
+from rule 1 if you need it.)
 
 This is rule `BE-DB-001` / `BE-SEC-001` (cross-listed). The single
 most common multi-tenant security bug is "I forgot the tenant filter
@@ -141,9 +159,15 @@ engine = create_async_engine(
 )
 ```
 
-`pool_size + max_overflow` should never exceed
-`max_connections / number_of_replicas` for your DB instance.
-Otherwise the first overload moment becomes a connection storm.
+`pool_size + max_overflow` per app instance should never exceed
+`max_connections / (number_of_app_instances × replicas)` for your DB
+instance. A 4-instance fleet hitting a single primary needs a quarter
+the per-instance pool of a 1-instance fleet. Otherwise the first
+overload moment becomes a connection storm.
+
+If you're behind a connection pooler (PgBouncer, ProxySQL,
+RDS Proxy), size the app pool against the pooler's pool count, not
+the DB's raw `max_connections`.
 
 ### 9. Avoid the ORM for migrations and bulk operations
 
@@ -198,13 +222,20 @@ async def list_tasks(db: AsyncSession) -> list[Task]:
 ```sql
 -- Query: "give me this tenant's non-completed tasks, newest first"
 SELECT * FROM tasks
-  WHERE tenant_id = $1 AND status <> 'completed'
+  WHERE tenant_id = $1 AND status <> 'completed' AND deleted_at IS NULL
   ORDER BY created_at DESC;
 
 CREATE INDEX tasks_tenant_status_created
   ON tasks (tenant_id, status, created_at DESC)
   WHERE deleted_at IS NULL;
 ```
+
+Note the `WHERE deleted_at IS NULL` partial index: the planner only
+uses it when the query's WHERE clause includes the same predicate.
+That's why the query above filters on `deleted_at IS NULL` explicitly
+— if your data layer adds the soft-delete filter automatically (as
+in the SQLAlchemy example above), you get the partial index for free;
+if it doesn't, the index is dead weight.
 
 ### Don't — index without the matching query
 

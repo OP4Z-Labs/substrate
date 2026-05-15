@@ -79,9 +79,12 @@ missing await.
 ### 5. Mock at the boundary, not the core
 
 ```tsx
-// PREFERRED — mock at the network layer (MSW)
+// PREFERRED — mock at the network layer (MSW v2)
+import { http, HttpResponse } from "msw";
+import { setupServer } from "msw/node";
+
 const server = setupServer(
-  rest.get("/api/v1/tasks", (req, res, ctx) => res(ctx.json({ items: [], total: 0 }))),
+  http.get("/api/v1/tasks", () => HttpResponse.json({ items: [], total: 0 })),
 );
 
 // AVOID — mock the hook
@@ -114,7 +117,11 @@ Snapshot tests are terrible for:
 - Anything that re-renders frequently (every refactor touches them).
 - Components with timestamps / IDs / random data.
 
-Most component logic is better tested with explicit assertions.
+Most component logic is better tested with explicit assertions. When
+a snapshot does make sense, prefer inline snapshots
+(`toMatchInlineSnapshot()`) — the expected value lives next to the
+test, so reviewers see the diff in the PR without opening a second
+file.
 
 ### 8. Selectors: prefer accessibility-friendly queries
 
@@ -131,13 +138,21 @@ also hard to use with assistive tech.
 `getByTestId` is the escape hatch when other queries don't work.
 Don't lead with it.
 
+Use `getBy*` for elements that should already be present synchronously
+(everything in the initial render), `findBy*` for elements that
+appear after async work (data loads, state transitions). Mixing them
+without thinking causes either flakes (forgetting `find`) or slow
+tests (using `find` where `get` would suffice).
+
 ### 9. Test the happy path AND the failure path
 
 ```tsx
 test("shows error message when save fails", async () => {
-  server.use(rest.post("/api/v1/tasks", (req, res, ctx) =>
-    res(ctx.status(500), ctx.json({ error: "Internal", code: "INTERNAL_ERROR" }))
-  ));
+  server.use(
+    http.post("/api/v1/tasks", () =>
+      HttpResponse.json({ error: "Internal", code: "INTERNAL_ERROR" }, { status: 500 }),
+    ),
+  );
   render(<TaskForm onSave={vi.fn()} />);
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument();
@@ -154,7 +169,10 @@ app. Not "test every button"; test the paths that block
 revenue / mission.
 
 E2E suites that try to cover every UI state become flaky-test
-graveyards.
+graveyards. If you need broad UI coverage, reach for visual
+regression (Chromatic, Percy, Playwright's `toHaveScreenshot`) over
+adding more E2E flows — they catch rendering regressions without the
+flake surface.
 
 ### 11. Fast feedback loop
 
@@ -200,7 +218,7 @@ Three things every refactor will break.
 
 ```ts
 import { setupServer } from "msw/node";
-import { rest } from "msw";
+import { http, HttpResponse } from "msw";
 
 const server = setupServer();
 beforeAll(() => server.listen());
@@ -208,9 +226,11 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 test("loads tasks", async () => {
-  server.use(rest.get("/api/v1/tasks", (req, res, ctx) =>
-    res(ctx.json({ items: [{ id: "1", title: "Buy milk" }], total: 1 })),
-  ));
+  server.use(
+    http.get("/api/v1/tasks", () =>
+      HttpResponse.json({ items: [{ id: "1", title: "Buy milk" }], total: 1 }),
+    ),
+  );
   render(<TaskList />, { wrapper: TestProviders });
   expect(await screen.findByText("Buy milk")).toBeInTheDocument();
 });

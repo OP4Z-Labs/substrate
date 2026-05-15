@@ -39,6 +39,11 @@ contract) applies to GraphQL and gRPC just as well.
 - IDs in the path, not the query string.
 - Actions get their own segment when they don't fit verb semantics
   (`/api/v1/tasks/{id}/complete` over a magic field on PATCH).
+- `/<resource>/bulk` is the deliberate exception to "RESTful nouns"
+  — it batches creates / updates / deletes for atomicity, payload
+  efficiency, and validation in one round-trip. Document the exact
+  shape (which verbs it accepts, partial-success semantics) per
+  endpoint.
 
 ### 2. HTTP methods carry semantics
 
@@ -116,6 +121,13 @@ user-facing copy in the client based on `code`, not by parsing the
 message. The `correlation_id` lets support correlate a user-reported
 issue with server logs.
 
+Note the deliberate asymmetry with rule 4: success responses are the
+resource itself (no `data:` envelope), but error responses ARE
+enveloped. That's because an error isn't the resource — it's
+metadata describing what went wrong, and the metadata fields (`code`,
+`correlation_id`) need somewhere to live. The wrapping keeps the
+success path clean and the error path discoverable.
+
 ### 6. Status codes
 
 | Code  | Meaning                                                                        |
@@ -129,14 +141,24 @@ issue with server logs.
 | `403` | Authenticated but not allowed                                                  |
 | `404` | Not found                                                                      |
 | `409` | Conflict (e.g., duplicate)                                                     |
-| `422` | Unprocessable — semantically invalid (validation passed at the schema layer)   |
+| `422` | Unprocessable — payload validation failure (missing/invalid field, wrong type, semantic violation) |
 | `429` | Rate limited                                                                   |
 | `500` | Unexpected server error                                                        |
-| `503` | Dependency unavailable                                                         |
+| `502` | Upstream / dependency returned an invalid response                             |
+| `503` | This service is unavailable (load shedding, maintenance, draining)             |
+| `504` | Upstream / dependency timed out                                                |
 
-`422` vs `400`: use `400` when the request shape is wrong (missing
-required field, bad JSON). Use `422` when the request parsed cleanly
-but is semantically invalid (e.g. `due_date` is in the past).
+`422` vs `400`: use `400` only when the request is **malformed** —
+unparseable JSON, missing body when one is required, content-type
+mismatch. Use `422` for any **payload validation failure**: missing
+required field, wrong type, or semantic violation like `due_date` in
+the past.
+
+> Note: this matches FastAPI / Pydantic default behavior — they
+> return `422` for missing or wrong-typed fields out of the box.
+> Trying to map "missing required field" to `400` works against
+> framework defaults and produces no benefit. See `error-handling.md`
+> for the validation-error response shape.
 
 ### 7. Authentication via headers, never URL params
 
