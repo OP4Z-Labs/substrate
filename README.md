@@ -380,12 +380,23 @@ versions add the upgrade flow, the detector runtime, and the ecosystem.
 npm install
 npm run build       # tsc -b
 npm run lint        # eslint
-npm test            # vitest run (84 tests)
+npm test            # vitest run (full suite — unit + integration)
 npm run typecheck   # tsc --noEmit
 npm run format      # prettier --write
 ```
 
-End-to-end smoke test:
+### Testing
+
+Cadence ships two test layers, both run by the default `npm test`:
+
+| Layer | Location | What it covers | How it runs |
+| ----- | -------- | -------------- | ----------- |
+| **Unit** | `tests/*.test.ts` | Programmatic API surface — calls `runInit`, `runAdd`, etc. directly. Fast (~0.3s for the whole layer). | `npm run test:unit` |
+| **Integration** | `tests/integration/*.test.ts` | Spawns the built CLI (`dist/cli.js`) as a Node subprocess against a fresh tmp dir per test. Catches bugs the unit layer structurally can't — the v0.3 symlink bug (`3995a60`) is the canonical example: 84 unit tests passed cleanly while `cadence --help` silently no-op'd on the global-bin install path. | `npm run test:integration` |
+
+The integration suite rebuilds `dist/` automatically before any spec runs (via vitest's `globalSetup`), so it's always testing the current source. Each spec maps directly to a smoke-test step in `.agent/SMOKE-2026-05-14.md` — adding a new CLI surface in future milestones means adding both a unit test for the programmatic API and an integration spec for the spawned-binary contract.
+
+End-to-end manual smoke test (still useful when wiring up new commands):
 
 ```bash
 mkdir -p /tmp/cadence-smoke && cd /tmp/cadence-smoke
