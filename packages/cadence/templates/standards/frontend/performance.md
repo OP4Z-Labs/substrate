@@ -1,82 +1,224 @@
 ---
 scope: frontend
 area: performance
-last_updated: TODO
+last_updated: 2026-05-14
 rules:
   - FE-PERF-001
   - FE-PERF-002
 update_triggers:
-  - Bundle budget changes
-  - Core Web Vitals threshold updates
+  - Bundle size budget changed
+  - Core Web Vitals thresholds changed
+  - New rendering strategy adopted
 ---
 
-# Frontend Performance Standards
+# Frontend Performance
 
-> Cadence scaffold — fill in the TODOs.
+> **Cadence default standard.** Core Web Vitals + bundle discipline.
 
-Budgets and patterns for keeping the frontend fast.
+## Scope
 
-## 1. Core Web Vitals targets
+Every user-facing frontend that ships in this repo.
 
-TODO: LCP, FID, CLS, INP thresholds. Tested how, against which
-environments.
+## Rules
 
-| Metric | Target | Critical |
-| ------ | ------ | -------- |
-| LCP    | < 2.5s | < 4.0s   |
-| INP    | < 200ms | < 500ms |
-| CLS    | < 0.1  | < 0.25   |
+### 1. Core Web Vitals: target the "good" bucket
 
-## 2. Bundle budgets
+| Metric                   | Good      | Needs improvement |
+| ------------------------ | --------- | ----------------- |
+| LCP (Largest Contentful Paint) | < 2.5 s | 2.5 – 4 s     |
+| INP (Interaction to Next Paint) | < 200 ms | 200 – 500 ms |
+| CLS (Cumulative Layout Shift) | < 0.1   | 0.1 – 0.25    |
 
-TODO: Per-route budgets. Tool that enforces (size-limit, bundlesize,
-webpack-bundle-analyzer). Where the budget config lives.
+Track these in production via the `web-vitals` package or an
+RUM service. Don't fly blind.
 
-## 3. Code splitting
+### 2. Bundle size budgets
 
-- Route-level code split by default.
-- Heavy components (rich editor, charts, data tables) lazy-loaded.
-- Eager loading reserved for above-the-fold.
+Per-route gzipped JS:
 
-## 4. Image policy
+| Route type           | Budget   |
+| -------------------- | -------- |
+| Marketing / landing  | < 100 KB |
+| App entry (auth)     | < 200 KB |
+| Authenticated route  | < 300 KB |
 
-TODO: Format (AVIF / WebP fallback). Sizing (`srcset`, `sizes`).
-Loading attribute. Where the rules are enforced.
+Measure with `next build`, `vite build`, or `webpack-bundle-analyzer`.
+Each route's number lives in `docs/performance/bundle-budget.md`.
 
-## 5. Asset optimization
+A PR that pushes a route past budget either:
+- Reduces something elsewhere, OR
+- Updates the budget with a justification, OR
+- Gets blocked.
 
-TODO: Fonts (subset, preload), icons (sprite vs inline SVG vs component
-library), CSS (delivery strategy).
+### 3. Code-split by route at minimum
 
-## 6. Network discipline
+The first JS bundle a user downloads only contains the code for the
+landing page. Each subsequent route loads its own chunk on demand.
 
-- API requests deduped / cached client-side.
-- Predictable prefetching on hover for navigation links.
-- No render-blocking third-party scripts in critical paths.
+Most frameworks do this automatically; the failure mode is
+accidentally importing a giant lib at the root level (e.g.
+`import { chart } from "recharts"` in `_app.tsx`).
 
-## 7. Render performance (FE-PERF-001)
+### 4. Lists have stable keys (FE-PERF-001)
 
-- Lists above ~200 items virtualized.
-- Memoize when profiling shows a need, not preemptively.
-- Avoid effect chains that re-trigger renders.
+```tsx
+// WRONG
+items.map((item, i) => <Row key={i} item={item} />)
 
-## 8. Server-side rendering
+// RIGHT
+items.map(item => <Row key={item.id} item={item} />)
+```
 
-TODO: SSR vs SSG vs ISR per route. Hydration cost considerations.
+Index keys cause React to keep the wrong DOM elements when the list
+reorders. Symptoms: state in the wrong row, animations playing on
+the wrong item, focus drift.
 
-## 9. Measurement
+Index keys are fine only for: static lists, lists with no state per
+item, lists that never reorder.
 
-TODO: RUM (Real User Monitoring) tool. Synthetic monitoring. Where
-results are reviewed.
+### 5. Virtualize long lists
 
-## 10. CI gates
+When a list could realistically render > 100 items:
 
-TODO: Bundle size budget as a PR gate. Lighthouse CI as a periodic
-budget. Both, or one?
+```tsx
+import { useVirtualizer } from "@tanstack/react-virtual";
+```
 
-## Common anti-patterns
+Or `react-window`, or framework-native (Next.js `dynamic`, etc.).
+Rendering 10,000 DOM nodes turns scroll into a slideshow.
 
-- Importing `lodash` (not `lodash/specificFn`)
-- Eager imports of route-level components
-- Unkeyed lists that re-order on every render
-- Unbounded `useEffect` chains
+### 6. Images: width, height, lazy, modern format (FE-PERF-002)
+
+```tsx
+<img
+  src="/photo.webp"
+  width={1200}
+  height={800}
+  loading="lazy"
+  alt="Sunset over the city"
+/>
+```
+
+- `width` and `height` (or aspect-ratio CSS) → no CLS.
+- `loading="lazy"` for images below the fold.
+- WebP / AVIF → 30-70 % smaller than JPEG.
+- Use the framework's `<Image>` component when available
+  (Next.js, Astro, Remix) — it handles responsive variants.
+
+### 7. Lazy-load heavy components
+
+```tsx
+const Chart = dynamic(() => import("./Chart"), { ssr: false });
+```
+
+Editors, charts, video players, complex forms — anything > 50 KB
+gzipped that's not on the critical path.
+
+### 8. Preload the next route
+
+```tsx
+<Link href="/tasks" prefetch>...</Link>
+```
+
+Most frameworks prefetch links in the viewport. Confirm yours does;
+if not, manually preload the routes users are likely to visit next.
+
+### 9. Defer non-critical CSS / JS
+
+- CSS: use `<link rel="stylesheet" media="print" onload="this.media='all'">`
+  for non-blocking load. Or extract critical CSS inline.
+- Third-party scripts (analytics, chat widgets): `defer` or
+  `<Script strategy="afterInteractive">` (Next.js).
+
+The first-paint cost of "one tiny analytics snippet" is real.
+
+### 10. Memoization where it pays
+
+```tsx
+const sortedTasks = useMemo(() => tasks.sort(byPriority), [tasks]);
+```
+
+Use `useMemo` / `useCallback` when:
+- The value is a prop to a `memo`-ed child.
+- The computation is non-trivial (large sort, complex object build).
+
+Skip it for cheap operations. The `useMemo` call itself has cost; if
+the computation is trivial, the wrapping is more expensive than the
+work.
+
+### 11. Avoid layout thrashing
+
+Reading then writing then reading DOM in a loop causes a "thrash":
+
+```ts
+// WRONG — forces synchronous layout per iteration
+for (const el of elements) {
+  el.style.height = el.offsetHeight + 10 + "px";
+}
+
+// RIGHT — batch reads, then batch writes
+const heights = elements.map(el => el.offsetHeight);
+elements.forEach((el, i) => { el.style.height = heights[i] + 10 + "px"; });
+```
+
+### 12. Track regression budgets in CI
+
+Lighthouse CI / a custom bundle-size action / web-vitals smoke tests.
+A perf regression caught at merge time costs minutes; caught a week
+later costs hours.
+
+## Examples
+
+### Do — properly sized image with lazy load
+
+```tsx
+import Image from "next/image";
+
+<Image src="/dashboard-hero.webp" width={1600} height={900} alt="..." priority />
+<Image src="/feature-1.webp" width={800} height={600} alt="..." loading="lazy" />
+```
+
+`priority` for above-the-fold; `loading="lazy"` for below.
+
+### Don't — unsized image causing layout shift
+
+```tsx
+<img src="/hero.jpg" alt="hero" />
+```
+
+Browser doesn't know how tall it'll be → CLS spike when it loads.
+
+### Do — virtualized long list
+
+```tsx
+const rowVirtualizer = useVirtualizer({
+  count: items.length,
+  getScrollElement: () => parentRef.current,
+  estimateSize: () => 50,
+});
+```
+
+### Don't — render 10k rows
+
+```tsx
+<div>
+  {items.map(item => <Row key={item.id} item={item} />)}
+</div>
+```
+
+Performance cliff hits around 1000-2000 nodes depending on row
+complexity.
+
+## Rationale
+
+Frontend performance is a feature with real business impact (every
+100ms of LCP costs ~ 1 % of conversions, per public studies). The
+discipline above — measure, budget, lazy load, virtualize — is
+boring but proven.
+
+## See also
+
+- `react.md` — memoization patterns.
+- `accessibility.md` — fast pages help assistive tech too.
+- `data-management.md` — query caching avoids re-fetches.
+- `typescript.md` — type-only imports reduce bundle.

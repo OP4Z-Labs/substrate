@@ -83,7 +83,9 @@ describe("runAdd", () => {
     expect(result.filesCreated).toHaveLength(1);
     const targetPath = join(tmp, "auto", "standards", "backend", "architecture.md");
     expect(existsSync(targetPath)).toBe(true);
-    expect(readFileSync(targetPath, "utf8")).toContain("Backend Architecture Standards");
+    // Match the v1.0 standards-doc title shape (was "Backend Architecture Standards"
+    // in the v0.3 stubs; v1.0 dropped the "Standards" suffix on the H1).
+    expect(readFileSync(targetPath, "utf8")).toContain("Backend Architecture");
   });
 
   it("add standard copies the cross-cutting RULES.yaml file", () => {

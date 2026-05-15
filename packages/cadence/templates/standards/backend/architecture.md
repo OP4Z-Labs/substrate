@@ -1,97 +1,261 @@
 ---
 scope: backend
 area: architecture
-last_updated: TODO
+last_updated: 2026-05-14
 rules:
   - BE-ARCH-001
   - BE-ARCH-002
-  - BE-ARCH-003
 update_triggers:
   - New service patterns established
   - Shared package additions
   - Middleware / dependency-injection changes
 ---
 
-# Backend Architecture Standards
+# Backend Architecture
 
-> Cadence scaffold — fill in the TODOs with your team's chosen patterns.
-> Each section is a placeholder; delete the ones that don't apply.
+> **Cadence default standard.** Opinionated baseline for backend
+> services. Override per-team where your stack diverges; keep the
+> layering discipline.
 
-This document describes the structural and behavioral patterns that
-every backend service in this repo should follow. Rules referenced below
-live in `cross-cutting/RULES.yaml`.
+## Scope
 
-## 1. Directory Structure
+This standard applies to:
 
-TODO: Document your canonical service layout. Reference one or two
-"gold standard" services that exemplify the pattern. Example shape:
+- Every long-running backend service (HTTP API, message consumer,
+  scheduled worker).
+- The boundary between HTTP / network concerns and business logic.
+- Cross-service composition patterns (events, RPC, libraries).
+
+It does NOT apply to:
+
+- CLI tools and one-shot scripts.
+- Pure libraries (no I/O, no state).
+- Frontend code (see `frontend/react.md`, `frontend/data-management.md`).
+
+## Rules
+
+### 1. Three layers: API → Service → Repository (BE-ARCH-001)
+
+Every request flows through the same three layers:
+
+```
+HTTP handler  ─►  Service class  ─►  Repository / DB
+   ↑                                     │
+   └─────  HTTP response  ◄──────────────┘
+```
+
+- **API layer** — handler functions, route definitions, request /
+  response shapes. **No business logic. No direct DB calls.** Its
+  job is to translate HTTP into a function call, and back.
+- **Service layer** — business logic. Tenant-aware, transaction-aware,
+  side-effect-aware. Calls repositories. Owns invariants.
+- **Repository / data layer** — query construction, ORM session
+  management. **No business decisions.** Returns rows or domain
+  objects.
+
+The single most common architectural violation is "I'll just do this
+one query in the handler." It compounds: now you have HTTP concerns
+in the data layer, business logic in the routing layer, and no one
+place to test the rules.
+
+### 2. Async handlers in async services (BE-ARCH-002)
+
+Pick an I/O posture per service and hold it:
+
+- **Async-first.** Every handler is `async def`. Every DB call uses
+  the async driver. No `time.sleep`, no blocking HTTP libs (use
+  `httpx` async, `aiohttp`, etc.).
+- **Sync-first.** Every handler is sync. Block freely; rely on the
+  process model (workers, threads) for concurrency.
+
+Mixing is allowed only at clearly-marked boundaries (background
+workers, CLI commands). A sync handler in an async service is a
+production-grade tail-latency footgun: it blocks the event loop and
+slows every other request on the same worker.
+
+### 3. One canonical service skeleton
+
+Every service in this repo starts from the same skeleton:
 
 ```
 service-name/
 ├── app/
-│   ├── api/             # HTTP handlers / endpoint definitions
-│   ├── core/            # config, dependencies
-│   ├── db/              # session, models, migrations
-│   ├── schemas/         # request / response shapes
-│   ├── services/        # business logic
-│   ├── integrations/    # cross-service clients
-│   └── main.py          # entry point
-└── tests/
+│   ├── api/                   HTTP layer (routes, endpoint funcs)
+│   │   └── v1/                versioned per backend/api-versioning.md
+│   ├── core/                  config, deps, app factory
+│   ├── db/                    session, base model, mixins
+│   │   ├── models/            ORM mappings
+│   │   └── migrations/        alembic / typeorm / prisma
+│   ├── schemas/               request / response types
+│   ├── services/              business logic
+│   ├── integrations/          clients for other services / vendors
+│   ├── main.py                entry point
+│   └── health.py              /health and /ready handlers
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── conftest.py
+├── pyproject.toml             (or package.json / go.mod / Cargo.toml)
+├── Dockerfile
+└── README.md
 ```
 
-## 2. Required Files
+Adapt the names to your language, but keep the layering. A new
+engineer should be able to walk into any service and know where
+each kind of code lives.
 
-TODO: List the files every service must have (logging setup, config
-surface, health endpoint, etc.) and link to reference implementations.
+### 4. Configuration: one typed surface
 
-## 3. Layering Rules (BE-ARCH-001, BE-ARCH-002)
+A service has exactly one config object (settings class / struct /
+Pydantic model). It loads from env vars at startup, validates eagerly,
+and crashes loudly if anything required is missing.
 
-- Endpoints call services.
-- Services call the database, message broker, and external integrations.
-- No direct database calls from the API layer.
-- No HTTP concerns inside service classes.
+- **No `os.getenv()` scattered across the codebase.** Add the field
+  to the config, read it once at startup, pass it through.
+- **Validate at startup, not on first use.** A service that boots
+  with bad config and only fails on the first user request is a
+  service that ships outages.
+- **Secrets are config, but typed as secrets.** Use `SecretStr` or
+  equivalent so they don't accidentally appear in logs or repr
+  output.
 
-## 4. Async / concurrency posture
+### 5. Health endpoints are mandatory
 
-TODO: Describe whether your services are async-first, sync-first, or
-mixed; what the bar is for blocking operations on the request path; how
-long-running work is queued.
+Every service exposes:
 
-## 5. Error handling
+- `GET /health` — process is alive. Cheap, no dependencies.
+- `GET /ready` — service can serve requests. Checks deps it cannot
+  start without (DB connection, primary message broker).
 
-TODO: Reference `error-handling.md` and describe the exception
-hierarchy used here.
+Health drives the orchestrator (k8s probes, ECS health checks,
+load balancers). Reusing `/ready` as `/health` couples liveness to
+dependency health and causes restart storms when a downstream is
+flapping.
 
-## 6. Dependency injection
+### 6. Inter-service communication: events for facts, HTTP for queries
 
-TODO: Document how services compose dependencies (constructor
-injection, framework DI container, factory functions).
+When service A needs to tell service B that something happened, ship
+an **event** (see `messaging.md`). When service A needs an answer
+from service B right now, make an **HTTP call**.
 
-## 7. Inter-service communication
+Anti-pattern: events that block the producer waiting for a consumer
+ACK. That's an HTTP call with extra steps.
 
-TODO: Decide between synchronous HTTP, message broker, RPC, or a mix.
-Document the cases each is appropriate for.
+Anti-pattern: HTTP calls that fan out across 5+ services to assemble
+one response. That's a join the data layer should be doing.
 
-## 8. Configuration
+### 7. Background work is its own deploy unit
 
-TODO: Single typed config surface. Where it lives, how it's validated,
-how secrets are loaded.
+Long-running tasks (more than ~5 s of work, or scheduled jobs) run in
+a separate process from the HTTP handlers. This:
 
-## 9. Observability
+- Isolates their resource use (memory, CPU) from request latency.
+- Lets you scale them independently.
+- Survives HTTP-worker restarts.
 
-TODO: Reference `observability.md`. Note any service-level minimums
-(structured logs on every request, correlation IDs, key metrics).
+Use Celery (Python), BullMQ (Node), Sidekiq (Ruby), or whatever your
+stack offers. The HTTP handler enqueues; the worker processes.
 
-## 10. Testing
+### 8. Cross-cutting concerns live in middleware
 
-TODO: Reference `testing.md`. Note any architectural test requirements
-(integration coverage on critical paths, contract tests across
-services).
+Authentication, request ID propagation, structured logging,
+rate limiting, CORS — all middleware. Each service composes a
+known stack at startup. Adding a new cross-cutting concern means
+adding middleware, not sprinkling code through handlers.
 
-## Cross-references
+## Examples
 
-- `database.md` — schema, migrations, query patterns
-- `api.md` — REST conventions, versioning, response shapes
-- `messaging.md` — events, queues, consumer groups
-- `security.md` — auth, isolation, secrets handling
-- `testing.md` — pyramid, fixtures, coverage bar
+### Do — clean three-layer separation
+
+```python
+# app/api/v1/tasks.py
+@router.post("/tasks")
+async def create_task(
+    body: TaskCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TaskRead:
+    service = TaskService(db)
+    task = await service.create(body, user.id, user.tenant_id)
+    return TaskRead.from_orm(task)
+
+# app/services/tasks.py
+class TaskService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.repo = TaskRepository(db)
+
+    async def create(self, data: TaskCreate, user_id: UUID, tenant_id: UUID) -> Task:
+        # Business invariant: due date must be in the future.
+        if data.due_at and data.due_at < now():
+            raise ValidationError("due_at must be in the future")
+        return await self.repo.insert({**data.model_dump(), "owner_id": user_id, "tenant_id": tenant_id})
+
+# app/db/repositories/tasks.py
+class TaskRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def insert(self, fields: dict) -> Task:
+        task = Task(**fields)
+        self.db.add(task)
+        await self.db.commit()
+        return task
+```
+
+### Don't — handler talks directly to the DB
+
+```python
+# WRONG
+@router.post("/tasks")
+async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
+    task = Task(**body.dict())
+    db.add(task)
+    await db.commit()
+    return task
+```
+
+Three problems: business rules can't be tested in isolation, tenant
+scoping is invisible, and the handler now knows about ORM session
+lifecycle.
+
+### Do — async-first consistency
+
+```python
+async def fetch_external_data(client: httpx.AsyncClient, url: str) -> dict:
+    response = await client.get(url, timeout=5.0)
+    response.raise_for_status()
+    return response.json()
+```
+
+### Don't — sync call inside an async handler
+
+```python
+async def fetch_external_data(url: str) -> dict:
+    # Blocks the event loop. Other requests stall.
+    return requests.get(url, timeout=5.0).json()
+```
+
+## Rationale
+
+The discipline above is the difference between a codebase where a
+new engineer can ship safely on day one and a codebase where every
+change requires rebuilding the mental model from scratch. The
+three-layer split, single config surface, and consistent skeleton
+mean every service in the repo looks like every other service from
+20 feet away — the differences are in the business logic, not in
+the structure.
+
+When teams diverge from this pattern, it's usually for a real
+reason (a specific service has unusual constraints). Document the
+divergence at the top of that service's README so the deviation is
+intentional, not accidental.
+
+## See also
+
+- `backend/api.md` — endpoint conventions, error shapes.
+- `backend/database.md` — schema design, query patterns, migrations.
+- `backend/messaging.md` — events, consumers, idempotency.
+- `backend/observability.md` — logs, metrics, tracing.
+- `backend/security.md` — auth, isolation, secrets.
+- `backend/testing.md` — pyramid, fixtures, coverage bar.

@@ -1,7 +1,7 @@
 ---
 scope: backend
 area: api
-last_updated: TODO
+last_updated: 2026-05-14
 rules:
   - BE-API-001
   - BE-API-002
@@ -11,79 +11,204 @@ update_triggers:
   - Response-shape changes
 ---
 
-# Backend API Standards
+# Backend API
 
-> Cadence scaffold — fill in the TODOs.
+> **Cadence default standard.** REST conventions for any public HTTP
+> API in this repo. See `api-versioning.md` for the version cycle.
 
-REST (or gRPC, or GraphQL) conventions every public endpoint in this
-repo follows.
+## Scope
 
-## 1. URL structure
+This standard applies to every public HTTP endpoint — internal
+service-to-service APIs and client-facing APIs both. It is REST-flavored
+but the discipline (consistent shapes, predictable errors, pagination
+contract) applies to GraphQL and gRPC just as well.
 
-TODO: Document your URL conventions. Common pattern:
+## Rules
 
-```
-/api/v1/<resource>                 # list / create
-/api/v1/<resource>/{id}            # get / update / delete
-/api/v1/<resource>/{id}/<action>   # action endpoints
-/api/v1/<resource>/bulk            # bulk operations
-```
-
-## 2. HTTP methods
-
-TODO: Confirm semantic mapping (`GET` safe, `POST` creates, `PUT`
-idempotent update, `PATCH` partial, `DELETE` removes).
-
-## 3. Query parameters
-
-TODO: Pagination, filtering, sorting, relationship inclusion.
+### 1. URL structure
 
 ```
-?skip=0&limit=50
-?status=active&status=pending
-?sort_by=created_at&order=desc
-?include=author,reviewer
+/api/v1/<resource>             list / create
+/api/v1/<resource>/{id}        get / update / delete
+/api/v1/<resource>/{id}/<verb> action endpoints (POST)
+/api/v1/<resource>/bulk        bulk operations
 ```
 
-## 4. Response shapes
+- Plural nouns: `/api/v1/tasks`, not `/api/v1/task`.
+- Lowercase, kebab-case for multi-word: `/api/v1/task-templates`.
+- IDs in the path, not the query string.
+- Actions get their own segment when they don't fit verb semantics
+  (`/api/v1/tasks/{id}/complete` over a magic field on PATCH).
 
-TODO: Document the canonical list and single-item shapes.
+### 2. HTTP methods carry semantics
 
-```json
-{ "items": [...], "total": 100, "skip": 0, "limit": 50 }
+| Method   | Use                                          | Idempotent | Safe |
+| -------- | -------------------------------------------- | ---------- | ---- |
+| `GET`    | Read                                         | ✓          | ✓    |
+| `POST`   | Create, or action that isn't safely repeated | ✗          | ✗    |
+| `PUT`    | Replace (full-update)                        | ✓          | ✗    |
+| `PATCH`  | Partial update                               | ✓          | ✗    |
+| `DELETE` | Remove                                       | ✓          | ✗    |
+
+Don't tunnel writes through `GET` to dodge CSRF. Fix CSRF properly.
+
+### 3. Query parameters: pagination, filtering, sorting, include
+
+```
+?skip=0&limit=50                  pagination (or ?cursor=...)
+?status=active&status=pending     multi-value filter (OR)
+?exclude_status=archived          exclusion filter
+?sort_by=created_at&order=desc    sorting
+?include=author,reviewer          relationship inclusion
 ```
 
-## 5. Error responses (BE-API-001)
+Pick one pagination style per service and stick to it. Mixing
+skip/limit and cursors confuses every client.
 
-TODO: Document the canonical error shape and the codes it carries.
+Cross-link: rule `BE-API-002`.
+
+### 4. Response shapes: envelopes for lists, raw for single
+
+**List endpoint:**
 
 ```json
 {
-  "error": "human-readable message",
-  "code": "ERROR_CODE",
-  "correlation_id": "..."
+  "items": [...],
+  "total": 100,
+  "skip": 0,
+  "limit": 50
 }
 ```
 
-## 6. Status codes
+**Single item:**
 
-TODO: When you use 200 vs 201 vs 204; when 4xx vs 5xx; what 422 means.
+```json
+{ "id": "uuid", "title": "...", ... }
+```
 
-## 7. Versioning
+No `data: { ... }` wrapping on single items. The shape IS the data.
 
-TODO: Reference `api-versioning.md` if you have one. URL versioning vs
-header versioning. Deprecation policy.
+### 5. Canonical error response (BE-API-001)
 
-## 8. Authentication
+```json
+{
+  "error": "human-readable message for developers",
+  "code": "ERROR_CODE",
+  "correlation_id": "uuid"
+}
+```
 
-TODO: Reference `security.md`. Per-endpoint auth requirement; how it's
-declared.
+Validation errors add a `details` array:
 
-## 9. Rate limiting
+```json
+{
+  "error": "Validation error",
+  "code": "VALIDATION_ERROR",
+  "correlation_id": "uuid",
+  "details": [
+    { "field": "title", "message": "must not be empty" }
+  ]
+}
+```
 
-TODO: Default limit, override mechanism, error response when exceeded.
+The `error` field is for developer eyes (logs, debugging). Build
+user-facing copy in the client based on `code`, not by parsing the
+message. The `correlation_id` lets support correlate a user-reported
+issue with server logs.
 
-## 10. Documentation
+### 6. Status codes
 
-TODO: OpenAPI / Swagger / similar. Where it's hosted, how it's
-generated, when it's updated.
+| Code  | Meaning                                                                        |
+| ----- | ------------------------------------------------------------------------------ |
+| `200` | OK with body                                                                   |
+| `201` | Created — include the new resource in the body                                 |
+| `202` | Accepted (async work queued)                                                   |
+| `204` | OK with no body                                                                |
+| `400` | Bad request — malformed input                                                  |
+| `401` | Unauthenticated — no/bad credentials                                           |
+| `403` | Authenticated but not allowed                                                  |
+| `404` | Not found                                                                      |
+| `409` | Conflict (e.g., duplicate)                                                     |
+| `422` | Unprocessable — semantically invalid (validation passed at the schema layer)   |
+| `429` | Rate limited                                                                   |
+| `500` | Unexpected server error                                                        |
+| `503` | Dependency unavailable                                                         |
+
+`422` vs `400`: use `400` when the request shape is wrong (missing
+required field, bad JSON). Use `422` when the request parsed cleanly
+but is semantically invalid (e.g. `due_date` is in the past).
+
+### 7. Authentication via headers, never URL params
+
+```
+Authorization: Bearer <token>
+```
+
+Never put tokens in query strings — they end up in access logs.
+
+Anonymous endpoints (login, signup, public docs) explicitly declare
+themselves. Everything else requires auth by default.
+
+### 8. Documentation: OpenAPI or it didn't ship
+
+Every API surface generates an OpenAPI / Swagger spec. The spec is
+checked into the repo (or generated from the code in CI). Breaking
+changes to the spec require an API version bump (see
+`api-versioning.md`).
+
+## Examples
+
+### Do — RESTful resource endpoints
+
+```
+GET    /api/v1/tasks                list
+POST   /api/v1/tasks                create
+GET    /api/v1/tasks/{id}           read
+PATCH  /api/v1/tasks/{id}           partial update
+DELETE /api/v1/tasks/{id}           delete
+POST   /api/v1/tasks/{id}/complete  action
+POST   /api/v1/tasks/bulk           bulk operations
+```
+
+### Don't — verbs in URLs, GET for writes
+
+```
+GET  /api/getTasks
+POST /api/createNewTask
+GET  /api/deleteTask?id=42        # CSRF-able and unauditable
+```
+
+### Do — uniform error shape
+
+```http
+HTTP/1.1 404 Not Found
+{
+  "error": "Task not found",
+  "code": "TASK_NOT_FOUND",
+  "correlation_id": "01HX2Z..."
+}
+```
+
+### Don't — error string only
+
+```http
+HTTP/1.1 404 Not Found
+"Task not found"
+```
+
+Clients can't reliably branch on string content.
+
+## Rationale
+
+A consistent API is one fewer thing every client implementer has to
+puzzle out. The conventions above are conservative on purpose —
+they're what most successful APIs have converged on. Deviate when
+your domain demands it, but write down the deviation so the next
+endpoint follows the same convention.
+
+## See also
+
+- `api-versioning.md` — version cycle, deprecation discipline.
+- `error-handling.md` — exception → HTTP mapping.
+- `security.md` — authentication, rate limiting, CSRF.
+- `observability.md` — correlation IDs, request logging.

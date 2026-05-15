@@ -1,78 +1,222 @@
 ---
 scope: backend
 area: observability
-last_updated: TODO
+last_updated: 2026-05-14
 rules:
   - BE-OBS-001
   - BE-OBS-002
 update_triggers:
-  - Logger format changes
-  - Metric naming changes
-  - Tracing tool changes
+  - New metric added
+  - Tracing backend changed
+  - Log schema modified
 ---
 
-# Backend Observability Standards
+# Observability
 
-> Cadence scaffold — fill in the TODOs.
+> **Cadence default standard.** Logs, metrics, and traces — the three
+> pillars. The point isn't dashboards; the point is being able to
+> answer "what is happening right now?" within 60 seconds.
 
-Logs, metrics, traces, and alerts. The principle: every production
-incident should be debuggable from telemetry alone.
+## Scope
 
-## 1. Logging
+Every long-running backend process. Frontend telemetry has its own
+conventions (see `frontend/logging.md`).
 
-TODO: Logger choice, output format (JSON in prod), level policy
-(`info` on the request path, `debug` for verbose, `warn` for recoverable,
-`error` for actionable).
+## Rules
 
-### Required structured fields
+### 1. Logs are structured JSON in production (BE-OBS-001)
 
-- `correlation_id` — propagated from the request
-- `request_id` (if distinct)
-- `user_id` / `tenant_id` (when relevant)
-- `service` — which service emitted the log
-- `version` — service version
-- `level`, `timestamp`, `message`
+```json
+{
+  "ts": "2026-05-14T12:34:56.789Z",
+  "level": "INFO",
+  "service": "task-service",
+  "event": "task.created",
+  "correlation_id": "01HX...",
+  "tenant_id": "...",
+  "user_id": "...",
+  "task_id": "...",
+  "duration_ms": 42
+}
+```
 
-### Forbidden in log output
+- One JSON object per line (NDJSON).
+- Timestamp in ISO 8601 with millisecond precision.
+- Stable field set per service — adding fields is non-breaking;
+  renaming is.
+- No printf-style logs in production. They're un-queryable.
 
-- Passwords, tokens, full session IDs
-- Personally-identifiable information beyond what's strictly needed
+In local dev, render to colorized human output — but the field set
+stays the same.
 
-## 2. Metrics
+### 2. Every request emits a correlation ID (BE-OBS-002)
 
-TODO: Metrics library / format (Prometheus, StatsD, OpenTelemetry).
-Naming convention (snake_case, hierarchical).
+Middleware:
 
-### Required metrics per service
+```python
+@app.middleware("http")
+async def correlation_id(request: Request, call_next):
+    cid = request.headers.get("X-Correlation-ID") or str(uuid4())
+    request.state.correlation_id = cid
+    with logger.contextualize(correlation_id=cid):
+        response = await call_next(request)
+    response.headers["X-Correlation-ID"] = cid
+    return response
+```
 
-- Request rate, error rate, latency (RED method)
-- Saturation: queue depth, connection-pool usage
-- Business metrics: per-domain counters
+Propagate the header to downstream HTTP calls so the trace spans the
+fleet. Include it in error responses so support can correlate user
+reports with logs.
 
-## 3. Tracing
+### 3. Metrics: RED + USE
 
-TODO: Tracing tool (Jaeger, Zipkin, vendor APM). Span naming,
-propagation across services.
+For each service, track:
 
-## 4. Health checks
+- **R**ate — requests per second.
+- **E**rrors — error rate (or count).
+- **D**uration — latency distribution (p50 / p95 / p99).
 
-TODO: `/health` returns 200 when the service can serve. `/ready` returns
-200 when the service is ready to receive traffic (deps available).
+For each resource (DB pool, cache, message queue):
 
-## 5. Alerts
+- **U**tilization — % in use.
+- **S**aturation — queue depth, backlog.
+- **E**rrors — connection failures, timeouts.
 
-TODO: Alert rules tied to SLOs. Where they're defined. On-call rotation.
+Wire each to a graph. Don't graph internal counters that don't
+answer "what's wrong" or "how busy."
 
-## 6. Dashboards
+### 4. Metric naming: `<scope>_<measure>_<unit>`
 
-TODO: Standard dashboard per service. What goes on it.
+```
+http_requests_total                  counter
+http_request_duration_seconds        histogram
+db_pool_connections_in_use           gauge
+event_queue_depth                    gauge
+event_processing_duration_seconds    histogram
+```
 
-## 7. Correlation across services (BE-OBS-001)
+Avoid:
+- Pure verbs (`requests` — too generic).
+- Unit-less metrics (`db_latency` — is it ms? seconds?).
+- Vendor-specific names that don't survive a backend swap.
 
-TODO: How `correlation_id` is generated, propagated, and persisted
-across service boundaries.
+### 5. Tracing for distributed work
 
-## 8. Retention and cost
+When a request crosses service boundaries, propagate a trace ID
+(W3C Trace Context or OpenTelemetry). The tracing backend (Jaeger,
+Tempo, Honeycomb, etc.) reconstructs the cross-service tree.
 
-TODO: Log retention policy, sampling for high-volume logs, cost
-budget per service.
+Instrument:
+- Inbound HTTP middleware.
+- Outbound HTTP clients.
+- Database queries (slow only — full instrumentation is expensive).
+- Message broker publish + consume.
+
+Don't instrument every function call. Trace what crosses a
+process boundary.
+
+### 6. Logs, metrics, traces — pick the right tool
+
+| Question                                       | Tool    |
+| ---------------------------------------------- | ------- |
+| "What did this one user see?"                  | Logs    |
+| "How many users hit this error in the last 5m?" | Metrics |
+| "Why did this one request take 4 seconds?"     | Traces  |
+
+Using logs for high-cardinality "what's the rate" queries is
+expensive. Using metrics for "what did this one user see" loses
+information. Pick the right tool for the question.
+
+### 7. Health and readiness are distinct (also in `architecture.md`)
+
+- `/health` → process is up. Cheap, no deps.
+- `/ready` → service can serve. Checks deps.
+
+The orchestrator polls both. Conflating them causes restart storms
+when a downstream flaps.
+
+### 8. Sensitive data does NOT go in logs
+
+No passwords, no tokens, no full credit cards, no full email
+addresses (when avoidable). Use:
+
+- IDs instead of objects (`user_id` not `user`).
+- Hashes or last-4 for sensitive fields.
+- Redaction at the logger layer when the structure can't be changed.
+
+This isn't paranoia — it's GDPR / SOC 2 / PCI compliance and an
+incident-response courtesy.
+
+### 9. Alerts have runbooks
+
+Every alert that pages someone links to a runbook in
+`docs/runbooks/`. The runbook answers:
+
+- What does this alert mean?
+- What should I check first?
+- What are the common causes?
+- What are the safe remediations?
+- Who owns it?
+
+An alert without a runbook is a 3am puzzle for the on-call.
+
+## Examples
+
+### Do — structured event log
+
+```python
+logger.info(
+    "task.created",
+    tenant_id=str(tenant_id),
+    user_id=str(user.id),
+    task_id=str(task.id),
+    type=data.type,
+    priority=data.priority,
+    duration_ms=int((time.monotonic() - start) * 1000),
+)
+```
+
+Searchable. Aggregatable. Linkable to a request via correlation ID.
+
+### Don't — concatenated message
+
+```python
+logger.info(f"Created task {task.id} for user {user.id} in {ms}ms")
+```
+
+Searchable by literal substring only. Each query is a new regex.
+
+### Do — RED dashboard for a service
+
+```
+Row 1: Request rate by endpoint (line)
+Row 2: Error rate by endpoint (line)
+Row 3: Latency p50/p95/p99 by endpoint (line)
+Row 4: DB pool utilization (gauge)
+Row 5: Background queue depth (gauge)
+```
+
+### Don't — vanity dashboards
+
+```
+Row 1: Total requests since service started
+Row 2: Disk space (yes, the host's disk)
+Row 3: Number of users ever registered
+```
+
+None of those answer "what is happening right now?"
+
+## Rationale
+
+Observability is what lets a small team operate a system bigger
+than the team. The investment up front (structured logs,
+correlation IDs, RED metrics) compounds: every incident gets
+faster to triage, every postmortem has data, every feature ships
+with feedback.
+
+## See also
+
+- `error-handling.md` — what to log when things fail.
+- `api.md` — correlation ID in responses.
+- `operations/runbooks.md` — what links each alert to.
+- `security.md` — redaction discipline.

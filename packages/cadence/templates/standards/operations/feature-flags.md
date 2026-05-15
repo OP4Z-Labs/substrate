@@ -1,79 +1,255 @@
 ---
 scope: operations
 area: feature-flags
-last_updated: TODO
+last_updated: 2026-05-14
 rules:
   - OPS-FLAG-001
 update_triggers:
-  - Flag platform changes
-  - Cleanup policy updates
+  - New flag taxonomy adopted
+  - Flag service changed
+  - Cleanup policy modified
 ---
 
-# Feature Flag Standards
+# Feature Flags
 
-> Cadence scaffold — fill in the TODOs.
+> **Cadence default standard.** Flags are how you decouple deploy
+> from release. Used well, they're a superpower. Used poorly, they're
+> the source of every "why does this only break in production" bug.
 
-How feature flags are created, used, and retired.
+## Scope
 
-## 1. Flag platform
+All feature flags — release flags, experiment flags, ops
+kill-switches, permission flags.
 
-TODO: LaunchDarkly, Flagsmith, Unleash, custom. Where flags are
-defined.
+## Rules
 
-## 2. Categories of flags
+### 1. Four flag categories, named explicitly
 
-- **Release flags** — gate unfinished features; short-lived.
-- **Experiment flags** — A/B tests; medium-lived.
-- **Ops flags** — kill switches; long-lived.
-- **Permission flags** — per-tenant or per-user toggles; long-lived.
+| Category    | Purpose                                | Lifespan      |
+| ----------- | -------------------------------------- | ------------- |
+| Release     | Hide new code until ready to ship      | < 30 days     |
+| Experiment  | A/B test, gradual rollout              | < 90 days     |
+| Ops / kill  | Disable a feature in an incident       | indefinite    |
+| Permission  | Gate by user / role / tier             | indefinite    |
 
-Naming conventions reflect category.
+Tag every flag with its category. A flag without a category is just
+an `if` statement that won't get cleaned up.
 
-## 3. Default values
+### 2. No long-lived release flags (OPS-FLAG-001)
 
-- Release flags default off in production until ready.
-- Ops flags default to the safe state.
-- Experiment flags default to the control variant.
+A release flag has 30 days. After that:
 
-## 4. Code patterns
+- The feature is shipped → remove the flag.
+- The feature was scrapped → remove the flag AND the dead code.
 
-TODO: How flags are referenced in code. SDK calls vs config lookup vs
-environment variable.
+Stale release flags rot:
 
-```ts
-if (await flags.isEnabled("new-checkout-flow", { userId })) {
-  return <NewCheckout />;
-}
-return <LegacyCheckout />;
+- Code branches both behind them become unmaintained.
+- Tests stop covering both branches.
+- Eventually someone trips the wrong combination and ships an
+  incident.
+
+The audit catches "flags older than X days" and surfaces them
+weekly. Don't let it grow.
+
+### 3. Flag names are descriptive
+
+```
+# WRONG
+new_feature
+v2
+
+# RIGHT
+release.tasks.bulk_update
+release.tasks.bulk_update_v2_optimistic
+experiment.tasks.priority_default_high
+ops.payments.disable_3ds_challenge
+permission.workspace.advanced_analytics
 ```
 
-## 5. Cleanup (OPS-FLAG-001)
+Structure: `<category>.<scope>.<name>`. The category up front means
+you can grep, audit, and clean up by category.
 
-- Release flags removed within 30 days of full rollout.
-- Experiment flags removed within 14 days of the experiment ending.
-- Ops flags reviewed quarterly.
+### 4. Default value is the safe behavior
 
-Stale flags are audited by `cadence audit --type functionality-gaps`.
+```ts
+// WRONG — default ON, requires explicit OFF to disable
+if (flags.get("ops.export.bulk_export_enabled", true)) {
+  await runBulkExport();
+}
 
-## 6. Auditing
+// RIGHT — default OFF, opt-in
+if (flags.get("ops.export.bulk_export_enabled", false)) {
+  await runBulkExport();
+}
+```
 
-- All flag changes logged.
-- Production flag changes reviewed by a second engineer (for high-risk
-  flags).
+For ops/kill flags, the default is "feature on" (so the flag is the
+KILL switch). For release flags, the default is "feature off" (so
+unreleased code stays hidden).
 
-## 7. Testing
+### 5. Flag checks happen at the call site, not deep in the call stack
 
-- Both flag states tested in CI.
-- Snapshot of flag state at incident time captured in observability.
+```ts
+// GOOD — flag check at the entry point
+async function createTask(data: TaskCreate) {
+  if (flags.isEnabled("release.tasks.with_recurrence")) {
+    return createTaskWithRecurrence(data);
+  }
+  return createTaskOriginal(data);
+}
 
-## 8. Communication
+// BAD — flag check deep inside
+async function createTaskInternal(data, db) {
+  ...
+  if (flags.isEnabled("release.tasks.with_recurrence")) {
+    // 200 lines later
+  }
+  ...
+}
+```
 
-- Major flag changes (large rollouts) announced in the change log.
-- Flag-driven user-visible changes documented in release notes.
+Deep flag checks make the code path hard to follow and the cleanup
+PR enormous.
 
-## 9. Forbidden patterns
+### 6. Both branches are tested
 
-- Flags referenced in code but missing from the platform
-- Flags in the platform never referenced from code
-- Nesting flags more than 2 levels deep
-- "Magic" flag values (use named constants for the flag keys)
+```ts
+test.each([true, false])("createTask handles flag=%s", async (flagOn) => {
+  flags.override("release.tasks.with_recurrence", flagOn);
+  ...
+});
+```
+
+Or two separate tests covering both branches. A flag with only the
+"on" branch tested is a flag that breaks on rollback.
+
+### 7. Flag rollouts are gradual + monitored
+
+A rollout sequence:
+
+1. Internal users (employees) — 100 %.
+2. Beta cohort — explicit opt-in.
+3. 1 % of all users — monitor metrics.
+4. 10 % — monitor metrics.
+5. 50 % — monitor metrics.
+6. 100 % — flag stays for 1 week (so rollback is possible), then
+   removed.
+
+If error rate or latency regresses, the rollout pauses. The flag
+service supports this directly; don't roll your own.
+
+### 8. Cleanup is a real task, not an afterthought
+
+The cleanup of a released flag is its own PR:
+
+```
+chore(flags): remove release.tasks.with_recurrence (shipped 2026-04-12)
+
+- Remove flag check in app/services/tasks.py
+- Remove the original code path
+- Update task creation tests to cover only the new flow
+- Remove flag from feature-flag service config
+```
+
+The flag goes in code. The flag goes in the service config. The
+flag is in tests. All three are removed in one PR.
+
+### 9. Permission flags ARE long-lived — but reviewed quarterly
+
+```
+permission.workspace.advanced_analytics
+permission.api.admin_only
+```
+
+These exist forever (or until the gated feature exists). Quarterly
+review: are the gating rules still correct? Is the flag still
+needed?
+
+### 10. Ops flags MUST have a documented trigger
+
+```
+ops.payments.disable_3ds_challenge
+  Triggered when:
+    - 3DS challenge rate > 50 % for 5 minutes
+    - Stripe 3DS endpoint returning 5xx
+  Reset by:
+    - Manual after Stripe status page shows green
+    - Automatic after 24h
+```
+
+This information lives in the runbook (`operations/runbooks.md`),
+linked from the flag's metadata.
+
+### 11. Flag system is highly available
+
+The flag service falls back gracefully:
+
+- If unreachable: use the cached value.
+- If no cache: use the in-code default.
+- If neither: feature stays off (safe).
+
+NEVER let a flag-service outage take down the application.
+
+### 12. No personal data in flag targeting payloads
+
+Targeting "users in tier=enterprise" is fine. Targeting "user with
+email=ceo@bigcorp.com" is a privacy issue:
+
+- The flag service likely persists targeting rules.
+- A breach of the flag service leaks the targeting data.
+
+Target by user ID, tier, region. Don't target by name / email /
+free text.
+
+## Examples
+
+### Do — categorized flag, both branches tested, cleanup tracked
+
+```ts
+// app/services/tasks.ts
+async function createTask(data: TaskCreate, user: User) {
+  if (flags.isEnabled("release.tasks.with_recurrence", { userId: user.id })) {
+    return createTaskWithRecurrence(data, user);
+  }
+  return createTaskOriginal(data, user);
+}
+
+// tests/services/tasks.test.ts
+test.each([true, false])("createTask with recurrence flag = %s", async (flagOn) => {
+  flags.override("release.tasks.with_recurrence", flagOn);
+  const task = await createTask(data, user);
+  if (flagOn) expect(task.recurrence).toBeDefined();
+  else expect(task.recurrence).toBeUndefined();
+});
+
+// TODO TASK-128: remove flag after 2026-06-12 rollout completion.
+```
+
+### Don't — uncategorized, deep, untested
+
+```ts
+// app/lib/utils.ts (200 lines into a utility module)
+function maybeAddRecurrence(task) {
+  if (flag("new_thing")) {
+    task.recurrence = ...;
+  }
+  return task;
+}
+```
+
+Hard to find, hard to clean up, hard to test, will live forever.
+
+## Rationale
+
+Feature flags trade short-term simplicity for long-term complexity.
+The trade is worth it for safe rollouts and incident-time
+kill-switches — but only if you actually clean up flags after the
+rollout. The discipline above is what keeps that promise.
+
+## See also
+
+- `runbooks.md` — ops-flag procedures.
+- `infrastructure/ci-cd.md` — gradual rollouts.
+- `backend/testing.md` — testing both flag branches.
+- `frontend/data-management.md` — flag-driven UI.

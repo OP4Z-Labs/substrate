@@ -1,90 +1,243 @@
 ---
 scope: frontend
 area: react
-last_updated: TODO
+last_updated: 2026-05-14
 rules:
   - FE-REACT-001
   - FE-REACT-002
 update_triggers:
-  - React major bumps
-  - Component patterns evolve
+  - React version upgrade
+  - New component conventions adopted
+  - State-management approach changed
 ---
 
-# React Standards
+# React
 
-> Cadence scaffold — fill in the TODOs.
+> **Cadence default standard.** Component conventions for any React
+> codebase (Next.js, Remix, Vite, plain CRA). Targets React 18+.
 
-Component and hook conventions. Drop this file if you don't use React.
+## Scope
 
-## 1. Component file shape
+Every React component, hook, and provider in the frontend code. Native
+mobile and React Server Components have additional conventions noted
+inline.
+
+## Rules
+
+### 1. Hooks at top level, never conditionally (FE-REACT-001)
 
 ```tsx
-"use client"; // when applicable (Next.js app router, etc.)
-
-import { useState, useCallback } from "react";
-
-interface Props {
-  // ...
+// WRONG — calls hooks conditionally
+function Bad({ shouldFetch }) {
+  if (shouldFetch) {
+    const { data } = useQuery(...);  // breaks rules of hooks
+  }
+  return <div />;
 }
 
-export function ComponentName({ prop }: Props) {
-  // hooks
-  // event handlers
-  // render
+// RIGHT — always call, branch on data
+function Good({ shouldFetch }) {
+  const { data } = useQuery(key, { enabled: shouldFetch });
+  return shouldFetch && data ? <div>{data}</div> : null;
 }
 ```
 
-## 2. Naming
+Enforced by `eslint-plugin-react-hooks` (`react-hooks/rules-of-hooks`).
 
-- Components: `PascalCase`
-- Hooks: `useCamelCase` (the `use` prefix is enforced)
-- Props interfaces: `PascalCase` with a descriptive suffix
-  (`ComponentNameProps`)
+### 2. Components: PascalCase; hooks: camelCase with `use` prefix (FE-REACT-002)
 
-## 3. State
+```tsx
+function TaskList() { ... }              // component
+function useTaskList() { ... }           // hook
+```
 
-TODO: When to use `useState`, when `useReducer`, when state should be
-lifted, when it should be server state.
+Components export their name; hooks use the name as their function
+name AND filename. `useTaskList.ts`, not `taskList.ts`.
 
-## 4. Effects (FE-REACT-001)
+### 3. One component per file (within reason)
 
-- Always declare a dependency array.
-- Never call hooks conditionally or after early-return.
-- Side effects belong in `useEffect`, not the render body.
-- Cleanup functions for subscriptions / timers.
+```
+components/
+├── TaskList/
+│   ├── TaskList.tsx          main export
+│   ├── TaskRow.tsx           helper, not exported elsewhere
+│   ├── TaskList.test.tsx
+│   └── index.ts              re-export the public surface
+```
 
-## 5. Memoization
+Exception: tiny presentational helpers (a `<Badge>` literally returning
+one `<span>`) can co-locate.
 
-TODO: When to use `useMemo` / `useCallback` / `React.memo`. The bar
-isn't "always memoize" — it's "memoize when profiling shows a need".
+### 4. Props are typed; defaults via destructuring, not `defaultProps`
 
-## 6. Refs
+```tsx
+interface TaskRowProps {
+  task: Task;
+  onComplete?: (id: string) => void;
+  compact?: boolean;
+}
 
-TODO: When refs are appropriate (imperative DOM access, third-party
-integrations). When they're a smell (synchronizing state).
+export function TaskRow({ task, onComplete, compact = false }: TaskRowProps) {
+  return <div className={compact ? "compact" : "comfy"}>...</div>;
+}
+```
 
-## 7. Composition over inheritance
+`defaultProps` is dead in modern React; don't use it for function
+components.
 
-TODO: Slot / children patterns. Render props vs hooks for reusable
-behavior.
+### 5. State management: right tool per problem
 
-## 8. Error boundaries
+| Problem                                  | Tool                              |
+| ---------------------------------------- | --------------------------------- |
+| Component-local UI state                 | `useState`                        |
+| State shared across a tree               | `useContext` + provider           |
+| Server state (cached, async)             | TanStack Query / SWR              |
+| Global, complex (rare)                   | Redux / Zustand / Jotai           |
+| Form state                               | React Hook Form / Formik          |
+| URL state                                | router-native                     |
 
-TODO: Where they live in the tree. What they render. How they report
-to your error tracker.
+The default is local state. Reach for context when more than 2
+levels deep want the same data; reach for a server-state library when
+you're caching async data.
 
-## 9. Lists and keys
+Putting everything in Redux because "scale" is a 2018 instinct.
+Most apps never need it.
 
-- Use stable, unique keys.
-- Index keys only when items never re-order.
+### 6. Side effects live in `useEffect`; cleanups are mandatory
 
-## 10. Server components / SSR
+```tsx
+useEffect(() => {
+  const controller = new AbortController();
+  fetch(url, { signal: controller.signal }).then(...);
+  return () => controller.abort();
+}, [url]);
+```
 
-TODO: If using a framework with server components, document the
-boundary policy and which patterns live on which side.
+If the effect attaches a listener, opens a connection, or kicks off
+async work, the cleanup either tears it down or aborts it.
 
-## 11. Common anti-patterns
+Dependencies are accurate. The exhaustive-deps lint rule is on. When
+you intentionally omit a dependency, add an eslint-disable with a
+comment explaining why.
 
-- Inline component definitions inside another component's render
-- Deep prop drilling (use context or composition)
-- Effect chains that update state that triggers another effect
+### 7. Memoization: `useMemo` / `useCallback` are cost-tolerant
+
+Don't sprinkle `useCallback` everywhere "for performance." The
+useCallback call itself has a cost.
+
+Use memoization when:
+- The value is passed to a `memo`-ed child as a prop.
+- The computation is non-trivial (sorting, mapping a large list).
+- A deps array drives a `useEffect` and you want to avoid spurious
+  re-runs.
+
+React 19's compiler will eat most of this concern; manual memoization
+is a stopgap.
+
+### 8. Server Components vs Client Components
+
+In a Server Components framework (Next.js App Router):
+
+- **Server Components by default.** Don't ship to the browser; can
+  fetch data directly.
+- **Client Components only when needed.** `"use client"` opts in to
+  interactivity. State, effects, browser APIs all require it.
+
+Keep Client Components small. Wrap them inside Server Components
+that handle data fetching.
+
+### 9. Error boundaries at route + module roots
+
+Every top-level route has an error boundary. Page-level data fetches
+live below it. Crashes in one section don't blank the whole app.
+
+```tsx
+<ErrorBoundary fallback={<RouteErrorPage />}>
+  <TaskListPage />
+</ErrorBoundary>
+```
+
+Log the error via the structured logger (see `frontend/logging.md`).
+
+### 10. Accessibility is non-negotiable
+
+`<button>` for buttons. `<a>` for links. `<label>` for inputs. Real
+semantic HTML is the cheapest accessibility win.
+
+The full a11y bar lives in `frontend/accessibility.md`. Read it.
+
+### 11. Keys on lists are stable IDs, not array index
+
+```tsx
+// WRONG
+items.map((item, i) => <Row key={i} item={item} />)
+
+// RIGHT
+items.map(item => <Row key={item.id} item={item} />)
+```
+
+Index keys are fine for static lists that never reorder. Anything
+sortable / filterable / addable / removable needs a real key.
+
+Cross-link: rule `FE-PERF-001`.
+
+## Examples
+
+### Do — typed component with named function
+
+```tsx
+"use client";
+
+import { useState } from "react";
+
+interface TaskFormProps {
+  initialTitle?: string;
+  onSave: (task: Task) => void;
+  onCancel?: () => void;
+}
+
+export function TaskForm({ initialTitle = "", onSave, onCancel }: TaskFormProps) {
+  const [title, setTitle] = useState(initialTitle);
+
+  async function handleSubmit() {
+    const task = await createTask({ title });
+    onSave(task);
+  }
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); void handleSubmit(); }}>
+      <label>Title<input value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+      <button type="submit">Save</button>
+      {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
+    </form>
+  );
+}
+```
+
+### Don't — anonymous default export, untyped, side-effects in render
+
+```tsx
+export default function ({ task, save }) {
+  fetch("/api/log", { method: "POST", body: JSON.stringify({ view: task.id }) });
+  return <div onClick={() => save(task)}>...</div>;
+}
+```
+
+Five problems: no name (bad stack traces), no types, fetch in
+render (runs on every paint), `<div>` for an interactive element
+(a11y), inline JSON without validation.
+
+## Rationale
+
+React's flexibility is also its liability — there are five ways to
+do anything and four of them have subtle wrong cases. The conventions
+above are what successful React codebases converge on after living
+with the wrong cases for a few years.
+
+## See also
+
+- `accessibility.md` — semantic HTML, ARIA, focus.
+- `data-management.md` — TanStack Query patterns.
+- `performance.md` — list keys, bundle size.
+- `typescript.md` — types that catch React mistakes.
+- `testing.md` — testing components.

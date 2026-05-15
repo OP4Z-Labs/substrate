@@ -1,74 +1,200 @@
 ---
 scope: frontend
 area: logging
-last_updated: TODO
+last_updated: 2026-05-14
 rules:
   - FE-LOG-001
 update_triggers:
-  - Logger changes
-  - PII / privacy policy updates
+  - Logging service changed
+  - PII policy updated
+  - Sample rate adjusted
 ---
 
-# Frontend Logging Standards
+# Frontend Logging
 
-> Cadence scaffold — fill in the TODOs.
+> **Cadence default standard.** Client-side logging discipline. Backend
+> logging is `backend/observability.md`.
 
-How the frontend emits diagnostic information without leaking user
-data or flooding the network.
+## Scope
 
-## 1. Logger choice
+Anything that emits a log line, an error report, or a telemetry event
+from the user's browser / device.
 
-TODO: Console + remote error tracker (Sentry, LogRocket, Bugsnag,
-custom). Where it's configured.
+## Rules
 
-## 2. Levels
+### 1. A single logger module, not console.log scattered
 
-- `debug`: dev-only; stripped from production.
-- `info`: user-driven flows worth observing in aggregate.
-- `warn`: recoverable problems (failed retry, fallback used).
-- `error`: actionable failures (unhandled exception, broken state).
+```ts
+// lib/logger.ts
+export const logger = {
+  info(event: string, data?: Record<string, unknown>) { ... },
+  warn(event: string, data?: Record<string, unknown>) { ... },
+  error(event: string, error: Error, data?: Record<string, unknown>) { ... },
+};
+```
 
-## 3. Production vs development
+Every component imports `logger`. `console.log` is for the REPL.
 
-TODO: Console output in dev verbose; in production silent for
-non-error levels. Remote tracker only receives `warn` and above.
+### 2. No PII, secrets, or sensitive form input in logs (FE-LOG-001)
 
-## 4. Structured context
+NEVER log:
+- Passwords, even hashed.
+- Tokens, JWT contents, session IDs.
+- Full credit card numbers (last 4 only, if at all).
+- Full email addresses when avoidable (`user_id` instead).
+- Form input from auth, payment, or other sensitive flows.
 
-Every log includes:
+```ts
+// WRONG
+logger.info("login.submitted", { email: form.email, password: form.password });
 
-- Component / hook name where applicable
-- User ID if known (never PII; just the ID)
-- Route / view
-- Build version
+// RIGHT
+logger.info("login.submitted", { email_provided: !!form.email });
+```
 
-## 5. Forbidden in log output (FE-LOG-001)
+This is enforced by code review + a (best-effort) lint rule that
+flags `password`, `token`, `secret` in logger arg objects.
 
-- Passwords, tokens, full session IDs
-- Personally-identifiable data beyond an opaque user ID
-- Form input values (especially in auth / payment flows)
-- Full URLs with query strings that may contain secrets
+### 3. Error tracking goes through one service
 
-## 6. Error boundaries integration
+Sentry, Datadog RUM, Rollbar — pick one. Hook it up at the error
+boundary AND at unhandled-rejection handlers:
 
-TODO: How error boundaries report to your tracker. What metadata they
-attach.
+```ts
+window.addEventListener("unhandledrejection", (e) => {
+  logger.error("unhandled.rejection", e.reason);
+});
+window.addEventListener("error", (e) => {
+  logger.error("uncaught.error", e.error);
+});
+```
 
-## 7. Performance traces
+The error boundary catches React render errors; the listeners catch
+async / global errors.
 
-TODO: When to emit performance marks. How they reach your APM tool.
+### 4. Sample noisy events
 
-## 8. Sampling
+Login success: log all. Mouse movement / scroll telemetry: sample at
+< 1 %. The sample rate is configurable per event class.
 
-TODO: Sample rate for high-volume events. Always-on for errors.
+```ts
+if (Math.random() < SCROLL_LOG_SAMPLE_RATE) {
+  logger.info("scroll.viewport", { depth });
+}
+```
 
-## 9. Privacy and consent
+### 5. Correlate frontend with backend via request ID
 
-TODO: GDPR / CCPA considerations. Whether logging is gated on consent.
+When the frontend makes an API call, the backend sets
+`X-Correlation-ID` in the response (see `backend/observability.md`).
+The frontend captures it and attaches to subsequent error reports:
 
-## Common anti-patterns
+```ts
+const correlationId = response.headers.get("X-Correlation-ID");
+logger.error("api.failed", err, { correlation_id: correlationId });
+```
 
-- `console.log(user)` (logs the entire user object including PII)
-- `console.error(error)` without context
-- Network logs that include the request body for state-changing
-  endpoints
+### 6. Structured events, not freetext
+
+```ts
+// PREFERRED
+logger.info("task.created", { task_id, priority, source: "modal" });
+
+// AVOID
+logger.info(`Created task ${task_id}`);
+```
+
+Structured events are queryable. Freetext is not.
+
+### 7. Error boundaries log + render a fallback
+
+```tsx
+class ErrorBoundary extends Component {
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    logger.error("react.error_boundary", error, { component_stack: info.componentStack });
+  }
+  ...
+}
+```
+
+The error boundary owns the bridge between React render failures and
+the logger.
+
+### 8. Production vs development
+
+```ts
+const logger = {
+  info: (event, data) => {
+    if (import.meta.env.PROD) sendToService(event, data);
+    else console.info(event, data);
+  },
+};
+```
+
+Local dev sees logs in the console; production ships to the service.
+NEVER ship production logs to the console — they cost CPU and leak
+to anyone with dev tools.
+
+### 9. User identifiable info uses an ID, not the name/email
+
+Send `user_id` (UUID) to the logger. The backend resolves to the
+human-friendly name only when displaying. Logs stay GDPR-friendly
+(delete the user → ID becomes orphaned; no PII to chase).
+
+### 10. The logger never throws
+
+A logger that throws cascades the original error into a different
+error. Catch internally:
+
+```ts
+try {
+  await sendToService(event, data);
+} catch {
+  // swallow — logging failure must not gate the user's flow
+}
+```
+
+## Examples
+
+### Do — structured error report with correlation
+
+```tsx
+async function saveTask(data: TaskCreate) {
+  try {
+    const task = await api.createTask(data);
+    logger.info("task.created", { task_id: task.id, priority: task.priority });
+    return task;
+  } catch (err) {
+    logger.error("task.create.failed", err as Error, {
+      correlation_id: (err as ApiError).correlationId,
+      priority: data.priority,
+    });
+    throw err;
+  }
+}
+```
+
+### Don't — console.log + leaked data
+
+```tsx
+async function saveTask(data) {
+  console.log("Saving", data);  // includes the full form, possibly with PII
+  const task = await api.createTask(data);
+  console.log("Saved", task);
+  return task;
+}
+```
+
+## Rationale
+
+Frontend logs are the only visibility you have into "what's
+happening in the user's browser?" Treat them as a privacy boundary
+(don't ship PII), a debugging tool (correlate with backend), and a
+product-feedback signal (event counts shape roadmap).
+
+## See also
+
+- `backend/observability.md` — correlation IDs, what the backend logs.
+- `react.md` — error boundaries.
+- `accessibility.md` — assistive-tech telemetry caveats.
+- `security.md` (backend) — secret-redaction discipline.
