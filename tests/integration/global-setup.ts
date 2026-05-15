@@ -16,6 +16,13 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const CLI_PATH = join(REPO_ROOT, "dist", "cli.js");
+const STUB_PATH = join(
+  REPO_ROOT,
+  "packages",
+  "adapter-stub",
+  "dist",
+  "index.js",
+);
 
 export default async function globalSetup(): Promise<void> {
   // Always rebuild — the build is incremental (tsc -b) so the no-change
@@ -35,6 +42,27 @@ export default async function globalSetup(): Promise<void> {
   if (!existsSync(CLI_PATH)) {
     throw new Error(
       `Integration suite global-setup: build completed but ${CLI_PATH} is missing.`,
+    );
+  }
+
+  // v0.5: build the reference stub adapter so the adapter integration
+  // tests can load it via absolute path. The stub lives outside cadence's
+  // main tsbuildinfo graph (separate tsconfig + dist) so it needs its
+  // own build invocation.
+  const stubBuild = spawnSync("npx", ["tsc"], {
+    cwd: join(REPO_ROOT, "packages", "adapter-stub"),
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if (stubBuild.status !== 0) {
+    throw new Error(
+      `Integration suite global-setup: stub adapter build failed.\n` +
+        `stdout:\n${stubBuild.stdout}\n\nstderr:\n${stubBuild.stderr}`,
+    );
+  }
+  if (!existsSync(STUB_PATH)) {
+    throw new Error(
+      `Integration suite global-setup: stub build completed but ${STUB_PATH} is missing.`,
     );
   }
 }

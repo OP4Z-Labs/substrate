@@ -19,6 +19,13 @@ import { runCreate } from "./commands/create.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runInit } from "./commands/init.js";
 import { runKnowledgeRefresh, runKnowledgeShow } from "./commands/knowledge.js";
+import {
+  runTaskComplete,
+  runTaskCreate,
+  runTaskFind,
+  runTaskSearch,
+  runTaskUpdate,
+} from "./commands/task.js";
 import { runUpgrade } from "./commands/upgrade.js";
 import { CADENCE_VERSION } from "./util/version.js";
 
@@ -159,6 +166,102 @@ function buildProgram(): Command {
       runDoctor({ json: options.json });
     });
 
+  // -------------------------------------------------------------- task
+  const task = program
+    .command("task")
+    .description("Adapter-driven task verbs (find / search / create / update / complete).");
+  task
+    .command("find <id>")
+    .description("Look up a task by its tracker-defined display ID.")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(async (id: string, options: TaskCliCommonOptions) => {
+      await runTaskFind({ id, json: options.json, quiet: options.quiet });
+    });
+  task
+    .command("search <query>")
+    .description("Search tasks by free-text query.")
+    .option("--limit <n>", "Maximum results to return", (v) => parseInt(v, 10))
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(async (query: string, options: TaskSearchCliOptions) => {
+      await runTaskSearch({
+        query,
+        limit: options.limit,
+        json: options.json,
+        quiet: options.quiet,
+      });
+    });
+  task
+    .command("create")
+    .description("Create a task. Requires --title and --description.")
+    .requiredOption("--title <title>", "Task title")
+    .requiredOption("--description <text>", "Task description (one sentence minimum)")
+    .option("--type <type>", "Task type (e.g. task, bug, story)")
+    .option("--priority <priority>", "Priority label (e.g. critical, high, medium, low)")
+    .option("--category <category>", "Category label (adapter-defined)")
+    .option("--complexity <complexity>", "Complexity (e.g. simple, standard, complex)")
+    .option("--hours <n>", "Estimated hours", (v) => parseFloat(v))
+    .option("--actual-hours <n>", "Actual hours (for retrospective entries)", (v) => parseFloat(v))
+    .option("--status <status>", "Status override (use 'completed' for retrospective entries)")
+    .option("--project <project>", "Project / area key")
+    .option("--assignee <assignee>", "Assignee identifier")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(async (options: TaskCreateCliOptions) => {
+      await runTaskCreate({
+        title: options.title,
+        description: options.description,
+        type: options.type,
+        priority: options.priority,
+        category: options.category,
+        complexity: options.complexity,
+        estimatedHours: options.hours,
+        actualHours: options.actualHours,
+        status: options.status,
+        project: options.project,
+        assignee: options.assignee,
+        json: options.json,
+        quiet: options.quiet,
+      });
+    });
+  task
+    .command("update <id>")
+    .description("Update an existing task.")
+    .option("--status <status>", "New status")
+    .option("--priority <priority>", "New priority")
+    .option("--hours <n>", "Estimated hours", (v) => parseFloat(v))
+    .option("--actual-hours <n>", "Actual hours recorded", (v) => parseFloat(v))
+    .option("--assignee <assignee>", "Reassign")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(async (id: string, options: TaskUpdateCliOptions) => {
+      await runTaskUpdate({
+        id,
+        status: options.status,
+        priority: options.priority,
+        estimatedHours: options.hours,
+        actualHours: options.actualHours,
+        assignee: options.assignee,
+        json: options.json,
+        quiet: options.quiet,
+      });
+    });
+  task
+    .command("complete <id>")
+    .description("Mark a task complete, optionally recording actual hours.")
+    .option("--actual-hours <n>", "Wall-clock effort to record", (v) => parseFloat(v))
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(async (id: string, options: TaskCompleteCliOptions) => {
+      await runTaskComplete({
+        id,
+        actualHours: options.actualHours,
+        json: options.json,
+        quiet: options.quiet,
+      });
+    });
+
   // ----------------------------------------------------------- upgrade
   program
     .command("upgrade")
@@ -234,6 +337,41 @@ interface UpgradeCliOptions {
   apply?: boolean;
   dryRun?: boolean;
   quiet?: boolean;
+}
+
+interface TaskCliCommonOptions {
+  json?: boolean;
+  quiet?: boolean;
+}
+
+interface TaskSearchCliOptions extends TaskCliCommonOptions {
+  limit?: number;
+}
+
+interface TaskCreateCliOptions extends TaskCliCommonOptions {
+  title: string;
+  description: string;
+  type?: string;
+  priority?: string;
+  category?: string;
+  complexity?: string;
+  hours?: number;
+  actualHours?: number;
+  status?: string;
+  project?: string;
+  assignee?: string;
+}
+
+interface TaskUpdateCliOptions extends TaskCliCommonOptions {
+  status?: string;
+  priority?: string;
+  hours?: number;
+  actualHours?: number;
+  assignee?: string;
+}
+
+interface TaskCompleteCliOptions extends TaskCliCommonOptions {
+  actualHours?: number;
 }
 
 /**

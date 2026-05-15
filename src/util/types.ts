@@ -61,6 +61,23 @@ export interface CadenceConfig {
     sources: string[];
     redactPatterns: string[];
   };
+  /**
+   * Plugin extension points (added in v0.5).
+   *
+   * - `taskAdapter`: npm package name implementing the TaskAdapter
+   *   contract, or null for "no adapter configured". When null, the
+   *   `cadence task` family exits non-zero with an install hint.
+   * - `vcsAdapter`: npm package name implementing the VcsAdapter
+   *   contract, or null for "use the built-in git adapter".
+   *
+   * Both are loaded lazily at runtime via dynamic `import()` so the
+   * adapter package's dependencies aren't pulled into cadence's
+   * install footprint.
+   */
+  extensions?: {
+    taskAdapter?: string | null;
+    vcsAdapter?: string | null;
+  };
   telemetry: {
     enabled: boolean;
   };

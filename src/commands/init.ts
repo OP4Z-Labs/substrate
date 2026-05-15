@@ -248,6 +248,14 @@ function buildDefaultConfig(
       sources: ["docker-compose.yml", ".env.example"],
       redactPatterns: ["PASSWORD", "TOKEN", "SECRET", "KEY"],
     },
+    extensions: {
+      // v0.5: plugin contracts. taskAdapter=null means `cadence task` exits
+      // with an install hint; vcsAdapter=null falls back to the built-in
+      // git adapter (recommended default for most teams). Point at npm
+      // package names like "@cadence/adapter-linear" once those exist.
+      taskAdapter: null,
+      vcsAdapter: null,
+    },
     telemetry: {
       // Opt-in only per locked decision (plan §0).
       // v0.8 will add a first-run prompt; v0.3 stays silent.
