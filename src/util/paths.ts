@@ -42,6 +42,66 @@ export function getTemplatesDir(): string {
 }
 
 /**
+ * Locate the bundled `templates-history/` directory. Added in v0.8 to
+ * support the real three-way merge in `cadence upgrade --apply`.
+ *
+ * Layout:
+ *   templates-history/
+ *     0.5.0/                  ← snapshot of `templates/` shipped with cadence@0.5.0
+ *     0.8.0/                  ← snapshot of `templates/` shipped with cadence@0.8.0
+ *     ...                     ← one per shipped version going forward
+ *
+ * The directory is OPTIONAL — if a cadence build lacks it (e.g. someone is
+ * running from a partial checkout), the upgrade flow falls back to the v0.5
+ * degenerate two-way diff. `getTemplatesHistoryDir()` returns `null` in that
+ * case rather than throwing, so the caller can branch cleanly.
+ *
+ * The directory is sibling to `templates/` — i.e. the package root, NOT a
+ * subdirectory of `templates/`. That keeps the npm bundle clear about the
+ * difference between "current template" and "historical reference."
+ */
+export function getTemplatesHistoryDir(): string | null {
+  let cursor = HERE;
+  for (let depth = 0; depth < 6; depth += 1) {
+    const candidate = join(cursor, "templates-history");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  return null;
+}
+
+/**
+ * Resolve the path to a specific version's bundled template snapshot. Used
+ * by the three-way merge to fetch the *original* template content at the
+ * version recorded in the manifest entry.
+ *
+ * Returns null when:
+ *   - `templates-history/` itself is missing (very old / partial install)
+ *   - the requested version was never published in this build's history
+ *   - the specific file within that version's snapshot doesn't exist
+ *     (e.g. the file was added in a later version)
+ *
+ * The relativeTemplatePath is the path **inside** the templates directory,
+ * e.g. `audits/audit-backend.md` or `standards/backend/architecture.md`.
+ * Callers use `resolveTemplatePath()` from `upgrade.ts` to compute that.
+ */
+export function getHistoricalTemplate(
+  version: string,
+  relativeTemplatePath: string,
+): string | null {
+  const historyDir = getTemplatesHistoryDir();
+  if (!historyDir) return null;
+  const versionDir = join(historyDir, version);
+  if (!existsSync(versionDir)) return null;
+  const candidate = join(versionDir, relativeTemplatePath);
+  return existsSync(candidate) ? candidate : null;
+}
+
+/**
  * Resolve a target repository root.
  *
  * For v0.1 we don't walk up looking for a marker — the user's CWD is

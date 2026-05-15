@@ -292,3 +292,123 @@ describe("runUpgrade --apply", () => {
     );
   });
 });
+
+/**
+ * v0.8 three-way merge: when `templates-history/<recordedVersion>/` ships
+ * the original-at-version content, the plan entry carries the third anchor
+ * and the merge UX emits a richer .cadence-merge file.
+ *
+ * Templates-history for v0.5.0 ships in this build because v0.5 is the
+ * version cadence@0.8.0 first introduced history for. The `add` call here
+ * stamps `templateVersion: "0.8.0"` on the manifest entry — to test the
+ * three-way path we manually rewrite the manifest's recorded version to a
+ * version we DO have a snapshot for (0.5.0).
+ */
+describe("runUpgrade --apply (v0.8 three-way merge)", () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = makeTempDir();
+    runInit({ cwd: tmp, projectName: "upg-3way", shortCode: "U3", quiet: true });
+  });
+
+  afterEach(() => {
+    removeTempDir(tmp);
+  });
+
+  function rewriteManifestVersion(autoDir: string, path: string, version: string) {
+    const manifest = readManifest(autoDir);
+    const entry = manifest.entries.find((e) => e.path.endsWith(path));
+    if (!entry) throw new Error(`no manifest entry for ${path}`);
+    entry.templateVersion = version;
+    writeFileSync(
+      join(autoDir, ".cadence-manifest.json"),
+      JSON.stringify(manifest, null, 2) + "\n",
+    );
+  }
+
+  it("populates threeWay + userEditsDiff + templateChangesDiff when history is available", () => {
+    runAdd({ category: "audit", item: "backend", cwd: tmp, quiet: true });
+    rewriteManifestVersion(join(tmp, "auto"), "audit-backend.md", "0.5.0");
+
+    const filePath = join(tmp, "auto", "instructions", "main", "audit-backend.md");
+    writeFileSync(filePath, "# my heavy edits\n\nNew content.\n");
+
+    const plan = planUpgrade(tmp);
+    const audit = plan.entries.find((e) => e.path.endsWith("audit-backend.md"));
+    expect(audit, "plan must have audit entry").toBeDefined();
+    expect(audit?.state).toBe("modified");
+    expect(audit?.threeWay).toBe(true);
+    expect(audit?.originalTemplatePath).toBeDefined();
+    expect(audit?.originalTemplatePath).not.toBeNull();
+    expect(audit?.userEditsDiff, "three-way must emit user-edits diff").toBeDefined();
+    expect(audit?.templateChangesDiff).toBeDefined();
+  });
+
+  it("falls back to two-way (threeWay=false) when recorded version has no history snapshot", () => {
+    runAdd({ category: "audit", item: "backend", cwd: tmp, quiet: true });
+    // Rewrite to a version we don't ship history for.
+    rewriteManifestVersion(join(tmp, "auto"), "audit-backend.md", "0.0.99");
+
+    const filePath = join(tmp, "auto", "instructions", "main", "audit-backend.md");
+    writeFileSync(filePath, "# edited\n");
+
+    const plan = planUpgrade(tmp);
+    const audit = plan.entries.find((e) => e.path.endsWith("audit-backend.md"));
+    expect(audit?.state).toBe("modified");
+    expect(audit?.threeWay).toBe(false);
+    expect(audit?.originalTemplatePath).toBeNull();
+    expect(audit?.userEditsDiff).toBeUndefined();
+    expect(audit?.templateChangesDiff).toBeUndefined();
+    expect(audit?.diff, "two-way fallback still emits current→new diff").toBeDefined();
+  });
+
+  it("emits a three-way conflict-marker block in .cadence-merge when threeWay is true", async () => {
+    runAdd({ category: "audit", item: "backend", cwd: tmp, quiet: true });
+    rewriteManifestVersion(join(tmp, "auto"), "audit-backend.md", "0.5.0");
+
+    const filePath = join(tmp, "auto", "instructions", "main", "audit-backend.md");
+    writeFileSync(filePath, "# user override\n");
+
+    await runUpgrade({
+      cwd: tmp,
+      apply: true,
+      quiet: true,
+      resolveChoice: () => "merge",
+    });
+
+    const mergePath = filePath + ".cadence-merge";
+    expect(existsSync(mergePath)).toBe(true);
+    const mergeText = readFileSync(mergePath, "utf8");
+    // Conflict-marker section header set.
+    expect(mergeText).toContain("<<<<<<< ORIGINAL");
+    expect(mergeText).toContain("||||||| CURRENT");
+    expect(mergeText).toContain(">>>>>>> NEW");
+    // The user's content shows up in the CURRENT section.
+    expect(mergeText).toContain("# user override");
+  });
+
+  it("emits a two-way merge file (just the new template) when threeWay is false", async () => {
+    runAdd({ category: "audit", item: "backend", cwd: tmp, quiet: true });
+    rewriteManifestVersion(join(tmp, "auto"), "audit-backend.md", "0.0.99");
+
+    const filePath = join(tmp, "auto", "instructions", "main", "audit-backend.md");
+    writeFileSync(filePath, "# user override\n");
+
+    await runUpgrade({
+      cwd: tmp,
+      apply: true,
+      quiet: true,
+      resolveChoice: () => "merge",
+    });
+
+    const mergePath = filePath + ".cadence-merge";
+    expect(existsSync(mergePath)).toBe(true);
+    const mergeText = readFileSync(mergePath, "utf8");
+    // No conflict markers in the two-way fallback.
+    expect(mergeText).not.toContain("<<<<<<< ORIGINAL");
+    expect(mergeText).not.toContain("||||||| CURRENT");
+    // Just the new template content.
+    expect(mergeText).toMatch(/^---/);
+  });
+});

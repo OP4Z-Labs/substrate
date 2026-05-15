@@ -1,7 +1,8 @@
 /**
  * `cadence upgrade` — three-way-merge against bundled templates.
  *
- * v0.5's headline feature. Every scaffolded file (`cadence init` + `cadence
+ * v0.5's headline feature, completed in v0.8 with a real three-way anchor
+ * via `templates-history/`. Every scaffolded file (`cadence init` + `cadence
  * add`) is recorded in `auto/.cadence-manifest.json` with a templateVersion +
  * sha256 contentHash. `upgrade` walks that manifest and, per file, classifies
  * the drift state:
@@ -19,13 +20,23 @@
  *                       exists in the bundled cadence package. Log a
  *                       warning; nothing to upgrade against.
  *
- * v0.5 ships a degenerate "three-way" — we have the user's current copy and
- * the new template content, but the *original* template (at the recorded
- * templateVersion) requires a `templates-history/` shipping path we haven't
- * built yet. The merge UX is honest about this: the diff shown is
- * `user-current vs new-template`, not a full git-style 3-way. Future
- * versions can layer the third anchor in without changing the manifest
- * schema (already keyed on templateVersion).
+ * **Three-way merge anchors (v0.8):**
+ *   - **original** — content at `templates-history/<templateVersion>/<rel>`,
+ *                    where templateVersion comes from the manifest entry.
+ *                    This is the file as cadence ORIGINALLY shipped it,
+ *                    before the user edited.
+ *   - **current**  — content currently on disk in the user's repo.
+ *   - **new**      — content at `templates/<rel>`, i.e. what cadence wants
+ *                    to ship in this version.
+ *
+ * When all three anchors are available, the merge UX shows a richer view:
+ *   - "your edits since cadence@<X>" diff (original → current)
+ *   - "what cadence changed since <X>"   diff (original → new)
+ *   - "raw drift to resolve"             diff (current → new)
+ *
+ * When `templates-history/<templateVersion>/` is missing (e.g. a user
+ * scaffolded against a version this build no longer carries history for),
+ * we gracefully fall back to the v0.5 degenerate two-way (`current vs new`).
  *
  * Choices presented per modified file:
  *   - `keep`     : retain the user's copy unchanged
@@ -43,7 +54,12 @@ import kleur from "kleur";
 import { hashContent } from "../util/fs.js";
 import { diffLines, formatUnifiedDiff } from "../util/diff.js";
 import { manifestPath, readManifest, writeManifest } from "../util/manifest.js";
-import { getTemplatesDir, resolveTargetRoot } from "../util/paths.js";
+import {
+  getHistoricalTemplate,
+  getTemplatesDir,
+  getTemplatesHistoryDir,
+  resolveTargetRoot,
+} from "../util/paths.js";
 import type { CadenceManifest, ManifestEntry } from "../util/types.js";
 import { CADENCE_VERSION } from "../util/version.js";
 
@@ -66,10 +82,41 @@ export interface UpgradePlanEntry {
   hashMatches: boolean;
   /** True when the template still exists in the cadence package. */
   templateExists: boolean;
-  /** Absolute path to the template if it exists, else null. */
+  /** Absolute path to the new template if it exists, else null. */
   templatePath: string | null;
-  /** Unified diff string (only populated for `modified` state). */
+  /**
+   * Absolute path to the ORIGINAL template content at the manifest's
+   * `templateVersion`, if `templates-history/` ships that version. Null
+   * when v0.8's three-way anchor is unavailable — the merge UX falls back
+   * to the v0.5 degenerate two-way in that case.
+   *
+   * Added in v0.8.
+   */
+  originalTemplatePath: string | null;
+  /**
+   * True when the full three-way anchor set is available (original + current
+   * + new template). When false, the merge UX falls back to two-way.
+   *
+   * Added in v0.8.
+   */
+  threeWay: boolean;
+  /** Unified diff of current → new (always populated for modified). */
   diff?: string;
+  /**
+   * "Your edits" diff: original → current. Only populated when threeWay
+   * is true. Shows what the user changed since they scaffolded.
+   *
+   * Added in v0.8.
+   */
+  userEditsDiff?: string;
+  /**
+   * "Template changes" diff: original → new. Only populated when threeWay
+   * is true. Shows what cadence changed in the template between the
+   * recorded version and CADENCE_VERSION.
+   *
+   * Added in v0.8.
+   */
+  templateChangesDiff?: string;
 }
 
 export interface UpgradePlan {
@@ -203,6 +250,12 @@ function classifyEntry(
 ): UpgradePlanEntry {
   const absPath = join(root, entry.path);
   const templatePath = resolveTemplatePath(templatesDir, entry.path);
+  // Look up the original-at-recorded-version template anchor (v0.8).
+  // The relative path within `templates/` is the part after the templates
+  // directory itself; we reconstruct it by stripping the templatesDir prefix.
+  const originalTemplatePath = templatePath
+    ? resolveHistoricalTemplate(templatesDir, templatePath, entry.templateVersion)
+    : null;
   const base: UpgradePlanEntry = {
     path: entry.path,
     state: "unmodified",
@@ -211,6 +264,8 @@ function classifyEntry(
     hashMatches: false,
     templateExists: templatePath !== null,
     templatePath,
+    originalTemplatePath,
+    threeWay: originalTemplatePath !== null,
   };
 
   if (entry.ejected) {
@@ -227,6 +282,11 @@ function classifyEntry(
   const currentHash = `sha256:${hashContent(current)}`;
   const hashMatches = currentHash === entry.contentHash;
   const newTemplate = readFileSync(templatePath, "utf8");
+
+  // Three-way anchor: read original template content if available.
+  const original = base.originalTemplatePath
+    ? readFileSync(base.originalTemplatePath, "utf8")
+    : null;
 
   // No drift at all — file is unmodified AND the template hasn't changed.
   // Manifest is already up-to-date; no work for upgrade to do.
@@ -248,12 +308,37 @@ function classifyEntry(
 
   // User has edited. May or may not also need a template bump.
   const diff = diffLines(current, newTemplate);
-  return {
+  const out: UpgradePlanEntry = {
     ...base,
     hashMatches: false,
     state: "modified",
     diff: formatUnifiedDiff(diff),
   };
+  if (original !== null) {
+    out.userEditsDiff = formatUnifiedDiff(diffLines(original, current));
+    out.templateChangesDiff = formatUnifiedDiff(diffLines(original, newTemplate));
+  }
+  return out;
+}
+
+/**
+ * Given the absolute path to the current new-template (e.g.
+ * `/.../cadence/templates/audits/audit-backend.md`), compute the
+ * matching historical-template path at the recorded version, or null
+ * when the historical snapshot isn't shipped.
+ */
+function resolveHistoricalTemplate(
+  templatesDir: string,
+  templatePath: string,
+  recordedVersion: string,
+): string | null {
+  // The current-template path always starts with templatesDir; strip that
+  // prefix to get the relative path used inside templates-history/.
+  const prefix = templatesDir.endsWith("/") ? templatesDir : `${templatesDir}/`;
+  const rel = templatePath.startsWith(prefix)
+    ? templatePath.slice(prefix.length)
+    : templatePath;
+  return getHistoricalTemplate(recordedVersion, rel);
 }
 
 /**
@@ -421,7 +506,26 @@ function applyModifiedChoice(
       }
       const newContent = readFileSync(entry.templatePath, "utf8");
       const mergePath = `${absPath}.cadence-merge`;
-      writeFileSync(mergePath, newContent, "utf8");
+      // v0.8: when the three-way anchor is available, write a richer
+      // merge file with all three anchors clearly delimited. Otherwise
+      // fall back to the v0.5 behavior of writing just the new template.
+      if (entry.threeWay && entry.originalTemplatePath) {
+        const originalContent = readFileSync(entry.originalTemplatePath, "utf8");
+        const currentContent = readFileSync(absPath, "utf8");
+        const sections = [
+          `<<<<<<< ORIGINAL (cadence ${entry.recordedTemplateVersion} — what was scaffolded)`,
+          originalContent.replace(/\n$/, ""),
+          `||||||| CURRENT (your repo right now)`,
+          currentContent.replace(/\n$/, ""),
+          `=======`,
+          newContent.replace(/\n$/, ""),
+          `>>>>>>> NEW (cadence ${entry.currentTemplateVersion} — what cadence wants to ship)`,
+          "",
+        ];
+        writeFileSync(mergePath, sections.join("\n"), "utf8");
+      } else {
+        writeFileSync(mergePath, newContent, "utf8");
+      }
       // Manifest is NOT updated — user still owes a resolution. Next
       // upgrade run will re-classify as `modified` until the user
       // reconciles and re-runs.
@@ -446,14 +550,32 @@ function renderPlanHeader(plan: UpgradePlan): void {
   console.log(
     kleur.bold(`\nUpgrade plan — cadence ${CADENCE_VERSION}`),
   );
+  const threeWayCount = plan.entries.filter((e) => e.threeWay).length;
+  const twoWayFallback = plan.entries.length - threeWayCount;
+  const historyDir = getTemplatesHistoryDir();
   console.log(
     kleur.dim(
       `  ${plan.entries.length} tracked file(s) ` +
         `(unmodified: ${counts.unmodified}, modified: ${counts.modified}, ` +
         `ejected: ${counts.ejected}, missing: ${counts.missing}, ` +
-        `template-gone: ${counts["template-gone"]})\n`,
+        `template-gone: ${counts["template-gone"]})`,
     ),
   );
+  if (historyDir && twoWayFallback === 0) {
+    console.log(kleur.dim(`  merge mode: three-way (templates-history/ available)\n`));
+  } else if (historyDir && twoWayFallback > 0) {
+    console.log(
+      kleur.dim(
+        `  merge mode: mixed (${threeWayCount} three-way, ${twoWayFallback} two-way fallback)\n`,
+      ),
+    );
+  } else {
+    console.log(
+      kleur.dim(
+        `  merge mode: two-way (templates-history/ not present in this build)\n`,
+      ),
+    );
+  }
 }
 
 function renderPlanDetail(plan: UpgradePlan): void {
@@ -491,7 +613,34 @@ function renderEntryDiff(entry: UpgradePlanEntry): void {
   console.log(
     "\n" + kleur.bold(`${entry.path}`) + kleur.dim(" — drift detected"),
   );
-  if (entry.diff) {
+  if (entry.threeWay && entry.userEditsDiff && entry.templateChangesDiff) {
+    // Three-way view: show what the user changed AND what cadence changed
+    // since the recorded version, side by side. Helps the user decide
+    // whether their edits collide with template improvements.
+    console.log(
+      kleur.cyan(
+        `\n[1/3] your edits since cadence@${entry.recordedTemplateVersion} (original → current)`,
+      ),
+    );
+    console.log(entry.userEditsDiff || kleur.dim("  (no edits — file unchanged?)"));
+    console.log(
+      kleur.cyan(
+        `\n[2/3] cadence template changes (original → new, cadence@${entry.currentTemplateVersion})`,
+      ),
+    );
+    console.log(
+      entry.templateChangesDiff || kleur.dim("  (template unchanged across versions)"),
+    );
+    console.log(kleur.cyan(`\n[3/3] raw drift you must resolve (current → new)`));
+    console.log(entry.diff || kleur.dim("  (no diff)"));
+  } else if (entry.diff) {
+    if (!entry.threeWay) {
+      console.log(
+        kleur.dim(
+          `(two-way fallback — templates-history/${entry.recordedTemplateVersion}/ not bundled)`,
+        ),
+      );
+    }
     console.log(entry.diff);
   } else {
     console.log(kleur.dim("  (no diff available)"));
