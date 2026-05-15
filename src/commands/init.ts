@@ -13,6 +13,8 @@ import { AUTO_SUBDIRS, getTemplatesDir, resolveTargetRoot } from "../util/paths.
 import type { CadenceConfig, CadenceManifest } from "../util/types.js";
 import { CADENCE_VERSION } from "../util/version.js";
 
+export type BridgeName = "claude" | "cursor";
+
 export interface InitOptions {
   /** Override the target directory (defaults to cwd). */
   cwd?: string;
@@ -22,8 +24,15 @@ export interface InitOptions {
   shortCode?: string;
   /** Stacks listed in config. Defaults to ["python", "typescript"] per v0.1 plan. */
   stacks?: string[];
-  /** Also scaffold `.claude/commands/cadence.md` bridge. */
+  /** Legacy v0.1 flag — equivalent to `bridges: ["claude"]`. */
   withClaude?: boolean;
+  /**
+   * Which bridge directories to scaffold. v0.5 supports `claude` and
+   * `cursor`. Empty array (or unset) skips bridge scaffolding entirely
+   * (use the raw CLI). Multiple bridges can coexist — pass both names
+   * to scaffold both.
+   */
+  bridges?: BridgeName[];
   /** Don't print to console (useful for tests). */
   quiet?: boolean;
 }
@@ -37,6 +46,10 @@ export interface InitResult {
   manifestCreated: boolean;
   /** Whether the Claude bridge was scaffolded. */
   claudeBridgeCreated: boolean;
+  /** Whether the Cursor bridge was scaffolded. */
+  cursorBridgeCreated: boolean;
+  /** Bridges scaffolded by this invocation, by canonical name. */
+  bridgesScaffolded: BridgeName[];
   /** Files created from the init template (relative paths). */
   filesCreated: string[];
   /** Files that already existed and were skipped. */
@@ -95,6 +108,11 @@ export function runInit(options: InitOptions = {}): InitResult {
     ),
   );
 
+  // Resolve which bridges to scaffold. v0.5: --bridges wins over the
+  // legacy --with-claude alias. Empty arrays mean "no bridges" (raw CLI
+  // path); both can coexist in the resulting repo.
+  const bridges: BridgeName[] = resolveBridges(options);
+
   const autoDir = join(root, "auto");
   ensureDir(autoDir);
   for (const sub of AUTO_SUBDIRS) {
@@ -119,7 +137,7 @@ export function runInit(options: InitOptions = {}): InitResult {
     shortCode,
     stacks,
     stackTyped,
-    options.withClaude ?? false,
+    bridges,
   );
   const configCreated = writeFileIfMissing(configPath, JSON.stringify(config, null, 2) + "\n");
   log(
@@ -145,21 +163,33 @@ export function runInit(options: InitOptions = {}): InitResult {
       : kleur.dim("  skipped auto/.cadence-manifest.json (exists)"),
   );
 
-  // .claude/commands/cadence.md (optional bridge)
+  // Bridge files. v0.5: every bridge name in `bridges[]` is scaffolded
+  // from `templates/bridges/<name>/cadence.md` into
+  // `<bridgeTargetDir>/<name>/cadence.md` where the target dir is
+  // canonical per bridge:
+  //   - claude → .claude/commands/cadence.md
+  //   - cursor → .cursor/commands/cadence.md
+  // Multiple bridges coexist freely — they read the same dispatch table.
   let claudeBridgeCreated = false;
-  if (options.withClaude) {
-    const bridgeSource = join(templatesDir, "bridges", "claude", "cadence.md");
-    const bridgeTarget = join(root, ".claude", "commands", "cadence.md");
-    const bridgeContent = applyBridgeReplacements(
-      readBridgeTemplate(bridgeSource),
+  let cursorBridgeCreated = false;
+  const bridgesScaffolded: BridgeName[] = [];
+  for (const bridge of bridges) {
+    const sourcePath = join(templatesDir, "bridges", bridge, "cadence.md");
+    const targetPath = join(root, bridgeTargetDir(bridge), "cadence.md");
+    const content = applyBridgeReplacements(
+      readBridgeTemplate(sourcePath),
       projectName,
       shortCode,
     );
-    claudeBridgeCreated = writeFileIfMissing(bridgeTarget, bridgeContent);
+    const created = writeFileIfMissing(targetPath, content);
+    if (bridge === "claude") claudeBridgeCreated = created;
+    if (bridge === "cursor") cursorBridgeCreated = created;
+    if (created) bridgesScaffolded.push(bridge);
+    const relPath = bridgeTargetDir(bridge) + "/cadence.md";
     log(
-      claudeBridgeCreated
-        ? kleur.green("✓") + " .claude/commands/cadence.md"
-        : kleur.dim("  skipped .claude/commands/cadence.md (exists)"),
+      created
+        ? kleur.green("✓") + ` ${relPath}`
+        : kleur.dim(`  skipped ${relPath} (exists)`),
     );
   }
 
@@ -182,9 +212,56 @@ export function runInit(options: InitOptions = {}): InitResult {
     configCreated,
     manifestCreated,
     claudeBridgeCreated,
+    cursorBridgeCreated,
+    bridgesScaffolded,
     filesCreated: created,
     filesSkipped: skipped,
   };
+}
+
+/**
+ * Resolve which bridges to scaffold. v0.5 accepts:
+ *   - explicit `bridges: ["claude", "cursor"]`
+ *   - legacy `withClaude: true` (preserved for backwards compat — equivalent
+ *     to `bridges: ["claude"]`). When both are passed, `bridges` wins.
+ *   - neither set → no bridges (the raw-CLI path)
+ *
+ * Unknown bridge names throw so a typo doesn't silently scaffold nothing.
+ */
+function resolveBridges(options: InitOptions): BridgeName[] {
+  if (options.bridges && options.bridges.length > 0) {
+    const validNames: BridgeName[] = ["claude", "cursor"];
+    for (const name of options.bridges) {
+      if (!validNames.includes(name)) {
+        throw new Error(
+          `Cadence: unknown bridge "${name}". ` +
+            `Available: ${validNames.join(", ")} (or none).`,
+        );
+      }
+    }
+    // Deduplicate while preserving order.
+    return Array.from(new Set(options.bridges));
+  }
+  if (options.withClaude) return ["claude"];
+  return [];
+}
+
+/**
+ * Map a bridge name to its canonical target directory inside the user's
+ * repo. The convention mirrors each editor's slash-command lookup path.
+ *
+ * For Cursor specifically, see the comment block in
+ * `templates/bridges/cursor/cadence.md` — the location is an explicit
+ * v0.5 assumption that can be corrected by regenerating the bridge
+ * without breaking the dispatch contract.
+ */
+function bridgeTargetDir(bridge: BridgeName): string {
+  switch (bridge) {
+    case "claude":
+      return ".claude/commands";
+    case "cursor":
+      return ".cursor/commands";
+  }
 }
 
 function buildDefaultConfig(
@@ -192,7 +269,7 @@ function buildDefaultConfig(
   shortCode: string,
   stacks: string[],
   stackTyped: Stack[],
-  withClaude: boolean,
+  bridges: BridgeName[],
 ): CadenceConfig {
   // v0.3: defaults are derived from detected stacks. The full audit catalog
   // is always *available* via `cadence add audit <name>`; the `defaults`
@@ -237,10 +314,12 @@ function buildDefaultConfig(
       workflows: [],
     },
     bridges: {
-      claude: withClaude
+      claude: bridges.includes("claude")
         ? { enabled: true, commandsDir: ".claude/commands" }
         : { enabled: false },
-      cursor: { enabled: false },
+      cursor: bridges.includes("cursor")
+        ? { enabled: true, commandsDir: ".cursor/commands" }
+        : { enabled: false },
     },
     knowledge: {
       // v0.3: knowledge auto-discovery reads these sources by default.

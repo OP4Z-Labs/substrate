@@ -42,7 +42,12 @@ export interface CadenceConfig {
   };
   bridges: {
     claude?: { enabled: boolean; commandsDir?: string };
-    cursor?: { enabled: boolean };
+    /**
+     * v0.5: Cursor bridge support. `commandsDir` mirrors the Claude
+     * convention (default `.cursor/commands`). Both bridges can be
+     * enabled simultaneously — they read the same dispatch table.
+     */
+    cursor?: { enabled: boolean; commandsDir?: string };
   };
   /**
    * Knowledge-discovery configuration. Drives `cadence knowledge refresh`.

@@ -47,21 +47,32 @@ function buildProgram(): Command {
   // ---------------------------------------------------------------- init
   program
     .command("init")
-    .description("Scaffold auto/, cadence.config.json, and (optionally) a Claude bridge.")
+    .description("Scaffold auto/, cadence.config.json, and (optionally) AI-bridge files.")
     .option("--name <name>", "Project name (defaults to the directory name)")
     .option("--short-code <code>", "Short code for task tags (e.g. OP → [OP-123])")
     .option(
       "--stack <stack>",
       "Comma-separated stacks (e.g. python,typescript). Omit to auto-detect from marker files.",
     )
-    .option("--with-claude", "Also scaffold .claude/commands/cadence.md", false)
+    .option("--with-claude", "[deprecated] alias for --bridge claude", false)
+    .option(
+      "--bridge <names>",
+      "Comma-separated bridge names to scaffold (claude, cursor). Multiple allowed.",
+    )
     .option("--quiet", "Suppress informational output", false)
     .action((options: InitCliOptions) => {
+      const bridgeNames = options.bridge
+        ? options.bridge
+            .split(",")
+            .map((b) => b.trim())
+            .filter((b) => b.length > 0)
+        : undefined;
       runInit({
         projectName: options.name,
         shortCode: options.shortCode,
         stacks: options.stack ? options.stack.split(",").map((s) => s.trim()) : undefined,
         withClaude: options.withClaude,
+        bridges: bridgeNames as ("claude" | "cursor")[] | undefined,
         quiet: options.quiet,
       });
     });
@@ -351,6 +362,7 @@ interface InitCliOptions {
   shortCode?: string;
   stack?: string;
   withClaude?: boolean;
+  bridge?: string;
   quiet?: boolean;
 }
 

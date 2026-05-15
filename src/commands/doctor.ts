@@ -295,29 +295,48 @@ function checkBridge(root: string): Check[] {
   } catch {
     return [];
   }
-  const claudeEnabled = config.bridges?.claude?.enabled ?? false;
-  if (!claudeEnabled) return [];
-
-  const bridgePath = join(root, ".claude", "commands", "cadence.md");
-  if (!existsSync(bridgePath)) {
-    return [
-      {
-        id: "bridge.claude.missing",
-        title: ".claude/commands/cadence.md",
-        severity: "error",
-        message: "Claude bridge enabled in config but the file is missing.",
-        fix: "Run `cadence init --with-claude` to scaffold it.",
-      },
-    ];
-  }
-  return [
+  // v0.5: claude + cursor share the same enable-then-check pattern.
+  const out: Check[] = [];
+  const bridgeMeta: Array<{
+    name: "claude" | "cursor";
+    enabled: boolean;
+    defaultDir: string;
+    flagHint: string;
+  }> = [
     {
-      id: "bridge.claude",
-      title: ".claude/commands/cadence.md",
-      severity: "ok",
-      message: "Bridge present.",
+      name: "claude",
+      enabled: config.bridges?.claude?.enabled ?? false,
+      defaultDir: config.bridges?.claude?.commandsDir ?? ".claude/commands",
+      flagHint: "--bridge claude",
+    },
+    {
+      name: "cursor",
+      enabled: config.bridges?.cursor?.enabled ?? false,
+      defaultDir: config.bridges?.cursor?.commandsDir ?? ".cursor/commands",
+      flagHint: "--bridge cursor",
     },
   ];
+  for (const bridge of bridgeMeta) {
+    if (!bridge.enabled) continue;
+    const bridgePath = join(root, bridge.defaultDir, "cadence.md");
+    if (!existsSync(bridgePath)) {
+      out.push({
+        id: `bridge.${bridge.name}.missing`,
+        title: `${bridge.defaultDir}/cadence.md`,
+        severity: "error",
+        message: `${bridge.name} bridge enabled in config but the file is missing.`,
+        fix: `Run \`cadence init ${bridge.flagHint}\` to scaffold it.`,
+      });
+    } else {
+      out.push({
+        id: `bridge.${bridge.name}`,
+        title: `${bridge.defaultDir}/cadence.md`,
+        severity: "ok",
+        message: `${bridge.name} bridge present.`,
+      });
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------- rendering
