@@ -1,21 +1,40 @@
 ---
 import Base from "../layouts/Base.astro";
 
-const commands = [
+const v1Commands = [
   { name: "init", summary: "Scaffold auto/, substrate.config.json, AI-bridge files. Use --bridge claude,cursor,mcp." },
   { name: "add", summary: "Add a single audit, standard, scaffold, command, or workflow. e.g. substrate add audit backend." },
-  { name: "audit", summary: "Run an audit (--type <name>) or list available audits (--list)." },
+  { name: "audit", summary: "Run the RULES.yaml detector runtime (--rule for a single rule, --diff for staged-only, --trend for history)." },
   { name: "create", summary: "Scaffold a new package or service from a template (package-ts, package-python, service-fastapi, etc.)." },
-  { name: "doctor", summary: "Diagnose the substrate install — config, manifest, bridges, auto/ layout." },
-  { name: "knowledge", summary: "knowledge refresh regenerates KNOWLEDGE.md from docker-compose; knowledge show prints it." },
+  { name: "doctor", summary: "Diagnose the substrate install — v2 adds --check rules-doc-coverage|workflow-coverage|memory-frontmatter|stale-proposals|escalation-debt." },
+  { name: "knowledge refresh", summary: "Regenerate KNOWLEDGE.md. v2.0 reads substrate/knowledge-sources.yaml (plural plugins) when present." },
+  { name: "knowledge show", summary: "Print KNOWLEDGE.md (optionally one --section)." },
   { name: "task", summary: "Adapter-driven verbs: find / search / create / update / complete. Requires extensions.taskAdapter." },
-  { name: "workflow", summary: "list / describe / start multi-step workflows from auto/config/workflows.yaml." },
+  { name: "workflow", summary: "[v1] list / describe / start workflows in auto/config/workflows.yaml (v1 multi-step runtime). For v2 manifests use `substrate run`." },
   { name: "upgrade", summary: "--check shows drift; --apply walks modified files interactively with three-way merge." },
   { name: "mcp serve", summary: "Run substrate as an MCP server (stdio transport) for Claude Desktop, Continue, Cline, etc." },
+  { name: "telemetry", summary: "show / purge / export the local telemetry log. Telemetry is opt-in." },
+  { name: "config --telemetry on|off", summary: "Toggle telemetry opt-in. Default off; events are local-only." },
+  { name: "uninstall", summary: "Remove substrate-scaffolded files. Preserves user-modified files by default; --force overrides." },
+];
+
+const v2Commands = [
+  { name: "run <workflow-id>", summary: "Execute a v2 workflow manifest from substrate/workflows/. Orchestration layer (loads AI session)." },
+  { name: "validate [path]", summary: "Validate v2 workflow manifests against the JSON schema. No args = walk substrate/workflows/." },
+  { name: "query rules [--by-prefix glob]", summary: "List RULES.yaml entries, optionally filtered by id glob." },
+  { name: "query standards [--pattern glob]", summary: "List standards docs in substrate/standards/." },
+  { name: "query memory [--types ...] [--tags ...]", summary: "Query the active memory store (Claude Code bridge by default)." },
+  { name: "query doc-checks [--for-files ...]", summary: "List or evaluate conditional doc-checks." },
+  { name: "query sessions [--workflow id] [--limit n]", summary: "Index session-event-log files written by `substrate run`. (NEW in B4.)" },
+  { name: "hooks list", summary: "List all cross-cutting hooks under substrate/hooks/." },
+  { name: "hooks describe <id>", summary: "Print one hook's full manifest." },
+  { name: "review --proposals", summary: "Walk the substrate/proposals/pending/ queue interactively (accept/reject/edit/defer/skip)." },
+  { name: "review --proposals --batch-confirm", summary: "Auto-accept high-confidence proposals; defer the rest. Used by weekly-proposal-walk." },
+  { name: "scheduler --check", summary: "List scheduled workflows + due-in status. Non-invasive (never runs anything)." },
 ];
 ---
 
-<Base title="Commands" description="Substrate CLI command reference.">
+<Base title="Commands" description="Substrate CLI command reference (v1.0 + v2.0).">
   <h1>Commands</h1>
   <p>
     Every command supports <code>--help</code>, <code>--json</code> where
@@ -23,13 +42,34 @@ const commands = [
     output lives in <code>substrate --help</code>.
   </p>
 
+  <h2>v1.0 (audit + scaffolding foundation)</h2>
   <ul>
-    {commands.map((c) => (
+    {v1Commands.map((c) => (
       <li>
         <strong><code>substrate {c.name}</code></strong> — {c.summary}
       </li>
     ))}
   </ul>
+
+  <h2>v2.0 (workflow runtime + proposal pipeline)</h2>
+  <ul>
+    {v2Commands.map((c) => (
+      <li>
+        <strong><code>substrate {c.name}</code></strong> — {c.summary}
+      </li>
+    ))}
+  </ul>
+
+  <h2>Layer discipline</h2>
+  <p>
+    v2 commands split into two layers. <strong>Deterministic-layer</strong>
+    commands (<code>validate</code>, <code>query *</code>, <code>hooks
+    *</code>, <code>review --proposals</code>, <code>scheduler --check</code>)
+    are pure file I/O and safe to call from CI / git hooks / any
+    non-interactive context. <strong>Orchestration-layer</strong> commands
+    (<code>run</code>) require an AI session — they render prompts, manage
+    confirmations, and emit session-event-logs.
+  </p>
 
   <h2>Bridges</h2>
   <p>Three slash-command bridges, scaffolded via <code>substrate init --bridge</code>:</p>

@@ -20,7 +20,7 @@ import Base from "../layouts/Base.astro";
     <li><code>.claude/commands/substrate.md</code> for the Claude Code slash command.</li>
   </ul>
 
-  <h2>2. Add an audit</h2>
+  <h2>2. Add an audit (v1 surface)</h2>
   <pre><code>npx substrate add audit backend</code></pre>
   <p>
     Drops <code>auto/instructions/main/audit-backend.md</code> into your repo.
@@ -29,17 +29,52 @@ import Base from "../layouts/Base.astro";
 
   <h2>3. Run the audit</h2>
   <pre><code>npx substrate audit --type backend</code></pre>
-
-  <h2>4. Run via Claude Code</h2>
-  <p>In Claude Code, type:</p>
-  <pre><code>/substrate audit --type backend</code></pre>
   <p>
-    The slash command dispatches to the same CLI, loading the audit's
-    instruction file into Claude's context so it can produce the
-    AI-guided report.
+    Or run the detector runtime directly against <code>RULES.yaml</code>:
+  </p>
+  <pre><code>npx substrate audit                  # all rules
+npx substrate audit --rule BE-PY-001  # one rule
+npx substrate audit --diff            # ripgrep detectors on staged diff only</code></pre>
+
+  <h2>4. Try the v2 workflow runtime</h2>
+  <p>
+    Once v2 ships, you can author a workflow manifest at
+    <code>substrate/workflows/&lt;id&gt;.yaml</code> + a body at
+    <code>substrate/workflows/&lt;id&gt;.body.md</code>. Reference templates
+    ship under the package's <code>templates/workflows/</code> — copy one
+    out:
+  </p>
+  <pre><code># Validate the manifest
+npx substrate validate substrate/workflows/tackle-task.yaml
+
+# Plan steps without executing (dry-run)
+npx substrate run tackle-task --dry-run
+
+# Execute end-to-end
+npx substrate run tackle-task</code></pre>
+
+  <h2>5. Inspect what substrate would load</h2>
+  <p>
+    The deterministic <code>substrate query *</code> surface lets you
+    introspect context without running a workflow:
+  </p>
+  <pre><code>npx substrate query rules --by-prefix "BE-PY-*"
+npx substrate query standards --pattern "backend/*.md"
+npx substrate query memory --types feedback --tags ai-workflow
+npx substrate query doc-checks --for-files "src/foo.ts" --commit-message "feat: add foo"
+npx substrate query sessions --workflow tackle-task --limit 10</code></pre>
+
+  <h2>6. Run via Claude Code</h2>
+  <p>In Claude Code, type:</p>
+  <pre><code>/substrate audit --type backend
+/substrate run tackle-task</code></pre>
+  <p>
+    The slash command dispatches to the same CLI, loading the
+    workflow's manifest + body into Claude's context so it produces
+    the AI-guided execution.
   </p>
 
-  <h2>5. Upgrade as substrate evolves</h2>
+  <h2>7. Upgrade as substrate evolves</h2>
   <pre><code>npx substrate upgrade --check       # See what's drifted
 npx substrate upgrade --apply       # Walk modified entries interactively</code></pre>
   <p>
@@ -50,7 +85,10 @@ npx substrate upgrade --apply       # Walk modified entries interactively</code>
 
   <h2>Next steps</h2>
   <ul>
-    <li><a href="/commands/">Full command reference</a></li>
+    <li><a href="/commands/">Full command reference (v1.0 + v2.0)</a></li>
+    <li><a href="/workflows/">Workflows — the v2 runtime</a></li>
+    <li><a href="/proposals/">Proposals — the v2 self-reinforcement loop</a></li>
+    <li><a href="/knowledge-sources/">Knowledge sources — plural inputs</a></li>
     <li><a href="/audits/">Audits catalog</a></li>
     <li><a href="/standards/">Standards catalog</a></li>
     <li><a href="/plugin-authoring/">Writing a custom adapter</a></li>

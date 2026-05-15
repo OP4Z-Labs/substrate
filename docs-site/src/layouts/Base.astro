@@ -19,6 +19,9 @@ const navItems = [
   { label: "Home", href: "/" },
   { label: "Quick Start", href: "/quick-start/" },
   { label: "Commands", href: "/commands/" },
+  { label: "Workflows", href: "/workflows/" },
+  { label: "Proposals", href: "/proposals/" },
+  { label: "Knowledge", href: "/knowledge-sources/" },
   { label: "Audits", href: "/audits/" },
   { label: "Standards", href: "/standards/" },
   { label: "Plugin Authoring", href: "/plugin-authoring/" },
@@ -103,6 +106,10 @@ const navItems = [
         margin-top: 2.5rem;
         font-size: 1.4rem;
       }
+      main h3 {
+        margin-top: 1.5rem;
+        font-size: 1.1rem;
+      }
       main a {
         color: var(--color-link);
       }
@@ -127,6 +134,29 @@ const navItems = [
       }
       main ul li {
         margin: 0.3rem 0;
+      }
+      main blockquote {
+        border-left: 3px solid var(--color-link);
+        margin: 1.5rem 0;
+        padding: 0.1rem 1rem;
+        color: var(--color-muted);
+        background: #f6f0ff;
+        border-radius: 0 4px 4px 0;
+      }
+      main table {
+        border-collapse: collapse;
+        margin: 1.5rem 0;
+        width: 100%;
+      }
+      main th,
+      main td {
+        border: 1px solid var(--color-border);
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+        font-size: 0.9rem;
+      }
+      main th {
+        background: #f0eaff;
       }
       footer {
         border-top: 1px solid var(--color-border);

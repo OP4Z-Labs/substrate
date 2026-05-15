@@ -1,0 +1,189 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Workflows" description="v2.0's AI-orchestrated workflow runtime — manifests, hooks, doc-checks, memory, composition, escalation, scheduling.">
+  <h1>Workflows</h1>
+  <p>
+    Substrate v2.0 introduces an AI-orchestrated workflow runtime layered
+    on top of v1.0's deterministic primitives. A workflow is a YAML manifest
+    + prose body describing what context to load, what steps to run, and
+    when the workflow is "done."
+  </p>
+
+  <p>
+    This page covers eight primitives (P1 — P8). For the headline P9
+    (proposal pipeline), see <a href="/proposals/">Proposals</a>. For P10
+    (doctor enhancements) and P11 (knowledge sources), see the
+    <a href="/commands/">commands</a> reference + the
+    <a href="/knowledge-sources/">knowledge</a> page.
+  </p>
+
+  <h2>P1 — Workflow manifest</h2>
+  <p>
+    A workflow lives in two files under
+    <code>substrate/workflows/</code>:
+  </p>
+  <ul>
+    <li><code>&lt;id&gt;.yaml</code> — declarative manifest (the contract)</li>
+    <li><code>&lt;id&gt;.body.md</code> — prose body the orchestrator injects into the AI prompt</li>
+  </ul>
+  <p>The manifest covers <code>trigger</code>, <code>when</code>, <code>context</code>, <code>composes_findings_of</code>, <code>hooks</code>, <code>steps</code>, <code>followups</code>, <code>acceptance</code>, plus metadata (<code>schema_version</code>, <code>kind</code>, <code>authors</code>, <code>last_updated</code>). Full schema lives at <code>packages/substrate/schemas/workflow.schema.json</code>.</p>
+  <p>Validate any manifest:</p>
+  <pre><code>substrate validate substrate/workflows/tackle-task.yaml</code></pre>
+
+  <h2>P2 — Two-layer architecture</h2>
+  <p>
+    Substrate's runtime separates into two layers:
+  </p>
+  <ul>
+    <li>
+      <strong>Deterministic layer.</strong> Pure shell-invocable
+      primitives. No AI session required. Validators, discoverers,
+      context loaders, query commands, drift detectors, classifiers,
+      queue I/O, applicators, scheduler, doctor checks. Safe to call
+      from CI, git hooks, or any non-interactive context.
+    </li>
+    <li>
+      <strong>Orchestration layer.</strong> Drives the AI session.
+      Renders prompts, executes the step-by-step loop, manages
+      confirmations, fires hooks, emits the session-event-log. Lives
+      on top of the deterministic layer and never re-implements its
+      primitives.
+    </li>
+  </ul>
+  <p>
+    See <code>docs/architecture.md</code> for the full layer diagram.
+  </p>
+
+  <h2>P3 — Cross-cutting hooks</h2>
+  <p>
+    Hooks live in <code>substrate/hooks/</code>. Each is a manifest with
+    a <code>trigger</code> (workflow-start / workflow-step-completion /
+    workflow-completion), optional <code>matches</code> selectors, and
+    a <code>step</code> that runs when the hook fires. Hooks apply to
+    every workflow — they're the "every workflow does X" surface so you
+    don't have to copy-paste the same followups into every manifest.
+  </p>
+  <p>Four built-in hooks ship in templates:</p>
+  <ul>
+    <li><code>auto-emit-sidecar</code> — writes a JSON sidecar after audit runs</li>
+    <li><code>auto-update-trend</code> — appends to the trend journal</li>
+    <li><code>auto-propose-tasks</code> — drafts task entries from findings</li>
+    <li><code>auto-drift-detect</code> — runs the proposal pipeline (the integration seam for P9)</li>
+  </ul>
+  <p>Inspect hooks deterministically:</p>
+  <pre><code>substrate hooks list
+substrate hooks describe auto-drift-detect</code></pre>
+
+  <h2>P4 — Conditional doc-checks</h2>
+  <p>
+    A registry of "if X happens, require Y exists" checks. Each lives in
+    <code>substrate/doc-checks/&lt;id&gt;.yaml</code>:
+  </p>
+  <pre><code>id: changelog-on-feat
+description: feat: commits should update CHANGELOG.md
+severity: must-fix
+match:
+  commit-message-pattern: "^feat"
+require:
+  changed-files-any: ["CHANGELOG.md"]</code></pre>
+  <p>Query the registry from CI or a pre-commit hook:</p>
+  <pre><code>substrate query doc-checks --for-files "src/foo.ts" --commit-message "feat: add foo"</code></pre>
+
+  <h2>P5 — First-class memory</h2>
+  <p>
+    Memory entries live as markdown files with YAML frontmatter. Default
+    discovery follows this precedence (plan §6.1):
+  </p>
+  <ol>
+    <li><code>--memory-path &lt;dir&gt;</code> flag</li>
+    <li><code>SUBSTRATE_MEMORY_PATH</code> env var</li>
+    <li><code>substrate.config.json#memory.path</code></li>
+    <li>Claude Code's default memory directory (per-project)</li>
+  </ol>
+  <p>Substrate ships zero memory backend of its own; it reads from
+    whatever's there. Query:</p>
+  <pre><code>substrate query memory --types feedback,project --tags ai-workflow --for-files "src/voren/*.ts"</code></pre>
+  <p>
+    Workflow context declarations pull memory in by type / scope / tags /
+    intersect-with-changed-files. The orchestrator renders selected
+    memories into the AI prompt at workflow-start.
+  </p>
+
+  <h2>P6 — composes_findings_of</h2>
+  <p>
+    Cross-workflow dependency. <code>review-pre</code> can declare that it
+    composes findings from <code>audit-package</code> + <code>audit-security</code>;
+    the orchestrator loads recent results from those upstream workflows
+    into the current workflow's context, with optional
+    <code>require-fresh-within: 24h</code>-style guards.
+  </p>
+
+  <h2>P7 — escalate_after</h2>
+  <p>
+    Age-based severity escalation. A RULES.yaml entry can declare:
+  </p>
+  <pre><code>escalate_after:
+  - &#123; age_days: 30, target_severity: high &#125;
+  - &#123; age_days: 90, target_severity: critical &#125;</code></pre>
+  <p>
+    The audit runtime reads historical sidecars to find each finding's
+    first-seen date, applies the highest applicable step, and stamps
+    <code>originalSeverity</code> + <code>firstSeenAt</code> + <code>ageDays</code> +
+    <code>severity</code> (= effective) on the finding. Reports show both
+    so reviewers know the escalation history.
+  </p>
+  <p>
+    The companion doctor check
+    <code>substrate doctor --check escalation-debt</code> flags
+    findings that have been at critical severity for &gt; 30 days.
+  </p>
+
+  <h2 id="scheduling">P8 — Schedule trigger</h2>
+  <p>Three trigger forms:</p>
+  <pre><code>trigger:
+  - schedule: &#123; cron: "0 9 * * 1" &#125;       # Mondays 09:00 UTC
+  - schedule: &#123; interval: "7d" &#125;           # 7 days since last run
+  - schedule: &#123; every-n-commits: 50 &#125;      # 50 commits since last run</code></pre>
+  <p>
+    Substrate ships only the discovery + state-tracking primitives.
+    Invocation is the consumer's choice — three documented patterns
+    (CI / local cron / AI session) live in <code>docs/scheduling.md</code>.
+    The <code>weekly-proposal-walk</code> reference workflow ships a
+    cron schedule.
+  </p>
+  <p>List due workflows:</p>
+  <pre><code>substrate scheduler --check --due-only</code></pre>
+
+  <h2>Reference workflows</h2>
+  <p>Three reference workflows ship in templates:</p>
+  <ul>
+    <li>
+      <code>tackle-task</code> — task-driven feature work. Loads task
+      details, runs research → plan → implement → tests → review.
+    </li>
+    <li>
+      <code>audit-service</code> — per-service audit. Composes the
+      detector runtime with prose followups.
+    </li>
+    <li>
+      <code>audit-package</code> — per-package audit (TS and Python
+      variants share the manifest).
+    </li>
+    <li>
+      <code>weekly-proposal-walk</code> — the proposal pipeline's own
+      scheduled walker.
+    </li>
+  </ul>
+
+  <h2>Running a workflow</h2>
+  <pre><code># Resolve context + plan steps without executing
+substrate run tackle-task --dry-run
+
+# Execute end-to-end
+substrate run tackle-task
+
+# JSON output for CI
+substrate run audit-service --json</code></pre>
+</Base>

@@ -2,12 +2,13 @@
 import Base from "../layouts/Base.astro";
 ---
 
-<Base title="Substrate" description="Repeatable automation patterns for codebases. Audits, scaffolds, standards, and bridges to AI coding assistants.">
+<Base title="Substrate" description="Repeatable automation patterns for codebases. Audits, scaffolds, standards, workflows, and a self-reinforcing proposal pipeline.">
   <h1>Substrate</h1>
   <p>
     Substrate is a framework for codifying the repeatable patterns of a healthy
-    codebase: audits, scaffolds, standards, and review pipelines, with first-class
-    bridges to AI coding assistants (Claude Code, Cursor, MCP).
+    codebase: audits, scaffolds, standards, AI-driven workflows, and a
+    self-reinforcing proposal pipeline that watches its own runs and proposes
+    improvements to the conventions it just executed.
   </p>
 
   <h2>Why substrate</h2>
@@ -30,17 +31,65 @@ import Base from "../layouts/Base.astro";
 
   <h2>Status</h2>
   <ul>
-    <li><strong>v0.8 (current):</strong> three reference adapters (Linear, Jira, GitHub), MCP bridge, GitHub Action wrapper, telemetry opt-in, true three-way upgrade.</li>
-    <li><strong>v1.0 (planned):</strong> semver freeze on config schema, migration guide from 0.x, public RULES contribution registry, case studies.</li>
+    <li><strong>v2.0 (current):</strong> AI-orchestrated workflow runtime, cross-cutting hooks, conditional doc-checks, first-class memory, proposal pipeline (drift detection → applicators → review walker), schedule trigger, plural knowledge sources.</li>
+    <li><strong>v1.0:</strong> 35-rule audit detector runtime, 21 opinionated standards docs, three AI bridges (Claude Code, Cursor, MCP), telemetry opt-in, true three-way upgrade.</li>
   </ul>
 
-  <h2>Headline features</h2>
+  <h2>Headline features (v2.0)</h2>
   <ul>
-    <li><strong>15 audits</strong> covering backend, frontend, security, dependencies, dead-code, and more.</li>
+    <li>
+      <strong>Workflow manifest runtime.</strong> Declare a workflow once
+      (manifest YAML + prose body), invoke it via
+      <code>substrate run &lt;workflow&gt;</code>, and substrate orchestrates
+      context loading, step execution, and exit gating. Three reference
+      templates ship: <code>tackle-task</code>, <code>audit-service</code>,
+      <code>audit-package</code>. <a href="/workflows/">More →</a>
+    </li>
+    <li>
+      <strong>Self-reinforcing proposal pipeline.</strong> Every run emits
+      a session-event log. Drift detectors watch for ad-hoc steps, skipped
+      steps, repeated prompts, recurring rule violations. Findings classify
+      into eight proposal types that an applicator can write back to your
+      workflow / rules / standards / memory.
+      <strong>The headline primitive of v2.0.</strong>
+      <a href="/proposals/">More →</a>
+    </li>
+    <li>
+      <strong>Cross-cutting hooks.</strong> One YAML file declares "fire this
+      hook on every workflow completion when X" — applies to every workflow
+      without per-workflow copy-paste. Default hooks cover sidecar emission,
+      trend updates, task proposal, and drift detection.
+    </li>
+    <li>
+      <strong>Conditional doc-checks.</strong> Registry of "if commit
+      message matches <code>feat:</code>, require <code>CHANGELOG.md</code>"
+      checks. Used as a deterministic pre-commit / pre-merge gate.
+    </li>
+    <li>
+      <strong>First-class memory.</strong> Read Claude Code's
+      <code>MEMORY.md</code> directory by default; filter by type / scope /
+      tags / changed-file overlap; inject into workflow context.
+    </li>
+    <li>
+      <strong>Plural knowledge sources.</strong> docker-compose +
+      Kubernetes + env-registry built-in; custom plugins ship third-party
+      inputs into the same <code>auto/docs/KNOWLEDGE.md</code> render.
+      <a href="/knowledge-sources/">More →</a>
+    </li>
+    <li>
+      <strong>Schedule trigger.</strong> Cron / interval / every-N-commits
+      triggers; <code>substrate scheduler --check</code> reports due
+      workflows without invoking anything (delegates to your CI / cron /
+      AI session).
+    </li>
+  </ul>
+
+  <h2>Built on the v1.0 foundation</h2>
+  <ul>
+    <li><strong>35-rule audit detector runtime</strong> covering backend, frontend, security, dependencies, dead-code, and more.</li>
     <li><strong>21 standards docs</strong> as opinionated starting points that <em>you own</em> after init.</li>
     <li><strong>Three AI bridges:</strong> Claude Code, Cursor, MCP (Claude Desktop, Continue, Cline).</li>
     <li><strong>Real three-way merge</strong> on substrate upgrade — your edits + substrate's improvements, reconciled.</li>
     <li><strong>Plugin contracts</strong> for task adapters (Linear / Jira / GitHub Issues) and VCS adapters.</li>
-    <li><strong>Workflow runtime</strong> for multi-step automation (new-service, release, onboarding).</li>
   </ul>
 </Base>

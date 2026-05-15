@@ -1,0 +1,105 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Knowledge sources" description="v2.0's plural-source knowledge discovery — docker-compose, kubernetes, env-registry, and custom plugins.">
+  <h1>Knowledge sources</h1>
+  <p>
+    <code>substrate knowledge refresh</code> auto-discovers local-stack
+    reference material (services, ports, env-var surface, secrets-by-key)
+    and renders it into <code>auto/docs/KNOWLEDGE.md</code> — your
+    canonical "what's running where" doc, redacted by default.
+  </p>
+  <p>
+    v1.0 hardcoded docker-compose + <code>.env.example</code>. v2.0
+    opens this up via a typed plugin contract under
+    <code>substrate/knowledge-sources.yaml</code>:
+  </p>
+
+  <pre><code>sources:
+  - kind: docker-compose
+    path: ./docker-compose.yml
+  - kind: kubernetes
+    paths: ["k8s/**/*.yaml"]
+  - kind: env-registry
+    paths: [".env.production.template"]</code></pre>
+
+  <h2>Built-in plugins</h2>
+  <table>
+    <thead>
+      <tr><th>Kind</th><th>Reads</th><th>Emits</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>docker-compose</code></td>
+        <td>compose file</td>
+        <td>service blocks (name, image, ports, depends-on, volumes)</td>
+      </tr>
+      <tr>
+        <td><code>kubernetes</code></td>
+        <td>k8s manifests (single + multi-doc YAML)</td>
+        <td>Service / Deployment / StatefulSet / Secret / ConfigMap (keys only)</td>
+      </tr>
+      <tr>
+        <td><code>env-registry</code></td>
+        <td>env-var template files</td>
+        <td>one block per key (values always redacted)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Glob support</h2>
+  <p>Minimal expander suited to the common k8s + env-registry shapes:</p>
+  <ul>
+    <li><code>**</code> matches zero or more intermediate directories. Skips <code>node_modules</code> and dotfile-prefixed dirs.</li>
+    <li><code>*</code> matches one path segment.</li>
+    <li>Literal segments match verbatim.</li>
+    <li>Patterns starting with <code>.</code> discover dotfiles intentionally.</li>
+  </ul>
+
+  <h2>Custom plugins</h2>
+  <p>
+    Register your own plugin to surface internal-service registries,
+    terraform state, or any other input shape. The contract is a pure
+    function <code>(absolutePath, repoRoot, options?) =&gt;
+    KnowledgeBlock[]</code>:
+  </p>
+  <pre><code>import &#123;
+  registerKnowledgePlugin,
+  type KnowledgeBlock,
+&#125; from "@op4z/substrate";
+
+registerKnowledgePlugin("mycorp:internal-services", (path, root) =&gt; &#123;
+  const data = JSON.parse(readFileSync(path, "utf8"));
+  return data.services.map((s) =&gt; (&#123;
+    sourceKind: "mycorp:internal-services",
+    sourcePath: path.replace(root + "/", ""),
+    category: "services",
+    payload: &#123; name: s.name, image: null, ports: [String(s.port)] &#125;,
+  &#125;));
+&#125;);</code></pre>
+  <p>
+    Full contract in <code>docs/knowledge-sources.md</code>: naming
+    conventions, block categories, determinism boundary, programmatic
+    API, and the v1 → v2 migration steps.
+  </p>
+
+  <h2>Secret values</h2>
+  <p>
+    The kubernetes plugin reads <code>Secret</code> and
+    <code>ConfigMap</code> resources but emits the <strong>key list
+    only</strong>. Values never leave your repo's filesystem. The
+    env-registry plugin similarly always redacts the placeholder
+    value. Substrate's contract is "surface what's there"; never
+    "exfiltrate what's there."
+  </p>
+
+  <h2>v1 fallback</h2>
+  <p>
+    Consumers without a <code>substrate/knowledge-sources.yaml</code>
+    keep working — <code>substrate knowledge refresh</code> falls back
+    to the v1 <code>substrate.config.json#knowledge.sources</code>
+    flat-string list. Both paths render to the same
+    <code>auto/docs/KNOWLEDGE.md</code>.
+  </p>
+</Base>

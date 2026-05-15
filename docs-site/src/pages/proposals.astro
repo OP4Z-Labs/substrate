@@ -1,0 +1,180 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Proposals — self-reinforcement" description="Substrate's proposal pipeline watches your workflow runs and proposes improvements to the conventions it just executed.">
+  <h1>Self-reinforcement and the proposal pipeline</h1>
+  <p>
+    <strong>This is the v2.0 headline primitive.</strong> Most automation
+    frameworks define their conventions once and never look back.
+    Substrate's proposal pipeline does the opposite: every workflow run
+    is observed, and the deltas between what the workflow <em>declared</em>
+    and what <em>actually happened</em> generate typed proposals that you
+    can accept, reject, or defer.
+  </p>
+
+  <blockquote>
+    <p>
+      The framework that ships your conventions <em>and</em> watches itself
+      drift away from them. Drift is data; substrate makes it actionable.
+    </p>
+  </blockquote>
+
+  <h2>How it works</h2>
+  <ol>
+    <li>
+      <code>substrate run &lt;workflow&gt;</code> executes a workflow. Every
+      lifecycle event (workflow-start, context-loaded, step-start,
+      adhoc-step, step-completion, workflow-completion…) gets written to
+      a JSONL session-event-log at
+      <code>substrate/sessions/&lt;workflow&gt;-&lt;sha&gt;.jsonl</code>.
+    </li>
+    <li>
+      The <code>auto-drift-detect</code> hook fires on
+      <code>workflow-completion</code>. It runs six built-in drift
+      detectors against the session log + the workflow manifest + recent
+      run history:
+      <ul>
+        <li><code>adhoc-step</code> — workflow exited with steps that weren't in the manifest</li>
+        <li><code>skipped-step</code> — required steps never ran</li>
+        <li><code>out-of-order</code> — steps ran in a different order than declared</li>
+        <li><code>context-gap</code> — the workflow's prompts referenced context it didn't load</li>
+        <li><code>repeated-prompt</code> — the same prompt appeared in &gt; N recent runs</li>
+        <li><code>rule-violation-recurrence</code> — the same RULES.yaml violation appeared in &gt; N runs</li>
+      </ul>
+    </li>
+    <li>
+      Each drift finding maps to one of eight typed proposals:
+      <ul>
+        <li><code>add-to-workflow-step</code> — declare an observed ad-hoc step</li>
+        <li><code>add-to-memory</code> — capture a recurring feedback / decision</li>
+        <li><code>strengthen-context-load</code> — load the missing context next time</li>
+        <li><code>add-to-rule</code> — promote a recurring violation to a RULES.yaml entry</li>
+        <li><code>add-to-doc-check-registry</code> — wire a conditional doc-check</li>
+        <li><code>add-to-standards-doc</code> — extend the standards prose</li>
+        <li><code>cross-link-existing</code> — surface a referenced doc as a workflow context input</li>
+        <li><code>add-to-adr</code> — auto-stub an Architecture Decision Record</li>
+      </ul>
+    </li>
+    <li>
+      Proposals are written as markdown to
+      <code>substrate/proposals/pending/&lt;date&gt;-&lt;workflow&gt;-&lt;sha&gt;.md</code>
+      with the typed payload embedded as JSON code blocks (lossless
+      round-trip). Each run produces at most one pending file.
+    </li>
+    <li>
+      <code>substrate review --proposals</code> walks the pending queue
+      interactively. Five controls per proposal: <em>accept</em> (run the
+      applicator) / <em>reject</em> (move to <code>rejected/</code>) /
+      <em>edit</em> (modify before applying) / <em>defer</em> (re-surface
+      next walk) / <em>skip</em> (no decision recorded).
+    </li>
+    <li>
+      Accepted proposals invoke an <em>applicator</em> that writes the
+      change to disk — workflow YAML edit (comment-preserving), RULES.yaml
+      append, memory frontmatter write, doc-check registry add, ADR draft,
+      etc. All applicators show a diff preview first and support
+      <code>--dry-run</code>.
+    </li>
+  </ol>
+
+  <h2>Worked example</h2>
+  <p>
+    Suppose <code>tackle-task</code> runs four times in a row. Each run,
+    after the manifest's declared steps, an extra ad-hoc step fires:
+    "check migration guide referenced in PR description for breaking
+    changes."
+  </p>
+  <p>
+    The first run produces an <code>adhoc-step</code> finding at
+    <strong>low</strong> confidence (one observation isn't enough signal).
+    The second and third raise confidence to <strong>medium</strong>. The
+    fourth crosses the recurrence threshold: <strong>high</strong>
+    confidence.
+  </p>
+  <p>
+    At high confidence, the classifier emits two proposals:
+  </p>
+  <ul>
+    <li>
+      <code>add-to-workflow-step</code> — append "check migration guide for
+      breaking changes" to <code>tackle-task.yaml</code>'s steps list.
+    </li>
+    <li>
+      <code>add-to-memory</code> — capture "always check migration guide
+      for breaking changes" as a feedback memory so it injects into
+      future workflows' context.
+    </li>
+  </ul>
+  <p>
+    Running <code>substrate review --proposals</code> walks both:
+  </p>
+  <pre><code>$ substrate review --proposals
+
+Pending: substrate/proposals/pending/2026-05-14-tackle-task-abc12345.md
+
+[1/2] add-to-workflow-step  confidence: high
+  Append step to tackle-task: "check migration guide for breaking changes"
+  → diff preview:
+       steps:
+         - id: review-pr-description
+         - id: run-tests
+    +    - id: check-migration-guide-for-breaking-changes
+         - id: open-pr
+
+  [a]ccept  [r]eject  [e]dit  [d]efer  [s]kip  ?</code></pre>
+
+  <h2>Confidence + de-duplication</h2>
+  <p>
+    Proposal IDs are deterministic — a 12-hex truncation of
+    <code>sha256(kind | workflowId | driftSignature)</code>. The same drift
+    on two runs produces the same proposal id, so the queue de-duplicates.
+    Confidence tiers (<code>low</code> / <code>medium</code> /
+    <code>high</code>) gate the surfacing default: <code>high</code> is the
+    only tier <code>--batch-confirm</code> accepts automatically; the rest
+    require human review.
+  </p>
+
+  <h2>Telemetry boundary</h2>
+  <p>
+    The session-event-log is a <strong>separate channel</strong> from the
+    <code>~/.config/substrate/telemetry.log</code> events. Session logs
+    are checked into your repo by default; substrate sanitises strings
+    against a hardcoded blocklist (no <code>/home/</code> paths,
+    <code>Bearer</code> tokens, <code>ghp_</code> github tokens, generic
+    emails) and truncates <code>description</code> / <code>prompt</code> /
+    <code>output</code> fields to 120 chars. See
+    <code>docs/telemetry-transparency.md</code> for the full forbidden-fields
+    list.
+  </p>
+
+  <h2>Scheduling the walk</h2>
+  <p>
+    The <code>weekly-proposal-walk</code> reference workflow ships a
+    scheduled trigger:
+  </p>
+  <pre><code># substrate/workflows/weekly-proposal-walk.yaml
+id: weekly-proposal-walk
+trigger:
+  - schedule: &#123; cron: "0 9 * * 1" &#125;    # Mondays at 09:00 UTC
+steps:
+  - id: walk
+    type: invoke-deterministic
+    run: substrate review --proposals --batch-confirm</code></pre>
+  <p>
+    <code>--batch-confirm</code> auto-accepts <code>high</code>-confidence
+    proposals and defers the rest. Substrate itself never invokes the
+    scheduler — your CI / cron / AI session decides when scheduled
+    workflows fire (see <a href="/workflows/#scheduling">Workflows →
+    Scheduling</a>).
+  </p>
+
+  <h2>Commands</h2>
+  <ul>
+    <li><code>substrate review --proposals</code> — walk the queue interactively</li>
+    <li><code>substrate review --proposals --dry-run</code> — preview without writes</li>
+    <li><code>substrate review --proposals --batch-confirm</code> — auto-accept high tier</li>
+    <li><code>substrate query sessions [--workflow id]</code> — index session-event-logs</li>
+    <li><code>substrate doctor --check stale-proposals</code> — surface aged-out pending files</li>
+  </ul>
+</Base>
