@@ -1,0 +1,24 @@
+{
+  "name": "@cadence/adapter-jira",
+  "version": "0.8.0",
+  "description": "Jira TaskAdapter for cadence. Implements find/search/create/update/complete against Jira Cloud and Server via the jira-client REST library.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "jira-client": "^8.2.2"
+  },
+  "private": true
+}
