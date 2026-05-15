@@ -1,0 +1,44 @@
+---
+import Base from "../layouts/Base.astro";
+
+const commands = [
+  { name: "init", summary: "Scaffold auto/, cadence.config.json, AI-bridge files. Use --bridge claude,cursor,mcp." },
+  { name: "add", summary: "Add a single audit, standard, scaffold, command, or workflow. e.g. cadence add audit backend." },
+  { name: "audit", summary: "Run an audit (--type <name>) or list available audits (--list)." },
+  { name: "create", summary: "Scaffold a new package or service from a template (package-ts, package-python, service-fastapi, etc.)." },
+  { name: "doctor", summary: "Diagnose the cadence install — config, manifest, bridges, auto/ layout." },
+  { name: "knowledge", summary: "knowledge refresh regenerates KNOWLEDGE.md from docker-compose; knowledge show prints it." },
+  { name: "task", summary: "Adapter-driven verbs: find / search / create / update / complete. Requires extensions.taskAdapter." },
+  { name: "workflow", summary: "list / describe / start multi-step workflows from auto/config/workflows.yaml." },
+  { name: "upgrade", summary: "--check shows drift; --apply walks modified files interactively with three-way merge." },
+  { name: "mcp serve", summary: "Run cadence as an MCP server (stdio transport) for Claude Desktop, Continue, Cline, etc." },
+];
+---
+
+<Base title="Commands" description="Cadence CLI command reference.">
+  <h1>Commands</h1>
+  <p>
+    Every command supports <code>--help</code>, <code>--json</code> where
+    relevant, and respects <code>--quiet</code>. The complete man-page
+    output lives in <code>cadence --help</code>.
+  </p>
+
+  <ul>
+    {commands.map((c) => (
+      <li>
+        <strong><code>cadence {c.name}</code></strong> — {c.summary}
+      </li>
+    ))}
+  </ul>
+
+  <h2>Bridges</h2>
+  <p>Three slash-command bridges, scaffolded via <code>cadence init --bridge</code>:</p>
+  <ul>
+    <li><strong>claude</strong> — <code>.claude/commands/cadence.md</code> for Claude Code.</li>
+    <li><strong>cursor</strong> — <code>.cursor/commands/cadence.md</code> for Cursor.</li>
+    <li><strong>mcp</strong> — <code>.cadence/mcp/cadence-server.json</code> for any MCP host
+      (Claude Desktop, Continue, Cline). Run the server with <code>cadence mcp serve</code>.</li>
+  </ul>
+
+  <p>Pass multiple: <code>cadence init --bridge claude,cursor,mcp</code>.</p>
+</Base>

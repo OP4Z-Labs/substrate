@@ -1,0 +1,75 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Plugin Authoring" description="Write a TaskAdapter or VcsAdapter for cadence.">
+  <h1>Plugin Authoring</h1>
+  <p>
+    Cadence has two plugin axes today (v0.8): <strong>TaskAdapter</strong>
+    (task tracker integration — Linear / Jira / GitHub Issues / your own)
+    and <strong>VcsAdapter</strong> (VCS interaction; default is the built-in
+    git adapter). Both are loaded via dynamic <code>import()</code> based on
+    the npm package name listed in <code>cadence.config.json</code>.
+  </p>
+
+  <h2>The TaskAdapter contract</h2>
+
+  <p>An adapter is an object satisfying:</p>
+
+  <pre><code>{`interface TaskAdapter {
+  readonly name: string;
+  readonly version: string;
+  findTask(input: { id: string }): Promise<CadenceTask | null>;
+  searchTasks(input: { query: string; limit?: number }): Promise<CadenceTask[]>;
+  createTask(input: CreateTaskInput): Promise<CadenceTask>;
+  updateTask(input: UpdateTaskInput): Promise<CadenceTask>;
+  completeTask(input: { id: string; actualHours?: number }): Promise<CadenceTask>;
+}`}</code></pre>
+
+  <p>
+    The interface is checked at load time by <code>isTaskAdapter()</code> — a
+    structural-typing guard. <strong>You do not need to import from
+    cadence.</strong> Adapter packages duplicate the interface inline (see
+    <code>@cadence/adapter-stub</code> for the reference shape).
+  </p>
+
+  <h2>Three reference adapters</h2>
+  <ul>
+    <li><strong><code>@cadence/adapter-stub</code></strong> — logs verbs to stderr, returns synthetic tasks. The contract checker and copy-paste template.</li>
+    <li><strong><code>@cadence/adapter-linear</code></strong> — Linear via @linear/sdk.</li>
+    <li><strong><code>@cadence/adapter-jira</code></strong> — Jira (Cloud or Server) via jira-client.</li>
+    <li><strong><code>@cadence/adapter-github</code></strong> — GitHub Issues via Octokit.</li>
+  </ul>
+
+  <h2>Configuring</h2>
+
+  <pre><code>{`{
+  "extensions": {
+    "taskAdapter": "@cadence/adapter-linear",
+    "vcsAdapter": null
+  }
+}`}</code></pre>
+
+  <p>
+    Set the corresponding environment variable for credentials
+    (<code>LINEAR_API_KEY</code>, <code>JIRA_API_TOKEN</code>, etc. — see
+    each adapter's README).
+  </p>
+
+  <h2>Writing your own</h2>
+
+  <ol>
+    <li>Create a new npm package with <code>cadence task</code> verbs.</li>
+    <li>Implement the five methods. Return <code>CadenceTask</code> shapes (id, title, description, status, priority, type, assignee, labels, estimatedHours, actualHours, url).</li>
+    <li>Export as default. Cadence's loader imports the default and runs <code>isTaskAdapter()</code>.</li>
+    <li>Test with a fake client; see the three reference adapter test files for the pattern (inject a narrow client-like interface, never hit real APIs in unit tests).</li>
+  </ol>
+
+  <h2>The VcsAdapter contract</h2>
+
+  <p>
+    Five verbs (getStatus, getBranch, getRemote, getDiff, commit). Built-in
+    git adapter at <code>src/adapters/git.ts</code> uses <code>spawnSync('git',
+    ...)</code>. A mercurial adapter would follow the same pattern.
+  </p>
+</Base>

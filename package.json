@@ -7,7 +7,8 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "docs-site"
   ],
   "engines": {
     "node": ">=20.0.0"
@@ -22,7 +23,9 @@
     "lint:fix": "npm run lint:fix --workspaces --if-present",
     "format": "npm run format --workspaces --if-present",
     "format:check": "npm run format:check --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "docs:dev": "npm run docs:dev --workspace cadence-docs-site",
+    "docs:build": "npm run docs:build --workspace cadence-docs-site"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",

@@ -1,0 +1,22 @@
+{
+  "name": "cadence-docs-site",
+  "version": "0.8.0",
+  "description": "Public documentation site for cadence. Built with Astro. Deployed to Cloudflare Pages.",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20.3.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "docs:dev": "astro dev",
+    "build": "astro build",
+    "docs:build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "astro": "^5.18.0"
+  }
+}

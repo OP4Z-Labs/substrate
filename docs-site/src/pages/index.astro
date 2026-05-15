@@ -1,0 +1,46 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Cadence" description="Repeatable automation patterns for codebases. Audits, scaffolds, standards, and bridges to AI coding assistants.">
+  <h1>Cadence</h1>
+  <p>
+    Cadence is a framework for codifying the repeatable patterns of a healthy
+    codebase: audits, scaffolds, standards, and review pipelines, with first-class
+    bridges to AI coding assistants (Claude Code, Cursor, MCP).
+  </p>
+
+  <h2>Why cadence</h2>
+  <p>
+    Every team accumulates opinions about how its codebase should be audited,
+    how new services should scaffold, what standards reviews enforce. Most
+    teams leave those opinions in shell scripts and tribal knowledge.
+    Cadence ships the framework so those opinions become<em> the
+    framework</em>: scaffolded into your repo at <code>cadence init</code>,
+    edited in place, then upgraded with a real three-way merge as the
+    framework evolves.
+  </p>
+
+  <h2>Install</h2>
+  <pre><code>npx cadence@latest init</code></pre>
+  <p>
+    See the <a href="/quick-start/">Quick Start</a> for the full first-run
+    walkthrough.
+  </p>
+
+  <h2>Status</h2>
+  <ul>
+    <li><strong>v0.8 (current):</strong> three reference adapters (Linear, Jira, GitHub), MCP bridge, GitHub Action wrapper, telemetry opt-in, true three-way upgrade.</li>
+    <li><strong>v1.0 (planned):</strong> semver freeze on config schema, migration guide from 0.x, public RULES contribution registry, case studies.</li>
+  </ul>
+
+  <h2>Headline features</h2>
+  <ul>
+    <li><strong>15 audits</strong> covering backend, frontend, security, dependencies, dead-code, and more.</li>
+    <li><strong>21 standards docs</strong> as opinionated starting points that <em>you own</em> after init.</li>
+    <li><strong>Three AI bridges:</strong> Claude Code, Cursor, MCP (Claude Desktop, Continue, Cline).</li>
+    <li><strong>Real three-way merge</strong> on cadence upgrade — your edits + cadence's improvements, reconciled.</li>
+    <li><strong>Plugin contracts</strong> for task adapters (Linear / Jira / GitHub Issues) and VCS adapters.</li>
+    <li><strong>Workflow runtime</strong> for multi-step automation (new-service, release, onboarding).</li>
+  </ul>
+</Base>

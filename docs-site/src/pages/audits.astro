@@ -1,0 +1,52 @@
+---
+import Base from "../layouts/Base.astro";
+
+const audits = [
+  { name: "backend", summary: "Backend service health: async-first, tenant isolation, error handling, observability." },
+  { name: "frontend", summary: "Frontend health: a11y, performance, design system compliance, test coverage." },
+  { name: "package", summary: "Per-package audit for shared TS / Python packages: deps, types, test coverage." },
+  { name: "security", summary: "SAST + secrets scan + tenant isolation + dependency CVEs." },
+  { name: "dependencies", summary: "Dependency drift, outdated packages, license risks." },
+  { name: "dead-code", summary: "Unused exports, dead routes, orphaned files." },
+  { name: "service-consistency", summary: "Cross-service pattern adherence: shared mixins, error shapes, log formats." },
+  { name: "reusability", summary: "Identifies opportunities to extract patterns into shared packages." },
+  { name: "extensibility", summary: "Plugin seams, abstraction boundaries, hard-coded coupling." },
+  { name: "performance", summary: "Hot-path identification, N+1 queries, render bottlenecks." },
+  { name: "api-contract", summary: "OpenAPI / GraphQL schema drift between services + frontend." },
+  { name: "functionality-gaps", summary: "Gaps where the codebase advertises features but doesn't ship them." },
+  { name: "pre-merge", summary: "Diff-only PR gate. Fast (under 30s). The default review hook." },
+  { name: "trend", summary: "Score-over-time across recent audit sweeps." },
+  { name: "all", summary: "Composite sweep: runs every applicable audit and aggregates findings." },
+];
+---
+
+<Base title="Audits" description="The 15 audits cadence ships in v0.8.">
+  <h1>Audits catalog</h1>
+  <p>
+    Cadence ships 15 audits. Each is a markdown instruction file scaffolded
+    into <code>auto/instructions/main/audit-&lt;name&gt;.md</code> at
+    <code>cadence add audit &lt;name&gt;</code>. The audits encode opinions
+    — you edit them in place. Cadence reads from your copy at runtime.
+  </p>
+
+  <p>
+    Run any audit with <code>cadence audit --type &lt;name&gt;</code>. List all with
+    <code>cadence audit --list</code>.
+  </p>
+
+  <ul>
+    {audits.map((a) => (
+      <li>
+        <strong><code>{a.name}</code></strong> — {a.summary}
+      </li>
+    ))}
+  </ul>
+
+  <h2>Stack-aware defaults</h2>
+  <p>
+    <code>cadence init</code> pre-enables a subset of these based on stack
+    detection (Python → backend + python audits; TS → frontend; etc.).
+    The remaining audits are <em>available</em> via <code>cadence add audit</code>
+    but not pre-enabled.
+  </p>
+</Base>

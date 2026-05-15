@@ -10,6 +10,8 @@ node_modules/
 !/dist/action/
 coverage/
 *.log
+.astro/
+docs-site/dist/
 .DS_Store
 .env
 .env.local
