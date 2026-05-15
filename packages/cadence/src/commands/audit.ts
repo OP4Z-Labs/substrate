@@ -1,6 +1,18 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import kleur from "kleur";
+import {
+  listDiffPaths,
+  loadRules,
+  locateRulesFile,
+  readTrend,
+  runAudit as runAuditExecutor,
+  RulesLoadError,
+  writeAuditReport,
+  type AuditReport,
+  type RuleDefinition,
+  type Severity,
+} from "../audit/index.js";
 import { listFiles, readText } from "../util/fs.js";
 import { parseFrontMatter } from "../util/frontmatter.js";
 import { getTemplatesDir, resolveTargetRoot } from "../util/paths.js";
@@ -272,4 +284,230 @@ function stripFrontMatterAndCode(source: string): string {
   }
   // Remove fenced code blocks so we don't surface ```bash` as the description.
   return body.replace(/```[\s\S]*?```/g, "");
+}
+
+// =============================================================================
+// v1.0 detector runtime — `cadence audit`, `--rule`, `--diff`, `--trend`.
+// =============================================================================
+//
+// The legacy stub above (`runAuditType`) loads an instruction Markdown file
+// and prints "no detectors executed". The new `runAuditExecute` actually
+// runs the rule registry from `cadence/RULES.yaml`. Both surfaces stay
+// available — `--type` continues to work for consumers using the v0.x
+// instruction-file pattern; `audit` (no flag) and `--rule <id>` drive the
+// new runtime.
+
+export interface AuditExecuteOptions {
+  cwd?: string;
+  /** Override RULES.yaml path (defaults to cadence.config / discovery). */
+  rulesPath?: string;
+  /** Run only one rule. */
+  ruleId?: string;
+  /** Run only rules whose detectors touch files in the staged diff. */
+  diff?: boolean;
+  /** Strict load: unknown fields become errors. */
+  strict?: boolean;
+  /** Emit machine-readable JSON instead of human prose. */
+  json?: boolean;
+  /** Suppress informational stdout. */
+  quiet?: boolean;
+  /** Disable writing the report files (used by --diff in CI smoke). */
+  noReport?: boolean;
+}
+
+export interface AuditExecuteResult {
+  report: AuditReport;
+  reportPaths?: { markdownPath: string; jsonPath: string; trendPath: string };
+}
+
+/**
+ * Run the audit detectors against the repo.
+ *
+ * - With no flags, executes every rule.
+ * - With `--rule <id>`, executes only that rule.
+ * - With `--diff`, executes every rule but restricts ripgrep detectors
+ *   to the files in the staged diff (script + composite still run).
+ */
+export async function runAuditExecute(
+  options: AuditExecuteOptions = {},
+): Promise<AuditExecuteResult> {
+  const repoRoot = resolveTargetRoot(options.cwd);
+  const rulesFile = locateRulesFile(repoRoot, options.rulesPath);
+  if (!rulesFile) {
+    throw new Error(
+      "Cadence: no RULES.yaml found. Expected at cadence/RULES.yaml. " +
+        'Run `cadence add standard cross-cutting/RULES` to scaffold one, ' +
+        "or pass --rules-path to point at an existing file.",
+    );
+  }
+  let loaded;
+  try {
+    loaded = loadRules(rulesFile, { strict: options.strict });
+  } catch (err) {
+    if (err instanceof RulesLoadError) {
+      throw new Error(`Cadence: ${err.message}`);
+    }
+    throw err;
+  }
+  const allRules = loaded.document.rules;
+  let rules: RuleDefinition[];
+  let scope: string;
+  let pathFilter: string[] | undefined;
+  if (options.ruleId) {
+    const single = allRules.find((r) => r.id === options.ruleId);
+    if (!single) {
+      throw new Error(
+        `Cadence: rule "${options.ruleId}" not found in ${rulesFile}. ` +
+          `Available IDs: ${allRules.map((r) => r.id).join(", ")}`,
+      );
+    }
+    rules = [single];
+    scope = options.ruleId;
+  } else {
+    rules = allRules;
+    scope = options.diff ? "diff" : "all";
+  }
+  if (options.diff) {
+    const diffPaths = listDiffPaths(repoRoot);
+    if (diffPaths !== null && diffPaths.length > 0) {
+      pathFilter = diffPaths;
+    } else if (diffPaths !== null) {
+      // Empty diff — no files changed. Short-circuit to an empty report so
+      // we don't pretend all rules executed against zero paths.
+      rules = [];
+    }
+    // diffPaths === null => not a git repo; let rules run against everything.
+  }
+  const report = await runAuditExecutor({
+    repoRoot,
+    rulesPath: rulesFile,
+    rules,
+    scope,
+    pathFilter,
+    totalRules: allRules.length,
+  });
+
+  // Surface load warnings as informational lines (one shot, before reports).
+  if (!options.quiet && !options.json && loaded.warnings.length > 0) {
+    for (const w of loaded.warnings) {
+      process.stderr.write(kleur.yellow(`  warn: ${w}\n`));
+    }
+  }
+
+  let reportPaths;
+  if (!options.noReport) {
+    reportPaths = writeAuditReport(report, { repoRoot, scope });
+  }
+
+  if (options.json) {
+    process.stdout.write(JSON.stringify({ report, reportPaths }, null, 2) + "\n");
+    return { report, reportPaths };
+  }
+  if (!options.quiet) {
+    renderConsoleSummary(report, reportPaths);
+  }
+  return { report, reportPaths };
+}
+
+function renderConsoleSummary(
+  report: AuditReport,
+  reportPaths?: { markdownPath: string; jsonPath: string; trendPath: string },
+): void {
+  console.log("");
+  console.log(kleur.bold(`Cadence audit — ${report.scope}`));
+  console.log(
+    kleur.dim(
+      `  ${report.executedRules}/${report.totalRules} rules · ${report.totalFindings} findings · ${report.durationMs}ms`,
+    ),
+  );
+  if (report.totalFindings > 0) {
+    const sevs: Severity[] = ["critical", "high", "medium", "low"];
+    const parts = sevs
+      .filter((s) => report.findingsBySeverity[s] > 0)
+      .map((s) => `${severityColor(s)(s)}: ${report.findingsBySeverity[s]}`);
+    console.log("  " + parts.join("  "));
+  }
+  for (const r of report.rules) {
+    if (r.skipped && r.findings.length === 0) {
+      console.log(`  ${kleur.dim("○")} ${r.ruleId.padEnd(18)} ${kleur.dim(r.note ?? "skipped")}`);
+      continue;
+    }
+    if (r.findings.length === 0) {
+      console.log(`  ${kleur.green("✓")} ${r.ruleId.padEnd(18)} ${kleur.dim(r.ruleTitle)}`);
+      continue;
+    }
+    console.log(
+      `  ${severityColor(r.severity)("●")} ${r.ruleId.padEnd(18)} ${r.ruleTitle} ${kleur.dim(`(${r.findings.length} findings)`)}`,
+    );
+    for (const f of r.findings.slice(0, 5)) {
+      const loc = f.path ? `${f.path}${f.line ? `:${f.line}` : ""}` : "(no location)";
+      console.log(`      ${kleur.dim(loc)} ${f.snippet ?? f.message}`);
+    }
+    if (r.findings.length > 5) {
+      console.log(`      ${kleur.dim(`... and ${r.findings.length - 5} more`)}`);
+    }
+  }
+  if (reportPaths) {
+    console.log("");
+    console.log(kleur.dim(`  Report:  ${reportPaths.markdownPath}`));
+    console.log(kleur.dim(`  JSON:    ${reportPaths.jsonPath}`));
+  }
+  console.log("");
+}
+
+function severityColor(sev: Severity): (s: string) => string {
+  switch (sev) {
+    case "critical":
+      return kleur.red;
+    case "high":
+      return kleur.yellow;
+    case "medium":
+      return kleur.cyan;
+    case "low":
+      return kleur.dim;
+  }
+}
+
+export interface AuditTrendOptions {
+  cwd?: string;
+  json?: boolean;
+  quiet?: boolean;
+  /** Limit history to the last N entries per scope. */
+  limit?: number;
+}
+
+export function runAuditTrend(options: AuditTrendOptions = {}): {
+  trend: ReturnType<typeof readTrend>;
+} {
+  const repoRoot = resolveTargetRoot(options.cwd);
+  const trend = readTrend(repoRoot);
+  if (options.json) {
+    process.stdout.write(JSON.stringify(trend, null, 2) + "\n");
+    return { trend };
+  }
+  if (options.quiet) return { trend };
+  if (trend.count === 0) {
+    console.log(kleur.dim("No trend data yet. Run `cadence audit` to start recording history."));
+    return { trend };
+  }
+  console.log(kleur.bold(`\nCadence audit trend — ${trend.count} run(s) on file\n`));
+  const limit = options.limit ?? 10;
+  for (const [scope, entries] of Object.entries(trend.byScope)) {
+    const tail = entries.slice(-limit);
+    console.log(kleur.bold(`  ${scope}`));
+    for (const e of tail) {
+      const sev = e.findingsBySeverity;
+      const sevStr =
+        sev.critical || sev.high || sev.medium || sev.low
+          ? kleur.dim(
+              ` (crit:${sev.critical} high:${sev.high} med:${sev.medium} low:${sev.low})`,
+            )
+          : "";
+      console.log(
+        `    ${e.ts.slice(0, 19).replace("T", " ")} · ${kleur.cyan(String(e.totalFindings))} findings${sevStr}`,
+      );
+    }
+  }
+  console.log("");
+  return { trend };
 }

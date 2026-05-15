@@ -14,7 +14,12 @@
 import { Command, Option } from "commander";
 import kleur from "kleur";
 import { runAdd } from "./commands/add.js";
-import { runAuditList, runAuditType } from "./commands/audit.js";
+import {
+  runAuditExecute,
+  runAuditList,
+  runAuditTrend,
+  runAuditType,
+} from "./commands/audit.js";
 import { runCreate } from "./commands/create.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runInit } from "./commands/init.js";
@@ -86,24 +91,46 @@ function buildProgram(): Command {
     });
 
   // --------------------------------------------------------------- audit
-  const audit = program.command("audit").description("Run or list audits.");
+  // v1.0: `cadence audit` runs the detector runtime against RULES.yaml.
+  // Legacy flags `--list` and `--type` remain (instruction-file surface).
+  const audit = program.command("audit").description("Run cadence audits (RULES.yaml detector engine).");
   audit
-    .option("--list", "List available audits")
-    .option("--type <name>", "Audit type to run (e.g. pre-merge)")
+    .option("--list", "List scaffolded + catalog audit instruction files")
+    .option("--type <name>", "[legacy] load an audit-<name>.md instruction stub")
+    .option("--rule <id>", "Run a single rule by id")
+    .option("--diff", "Restrict ripgrep detectors to files in the staged diff", false)
+    .option("--trend", "Print the trend journal (cadence/audits/_trend.jsonl)", false)
+    .option("--rules-path <path>", "Override the RULES.yaml location")
+    .option("--strict", "Treat unknown RULES.yaml fields as errors", false)
+    .option("--no-report", "Skip writing report files (stdout only)")
     .option("--json", "Emit machine-readable JSON")
-    .action((options: AuditCliOptions) => {
+    .option("--quiet", "Suppress informational output", false)
+    .action(async (options: AuditCliOptions) => {
       if (options.list && options.type) {
         throw new Error("Cadence: pass either --list or --type, not both.");
       }
+      if (options.trend) {
+        runAuditTrend({ json: options.json, quiet: options.quiet });
+        return;
+      }
       if (options.type) {
-        runAuditType(options.type, { json: options.json });
+        runAuditType(options.type, { json: options.json, quiet: options.quiet });
         return;
       }
       if (options.list) {
-        runAuditList({ json: options.json });
+        runAuditList({ json: options.json, quiet: options.quiet });
         return;
       }
-      audit.help();
+      // Default: run the detector runtime.
+      await runAuditExecute({
+        ruleId: options.rule,
+        diff: options.diff,
+        rulesPath: options.rulesPath,
+        strict: options.strict,
+        noReport: options.report === false,
+        json: options.json,
+        quiet: options.quiet,
+      });
     });
 
   // -------------------------------------------------------------- create
@@ -438,7 +465,15 @@ interface InitCliOptions {
 interface AuditCliOptions {
   list?: boolean;
   type?: string;
+  rule?: string;
+  diff?: boolean;
+  trend?: boolean;
+  rulesPath?: string;
+  strict?: boolean;
+  /** Commander adds .report:false when --no-report is passed. */
+  report?: boolean;
   json?: boolean;
+  quiet?: boolean;
 }
 
 interface CreateCliOptions {
