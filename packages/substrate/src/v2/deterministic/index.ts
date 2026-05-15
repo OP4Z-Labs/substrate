@@ -215,3 +215,23 @@ export {
   RulesLoadError,
   runAudit,
 } from "../../audit/index.js";
+
+// Plural knowledge sources (B4 / Primitive 11). The plugin contract
+// lets consumers register additional source-kind plugins beyond the
+// built-ins (docker-compose, kubernetes, env-registry).
+export {
+  discoverKnowledge,
+  listRegisteredKinds,
+  loadKnowledgeSourcesManifest,
+  registerKnowledgePlugin,
+} from "../knowledge/sources.js";
+export type {
+  DiscoverKnowledgeOptions,
+  DiscoverKnowledgeResult,
+  KnowledgeBlock,
+  KnowledgeSourceManifest,
+  KnowledgeSourceManifestEntry,
+  KnowledgeSourcePlugin,
+  LoadKnowledgeSourcesOptions,
+  LoadKnowledgeSourcesResult,
+} from "../knowledge/sources.js";
