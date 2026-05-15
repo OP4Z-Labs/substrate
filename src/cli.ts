@@ -229,8 +229,22 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
 // CLI bootstrap — only run when invoked as a script, not when imported
 // (e.g. by tests). The fileURLToPath dance is the standard ESM pattern.
+// When installed via `npm link` or `npm install -g`, process.argv[1] is the
+// symlink (e.g. `/usr/local/bin/cadence`) while `import.meta.url` resolves
+// to the link target. `realpathSync` normalizes both sides so the equality
+// check still fires.
 import { fileURLToPath } from "node:url";
-const invokedDirectly = process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url);
+import { realpathSync } from "node:fs";
+function resolveRealPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+const invokedDirectly =
+  !!process.argv[1] &&
+  resolveRealPath(process.argv[1]) === resolveRealPath(fileURLToPath(import.meta.url));
 if (invokedDirectly) {
   main();
 }
