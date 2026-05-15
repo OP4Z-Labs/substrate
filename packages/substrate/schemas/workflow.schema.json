@@ -1,0 +1,291 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://op4z.dev/substrate/schemas/workflow.schema.json",
+  "title": "Substrate v2 Workflow Manifest",
+  "description": "Declarative manifest for a substrate v2 workflow. The manifest is the schema; the prose body in `<id>.body.md` is the program the AI executes.",
+  "type": "object",
+  "required": ["id", "name", "schema_version"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "description": "Manifest schema version. Only `v2.0` is recognized in this release.",
+      "type": "string",
+      "enum": ["v2.0"]
+    },
+    "id": {
+      "description": "Unique workflow id within the workspace. Used as the argument to `substrate run <id>`.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "name": {
+      "description": "Human-readable name. Shown in `substrate workflow list` and `substrate run --help` output.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "description": {
+      "description": "Optional longer description of what this workflow does and when to run it.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "Coarse category. Cross-cutting hooks can match on this.",
+      "type": "string",
+      "enum": ["audit", "review", "scaffold", "task-tackle", "other"]
+    },
+    "authors": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "last_updated": {
+      "description": "ISO date (YYYY-MM-DD) of the last meaningful edit.",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "trigger": {
+      "description": "Declared invocation paths. ALL listed triggers can fire this workflow.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/trigger" },
+      "default": []
+    },
+    "when": { "$ref": "#/definitions/when" },
+    "context": { "$ref": "#/definitions/context" },
+    "composes_findings_of": {
+      "description": "Cross-workflow dependencies. (Behavior is B2/B3; recognized in the schema for forward-compat.)",
+      "type": "array",
+      "items": { "$ref": "#/definitions/composedFinding" }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cross-cutting": {
+          "description": "IDs of cross-cutting hooks to invoke. (B2 wires these up.)",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "steps": {
+      "description": "Workflow body, ordered. Each step is dispatched by `type`.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/step" },
+      "default": []
+    },
+    "followups": {
+      "description": "Prose recommendations surfaced after workflow exits.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/followup" }
+    },
+    "acceptance": { "$ref": "#/definitions/acceptance" }
+  },
+
+  "definitions": {
+    "trigger": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "manual-command",
+            "pre-commit",
+            "pre-push",
+            "workflow-completion",
+            "file-change"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schedule": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cron": { "type": "string" },
+                "interval": { "type": "string" },
+                "every-n-commits": { "type": "integer", "minimum": 1 }
+              },
+              "minProperties": 1,
+              "maxProperties": 1
+            }
+          },
+          "required": ["schedule"]
+        }
+      ]
+    },
+
+    "when": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "files-changed-any": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "files-changed-all": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "branch-pattern": { "type": "string" },
+        "commit-message-pattern": { "type": "string" },
+        "exit-code-of": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workflow", "equals"],
+          "properties": {
+            "workflow": { "type": "string" },
+            "equals": { "type": "integer" }
+          }
+        },
+        "custom-predicate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "standards": {
+          "description": "Paths to standards docs to inject. Relative to the standards/ root.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "memory": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "types": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["user", "feedback", "project", "reference"]
+              }
+            },
+            "scope": { "type": "string" },
+            "tags": { "type": "array", "items": { "type": "string" } },
+            "intersect-with-changed-files": { "type": "boolean" }
+          }
+        },
+        "rules": {
+          "description": "Patterns matching RULES.yaml ids (glob-style, e.g. `BE-PY-*`).",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "knowledge-sections": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "composedFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow"],
+      "properties": {
+        "workflow": { "type": "string" },
+        "section": { "type": "string" },
+        "require-fresh-within": { "type": "string" }
+      }
+    },
+
+    "step": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "minLength": 1
+        },
+        "name": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "prompt-and-action",
+            "run-tool",
+            "invoke-sub-workflow",
+            "invoke-deterministic",
+            "gate",
+            "discover",
+            "propose-doc-change"
+          ]
+        },
+        "prompt": { "type": "string" },
+        "run": { "type": "string" },
+        "workflow": { "type": "string" },
+        "must-confirm": { "type": "boolean" },
+        "continue-on-failure": { "type": "boolean" },
+        "timeout": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "prompt" } } },
+          "then": { "required": ["prompt"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "prompt-and-action" } } },
+          "then": { "required": ["prompt"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "run-tool" } } },
+          "then": { "required": ["run"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "invoke-deterministic" } } },
+          "then": { "required": ["run"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "invoke-sub-workflow" } } },
+          "then": { "required": ["workflow"] }
+        }
+      ]
+    },
+
+    "followup": {
+      "type": "object",
+      "required": ["suggest"],
+      "additionalProperties": false,
+      "properties": {
+        "if": { "type": "string" },
+        "suggest": { "type": "string" }
+      }
+    },
+
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exit_codes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pass": { "type": "integer" },
+            "conditional": { "type": "integer" },
+            "fail": { "type": "integer" }
+          }
+        },
+        "required-steps": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "required-checks": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

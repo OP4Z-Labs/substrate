@@ -22,6 +22,7 @@
     "dist",
     "templates",
     "templates-history",
+    "schemas",
     "README.md",
     "LICENSE"
   ],
@@ -45,6 +46,8 @@
   "dependencies": {
     "@inquirer/prompts": "^7.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "commander": "^12.1.0",
     "kleur": "^4.1.5",
     "yaml": "^2.9.0",

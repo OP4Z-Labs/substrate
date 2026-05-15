@@ -44,6 +44,13 @@ import {
   runWorkflowList,
   runWorkflowStart,
 } from "./commands/workflow.js";
+import { runValidate } from "./v2/deterministic/validate-command.js";
+import {
+  runQueryMemory,
+  runQueryRules,
+  runQueryStandards,
+} from "./v2/deterministic/query-command.js";
+import { runV2Workflow } from "./v2/orchestrator/run-command.js";
 import {
   emitTelemetryEvent,
   logPath,
@@ -513,6 +520,144 @@ function buildProgram(): Command {
           json: options.json,
           quiet: options.quiet,
         });
+      },
+    );
+
+  // ------------------------------------------------------- validate (v2)
+  // Deterministic-layer command. Validates v2 workflow manifests against
+  // the bundled JSON Schema. Exit codes: 0 ok, 1 schema violation,
+  // 2 file/dir not found. See `src/v2/deterministic/validate-command.ts`.
+  program
+    .command("validate")
+    .description(
+      "Validate substrate v2 workflow manifest(s) against the schema. Omit <path> to walk substrate/workflows/.",
+    )
+    .argument("[path]", "Manifest file (relative to cwd or absolute)")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((path: string | undefined, options: { json?: boolean; quiet?: boolean }) => {
+      const result = runValidate({ path, json: options.json, quiet: options.quiet });
+      if (result.exitCode !== 0) {
+        process.exitCode = result.exitCode;
+      }
+    });
+
+  // ------------------------------------------------------- query (v2 deterministic)
+  // Pure read/filter operations over rules / standards / memory.
+  // No AI, no network. `--json` is supported on every subject so CI
+  // scripts can consume the output directly.
+  const query = program
+    .command("query")
+    .description("Inspect deterministic context (rules, standards, memory) without running a workflow.");
+  query
+    .command("rules")
+    .description("List RULES.yaml entries, optionally filtered by id glob.")
+    .option(
+      "--by-prefix <patterns>",
+      "Comma-separated id globs to match (e.g. BE-PY-*,FE-REACT-*)",
+    )
+    .option("--rules-path <path>", "Override the RULES.yaml location")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (options: {
+        byPrefix?: string;
+        rulesPath?: string;
+        json?: boolean;
+        quiet?: boolean;
+      }) => {
+        const patterns = options.byPrefix
+          ? options.byPrefix.split(",").map((p) => p.trim()).filter(Boolean)
+          : undefined;
+        runQueryRules({
+          byPrefix: patterns,
+          rulesPath: options.rulesPath,
+          json: options.json,
+          quiet: options.quiet,
+        });
+      },
+    );
+  query
+    .command("standards")
+    .description("List standards docs available under substrate/standards/.")
+    .option(
+      "--pattern <patterns>",
+      "Comma-separated globs against the relative path (e.g. backend/*.md)",
+    )
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (options: { pattern?: string; json?: boolean; quiet?: boolean }) => {
+        const patterns = options.pattern
+          ? options.pattern.split(",").map((p) => p.trim()).filter(Boolean)
+          : undefined;
+        runQueryStandards({
+          patterns,
+          json: options.json,
+          quiet: options.quiet,
+        });
+      },
+    );
+  query
+    .command("memory")
+    .description(
+      "Query memories (STUB in B1 — first-class memory loads in B2; see plan §6).",
+    )
+    .option("--types <list>", "Comma-separated memory types (feedback,project,…)")
+    .option("--scope <scope>", "Memory scope filter")
+    .option("--tags <list>", "Comma-separated tag filter")
+    .option("--for-files <list>", "Comma-separated changed-file paths")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (options: {
+        types?: string;
+        scope?: string;
+        tags?: string;
+        forFiles?: string;
+        json?: boolean;
+        quiet?: boolean;
+      }) => {
+        runQueryMemory({
+          types: options.types ? options.types.split(",").map((t) => t.trim()) : undefined,
+          scope: options.scope,
+          tags: options.tags ? options.tags.split(",").map((t) => t.trim()) : undefined,
+          forFiles: options.forFiles
+            ? options.forFiles.split(",").map((f) => f.trim())
+            : undefined,
+          json: options.json,
+          quiet: options.quiet,
+        });
+      },
+    );
+
+  // ------------------------------------------------------- run (v2 orchestration)
+  // Orchestration-layer command. Executes a v2 workflow by id. In B1 only
+  // `invoke-deterministic` steps run end-to-end; prompt-style steps surface
+  // a deferred-feature message. Full step engine lands in B2/B3.
+  program
+    .command("run")
+    .description(
+      "Execute a substrate v2 workflow by id (substrate/workflows/<id>.yaml). Orchestration layer.",
+    )
+    .argument("<workflow-id>", "Workflow id to run")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .option("--dry-run", "Resolve context + plan steps without executing", false)
+    .action(
+      async (
+        workflowId: string,
+        options: { json?: boolean; quiet?: boolean; dryRun?: boolean },
+      ) => {
+        const result = await runV2Workflow({
+          workflowId,
+          json: options.json,
+          quiet: options.quiet,
+          dryRun: options.dryRun,
+        });
+        if (result.exitCode !== 0) {
+          process.exitCode = result.exitCode;
+        }
       },
     );
 
