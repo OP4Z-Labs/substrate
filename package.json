@@ -27,6 +27,8 @@
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"*.md\" \"*.json\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"*.md\" \"*.json\"",
     "test": "vitest run",
+    "test:unit": "vitest run --exclude tests/integration/**",
+    "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run clean && npm run build"
