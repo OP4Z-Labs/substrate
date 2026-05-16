@@ -1,0 +1,86 @@
+schema_version: v2.0
+id: commit-and-push
+name: Commit and push
+description: >-
+  The "ship it" workflow. Runs pre-commit hooks, prompts for the
+  commit message, optionally drafts an ADR for architectural decisions,
+  and pushes. Includes a conditional doc-check evaluation to remind
+  the author when a CHANGELOG / ADR / migration guide is expected.
+kind: other
+authors:
+  - substrate
+
+trigger:
+  - manual-command
+
+context:
+  rules: ["*"]
+  memory:
+    types: [feedback]
+    tags: [commit, git]
+
+steps:
+  - id: pre-commit-audit
+    name: Run audit against the staged diff
+    type: invoke-deterministic
+    run: "substrate audit --diff --json"
+
+  - id: doc-check-eval
+    name: Evaluate conditional doc-checks against the diff
+    type: invoke-deterministic
+    run: "substrate query doc-checks --changelog-touched --json"
+    continue-on-failure: true
+
+  - id: discover-context
+    name: Refresh context for commit-message authoring
+    type: discover
+
+  - id: draft-commit-message
+    name: Draft the commit message
+    type: prompt
+    prompt: >-
+      Compose a conventional-commit style message:
+      \`<type>(<scope>): <subject> [<TAG-N>]\`. Read the diff, the
+      doc-check evaluation, and any recent feedback memories tagged
+      `commit`. Subject must be imperative, lowercase, ≤ 70 chars
+      before the tag.
+    must-confirm: true
+
+  - id: gate-msg
+    name: Gate on commit message approval
+    type: gate
+    must-confirm: true
+    description: User must confirm the proposed commit message.
+
+  - id: commit
+    name: Run git commit
+    type: invoke-deterministic
+    run: "true"  # Replace with `git commit -m \"$MESSAGE\"` once integrated
+
+  - id: push
+    name: Push to remote
+    type: invoke-deterministic
+    run: "true"  # Replace with `git push` once integrated; left no-op
+                 # for the reference template so it ships idempotent.
+
+followups:
+  - if: gate == pass
+    suggest: >-
+      Pushed. Update the task adapter with the actual hours and link
+      the new commit to the task.
+  - if: gate == fail
+    suggest: >-
+      Commit message rejected. Revise + re-run, or invoke
+      `substrate run git-review-deep` to surface unresolved findings
+      before retrying.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+  required-steps:
+    - pre-commit-audit
+    - draft-commit-message
+    - gate-msg
+    - commit

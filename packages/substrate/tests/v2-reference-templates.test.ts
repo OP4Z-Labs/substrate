@@ -56,6 +56,12 @@ const REFERENCE_IDS = [
   "tackle-task",
   "audit-composite",
   "weekly-proposal-walk",
+  // TI-6: thicker reference set.
+  "git-review-pre",
+  "git-review-deep",
+  "commit-and-push",
+  "standards-update",
+  "audit-security",
 ];
 
 describe("reference workflow templates", () => {

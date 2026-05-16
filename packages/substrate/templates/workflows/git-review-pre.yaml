@@ -1,0 +1,81 @@
+schema_version: v2.0
+id: git-review-pre
+name: Pre-merge review (fast gate)
+description: >-
+  Diff-only audit + composition gate. The fast pre-merge check —
+  designed to finish in under 30s on a normal PR. Demonstrates
+  composes_findings_of (Primitive 6) by pulling in audit-service +
+  audit-package without re-running them, and a deterministic gate
+  that ties verdicts together.
+kind: review
+authors:
+  - substrate
+
+trigger:
+  - manual-command
+  - pre-commit
+
+# Pull findings from the per-scope audits. Stale sidecars surface as
+# warnings; the workflow still runs but the gate considers stale data
+# untrustworthy.
+composes_findings_of:
+  - workflow: audit-service
+    section: "Service-scoped findings"
+    require-fresh-within: 24h
+  - workflow: audit-package
+    section: "Package-scoped findings"
+    require-fresh-within: 24h
+
+context:
+  standards:
+    - backend/architecture.md
+    - frontend/typescript.md
+  rules:
+    - "*"
+  memory:
+    types: [feedback]
+    tags: [review-pre]
+
+steps:
+  - id: diff-audit
+    name: Run audit against the staged diff only
+    type: invoke-deterministic
+    run: "substrate audit --diff --json"
+
+  - id: doctor
+    name: Run doctor with diff-relevant checks
+    type: invoke-deterministic
+    run: "substrate doctor --check rules-doc-coverage,workflow-coverage,memory-frontmatter --json"
+    continue-on-failure: true
+
+  - id: review-prompt
+    name: AI summary of findings
+    type: prompt
+    prompt: >-
+      Summarise the diff-audit findings + doctor warnings into a
+      one-paragraph verdict. Call out critical findings explicitly.
+      If nothing fires, say so.
+
+  - id: gate
+    name: Gate the merge
+    type: gate
+    description: All required steps must pass; critical findings block.
+
+followups:
+  - if: gate == pass
+    suggest: >-
+      Pre-merge gate green. Run `substrate run commit-and-push`.
+  - if: gate == fail
+    suggest: >-
+      Resolve findings, or run `substrate run git-review-deep` for a
+      thorough walk before the final pre-merge gate.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+  required-steps:
+    - diff-audit
+    - review-prompt
+    - gate

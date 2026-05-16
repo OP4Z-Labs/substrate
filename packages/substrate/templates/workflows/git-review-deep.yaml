@@ -1,0 +1,99 @@
+schema_version: v2.0
+id: git-review-deep
+name: Deep review (thorough pre-merge walk)
+description: >-
+  Full review pass. Composes git-review-pre's fast gate with a deeper
+  set of standards checks + an AI-orchestrated meta review. Use when
+  the change touches critical paths (auth, billing, message bus,
+  cross-service contracts) or is over ~200 LOC.
+kind: review
+authors:
+  - substrate
+
+trigger:
+  - manual-command
+
+# Compose findings from the fast gate so we don't duplicate work.
+composes_findings_of:
+  - workflow: git-review-pre
+    section: "Fast gate findings"
+    require-fresh-within: 1h
+
+context:
+  standards:
+    - backend/architecture.md
+    - backend/api.md
+    - backend/database.md
+    - backend/security.md
+    - frontend/react.md
+    - frontend/typescript.md
+    - frontend/accessibility.md
+  rules: ["*"]
+  memory:
+    types: [feedback, project]
+    tags: [review-deep]
+
+steps:
+  - id: run-fast-gate
+    name: Compose the fast pre-merge gate
+    type: invoke-sub-workflow
+    workflow: git-review-pre
+    continue-on-failure: true
+
+  - id: full-audit
+    name: Whole-repo audit (not just diff)
+    type: invoke-deterministic
+    run: "substrate audit --json"
+    continue-on-failure: true
+
+  - id: doctor-full
+    name: Full doctor suite
+    type: invoke-deterministic
+    run: "substrate doctor --json"
+    continue-on-failure: true
+
+  - id: meta-review
+    name: AI meta-review of all findings
+    type: prompt-and-action
+    prompt: >-
+      Read the fast-gate verdict, the full-audit findings, and the
+      doctor report. For each critical or high-severity finding,
+      either propose a fix in the diff or write a brief deferral
+      rationale. Categorise findings by file + severity.
+    must-confirm: true
+
+  - id: resolve-findings
+    name: Resolve viable findings
+    type: prompt
+    prompt: >-
+      Walk every viable finding from the meta review. For each, either
+      apply the proposed fix or defer with an explicit rationale.
+      Re-run the affected tests after each fix.
+    must-confirm: true
+
+  - id: final-gate
+    name: Gate the deep review
+    type: gate
+    description: All required steps must have completed before merge.
+
+followups:
+  - if: gate == pass
+    suggest: >-
+      Deep review green. Update the PR description with the review
+      summary, then run `substrate run commit-and-push`.
+  - if: gate == fail
+    suggest: >-
+      Outstanding findings remain. Either resolve them or defer with
+      explicit rationale in the PR description.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+  required-steps:
+    - run-fast-gate
+    - full-audit
+    - meta-review
+    - resolve-findings
+    - final-gate

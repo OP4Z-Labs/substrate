@@ -378,6 +378,43 @@ function scaffoldV2Layout(args: {
     }
   }
 
+  // Copy the cross-cutting script detectors alongside RULES.yaml so
+  // the shipped script-detector rules resolve their `path:` fields
+  // out of the box (TI-4 replaced three ripgrep look-around rules
+  // with script detectors).
+  const detectorsSource = join(
+    templatesDir,
+    "standards",
+    "cross-cutting",
+    "detectors",
+  );
+  if (existsSync(detectorsSource)) {
+    const detectorsTarget = join(
+      substrateDir,
+      "standards",
+      "cross-cutting",
+      "detectors",
+    );
+    ensureDir(detectorsTarget);
+    copyDirAtomicIfMissing(detectorsSource, detectorsTarget, {
+      onCreated: (rel) => {
+        filesCreated.push(`standards/cross-cutting/detectors/${rel}`);
+        log(
+          kleur.green("✓") +
+            ` substrate/standards/cross-cutting/detectors/${rel}`,
+        );
+      },
+      onSkipped: (rel) => {
+        filesSkipped.push(`standards/cross-cutting/detectors/${rel}`);
+        log(
+          kleur.dim(
+            `  skipped substrate/standards/cross-cutting/detectors/${rel} (exists)`,
+          ),
+        );
+      },
+    });
+  }
+
   // knowledge-sources.yaml is intentionally NOT scaffolded. The absent
   // file is a first-class state (the loader returns `manifestPath: null`
   // when missing, which lets `substrate knowledge refresh` fall through

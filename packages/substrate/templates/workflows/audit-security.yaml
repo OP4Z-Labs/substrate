@@ -1,0 +1,71 @@
+schema_version: v2.0
+id: audit-security
+name: Security-focused audit
+description: >-
+  Runs the security RULES family (BE-SEC-*, FE-SEC-*, INF-SEC-*) and
+  composes with the broader audit-composite pattern. Use as a
+  scheduled run (weekly) or before a release.
+kind: audit
+authors:
+  - substrate
+
+trigger:
+  - manual-command
+  - schedule:
+      interval: 7d
+
+context:
+  standards:
+    - backend/security.md
+    - frontend/accessibility.md
+    - operations/runbooks.md
+  rules:
+    - "BE-SEC-*"
+    - "FE-SEC-*"
+    - "INF-SEC-*"
+    - "XCUT-SEC-*"
+  memory:
+    types: [project, reference]
+    tags: [security]
+
+steps:
+  - id: run-security-rules
+    name: Run all security-classified rules
+    type: invoke-deterministic
+    run: "substrate audit --json"
+
+  - id: analyse
+    name: AI analysis of findings
+    type: prompt
+    prompt: >-
+      Read the security audit findings. Categorise each by exploit
+      severity (not just rule severity). Flag findings that look like
+      false positives so they can be filtered or downgraded.
+    must-confirm: true
+
+  - id: gate
+    name: Gate on critical security findings
+    type: gate
+    description: >-
+      No critical-severity security finding may pass to merge without
+      explicit user override.
+
+followups:
+  - if: gate == pass
+    suggest: >-
+      Security audit clean. Next run is in 7 days (scheduled).
+  - if: gate == fail
+    suggest: >-
+      Resolve critical security findings before merge. For findings
+      identified as false positives, file `add-to-rule` proposals to
+      tune the rule.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+  required-steps:
+    - run-security-rules
+    - analyse
+    - gate

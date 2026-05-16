@@ -1,0 +1,70 @@
+schema_version: v2.0
+id: standards-update
+name: Update a standards doc + propose RULES updates + draft ADR
+description: >-
+  The "we learned something" workflow. Updates an existing standards
+  doc, stages a `add-to-rule` proposal if the change implies a new
+  rule, and drafts an ADR recording the decision. Demonstrates the
+  propose-doc-change step type.
+kind: other
+authors:
+  - substrate
+
+trigger:
+  - manual-command
+
+context:
+  standards: []
+  rules: ["XCUT-*"]
+  memory:
+    types: [feedback, reference]
+    tags: [standards-update]
+
+steps:
+  - id: identify
+    name: Identify the affected standards doc + decision
+    type: prompt
+    prompt: >-
+      The user is updating a standards doc because of a learned lesson
+      or new convention. Identify: (a) which doc, (b) what changes,
+      (c) whether a new RULES entry should codify the pattern,
+      (d) whether an ADR should record the decision.
+    must-confirm: true
+
+  - id: propose-doc-edit
+    name: Stage the proposed addition to the doc
+    type: propose-doc-change
+    description: "doc: backend/python.md"
+    prompt: >-
+      Add the section the AI proposed in step `identify`. This is the
+      proposal body that the applicator will insert.
+
+  - id: gate-doc
+    name: Confirm the doc proposal looks right
+    type: gate
+    must-confirm: true
+    description: User reviews the staged proposal in substrate/proposals/pending/
+
+  - id: maybe-draft-adr
+    name: Optionally draft an ADR for the decision
+    type: prompt
+    prompt: >-
+      If the change is architecturally meaningful (per step
+      `identify`), draft the ADR. Otherwise emit "skip — no ADR
+      warranted" and the gate moves on.
+
+followups:
+  - if: gate == pass
+    suggest: >-
+      Run `substrate review --proposals` to apply the staged doc
+      addition + any related RULES edits. Then commit.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+  required-steps:
+    - identify
+    - propose-doc-edit
+    - gate-doc
