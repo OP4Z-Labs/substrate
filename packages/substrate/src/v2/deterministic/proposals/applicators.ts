@@ -112,11 +112,16 @@ function applyAddToWorkflowStep(
     };
   }
   const current = readFileSync(path, "utf8");
+  // Key order matches the canonical shape used by the bundled reference
+  // workflows (`id → name → type → run/prompt → must-confirm`). The
+  // schema doesn't care, but a stable insertion order keeps git diffs
+  // small and makes manually-edited manifests look uniform after a
+  // proposal apply.
   const newStep: Record<string, unknown> = {
     id: proposal.payload.stepId,
-    type: proposal.payload.stepType,
   };
   if (proposal.payload.stepName) newStep.name = proposal.payload.stepName;
+  newStep.type = proposal.payload.stepType;
   if (proposal.payload.prompt) newStep.prompt = proposal.payload.prompt;
   if (proposal.payload.run) newStep.run = proposal.payload.run;
   if (proposal.payload.mustConfirm) newStep["must-confirm"] = true;

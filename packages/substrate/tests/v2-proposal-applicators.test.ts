@@ -132,6 +132,47 @@ steps:
     );
     expect(raw).not.toContain("id: b"); // not written
   });
+
+  // Regression test for SMOKE-2026-05-15 finding 9: the applicator's
+  // inserted step used `id → type → name → run` while existing steps
+  // used `id → name → type → run`. The schema doesn't care but the
+  // diff is noisy. The fix emits the canonical key order.
+  it("emits the inserted step with the canonical key order (id → name → type → run)", () => {
+    seedWorkflow(`schema_version: v2.0
+id: tackle-task
+name: w
+steps:
+  - id: a
+    name: step a
+    type: prompt
+    prompt: a-prompt
+`);
+    const p = sampleProposal({
+      kind: "add-to-workflow-step",
+      payload: {
+        stepId: "service-validation",
+        stepName: "Rebuild and restart services",
+        stepType: "invoke-deterministic",
+        run: "docker compose restart",
+      },
+    } as Partial<Proposal>);
+    const r = applyProposal(p, { cwd: tmpRoot });
+    expect(r.ok, `apply failed: ${r.message}`).toBe(true);
+    const raw = readFileSync(
+      join(tmpRoot, "substrate", "workflows", "tackle-task.yaml"),
+      "utf8",
+    );
+    // The inserted block must list id → name → type → run in that order.
+    // We capture the inserted step's lines and assert positions.
+    const idLine = raw.indexOf("- id: service-validation");
+    const nameLine = raw.indexOf("name: Rebuild and restart services");
+    const typeLine = raw.indexOf("type: invoke-deterministic");
+    const runLine = raw.indexOf("run: docker compose restart");
+    expect(idLine).toBeGreaterThan(-1);
+    expect(nameLine).toBeGreaterThan(idLine);
+    expect(typeLine).toBeGreaterThan(nameLine);
+    expect(runLine).toBeGreaterThan(typeLine);
+  });
 });
 
 describe("applyProposal — add-to-memory", () => {
