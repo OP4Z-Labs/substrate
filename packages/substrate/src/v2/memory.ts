@@ -37,6 +37,24 @@ import { matchGlob } from "./doc-checks.js";
 
 export type MemoryType = "user" | "feedback" | "project" | "reference";
 
+/**
+ * Filenames that look like memories (i.e. .md files in the memory dir)
+ * but are actually index / navigation / readme files. These are skipped
+ * by the memory loader and never trigger frontmatter warnings.
+ *
+ * Configurable per-repo via `substrate.config.json` `memory.ignore`
+ * (additive — supplements this default list rather than replacing it).
+ *
+ * Added in v2.0.0 (OP-1374 #2). Claude Code itself writes a `MEMORY.md`
+ * index at the root of every project's memory dir which substrate was
+ * treating as a real memory and warning about missing frontmatter on.
+ */
+export const DEFAULT_MEMORY_IGNORE: readonly string[] = [
+  "MEMORY.md",
+  "README.md",
+  "INDEX.md",
+];
+
 export interface MemoryFrontmatter {
   name?: string;
   description?: string;
@@ -95,6 +113,12 @@ export interface MemoryQueryOptions {
   now?: Date;
   /** Test seam: stub homedir() for Claude Code default path lookups. */
   homeDir?: string;
+  /**
+   * Additional filenames to ignore on top of the defaults (`MEMORY.md`,
+   * `README.md`, `INDEX.md`). Matched case-insensitively against the
+   * basename only. Set in `substrate.config.json` `memory.ignore`.
+   */
+  ignore?: string[];
 }
 
 export interface MemoryQueryResult {
@@ -168,6 +192,49 @@ function readMemoryPathFromConfig(cwd: string | undefined): string | null {
 }
 
 /**
+ * Read the `memory.ignore` array from `substrate.config.json` if
+ * present. Returns an empty array on missing/malformed config so the
+ * caller can blindly concatenate with the defaults.
+ */
+function readMemoryIgnoreFromConfig(cwd: string | undefined): string[] {
+  const root = resolveTargetRoot(cwd);
+  const configFile = join(root, "substrate.config.json");
+  if (!existsSync(configFile)) return [];
+  try {
+    const raw = readFileSync(configFile, "utf8");
+    const parsed = JSON.parse(raw) as {
+      memory?: { ignore?: unknown };
+    };
+    const ignore = parsed.memory?.ignore;
+    if (Array.isArray(ignore)) {
+      return ignore.filter((v): v is string => typeof v === "string" && v.length > 0);
+    }
+  } catch {
+    // Malformed config — fall back to defaults only.
+  }
+  return [];
+}
+
+/**
+ * Resolve the effective memory-ignore list: defaults + config + caller
+ * overrides, deduplicated case-insensitively. Matches are made on the
+ * basename only (so `MEMORY.md` ignores `.../memory/MEMORY.md` but not
+ * `.../memory/subdir/MEMORY.md` — substrate's loader is flat anyway).
+ */
+export function resolveMemoryIgnoreList(
+  cwd: string | undefined,
+  callerIgnore: string[] | undefined,
+): Set<string> {
+  const ignore = new Set<string>();
+  for (const v of DEFAULT_MEMORY_IGNORE) ignore.add(v.toLowerCase());
+  for (const v of readMemoryIgnoreFromConfig(cwd)) ignore.add(v.toLowerCase());
+  if (callerIgnore) {
+    for (const v of callerIgnore) ignore.add(v.toLowerCase());
+  }
+  return ignore;
+}
+
+/**
  * Locate the Claude Code memory directory for the consumer repo,
  * following Claude Code's encoding convention:
  * `/home/user/foo` → `-home-user-foo`. Returns null when the directory
@@ -213,7 +280,8 @@ export function queryMemory(options: MemoryQueryOptions = {}): MemoryQueryResult
   }
 
   const now = options.now ?? new Date();
-  const entries = readMemoriesFromDir(loc.path, now, warnings);
+  const ignore = resolveMemoryIgnoreList(options.cwd, options.ignore);
+  const entries = readMemoriesFromDir(loc.path, now, warnings, ignore);
   let memories = entries;
 
   if (options.types && options.types.length > 0) {
@@ -260,6 +328,7 @@ function readMemoriesFromDir(
   dir: string,
   now: Date,
   warnings: string[],
+  ignore: Set<string>,
 ): MemoryEntry[] {
   const out: MemoryEntry[] = [];
   let entries: string[];
@@ -276,6 +345,12 @@ function readMemoriesFromDir(
     // we accept .markdown too. Anything else (README, indexes, etc.)
     // is ignored.
     if (!name.endsWith(".md") && !name.endsWith(".markdown")) continue;
+    // Skip index / readme files (MEMORY.md, README.md, INDEX.md by
+    // default; configurable via substrate.config.json memory.ignore).
+    // These are navigation files Claude Code maintains alongside real
+    // memories — they don't carry frontmatter and treating them as
+    // memories triggers a doctor warn (OP-1374 #2).
+    if (ignore.has(name.toLowerCase())) continue;
     const full = join(dir, name);
     let st: ReturnType<typeof statSync>;
     try {

@@ -93,6 +93,24 @@ export interface SubstrateConfig {
     taskAdapter?: string | null;
     vcsAdapter?: string | null;
   };
+  /**
+   * Memory subsystem configuration (added in v2.0.0).
+   *
+   * - `path`: explicit memory directory location. When unset, the loader
+   *   falls back to `$SUBSTRATE_MEMORY_PATH` then to Claude Code's
+   *   default at `~/.claude/projects/<encoded>/memory/`.
+   * - `ignore`: additional filenames to skip when walking the memory
+   *   dir. Defaults already cover `MEMORY.md`, `README.md`, `INDEX.md`
+   *   (Claude Code's index / readme conventions). Add entries here for
+   *   any per-repo index files you keep alongside memories.
+   *
+   * Both fields are optional — substrate's defaults work for the
+   * standard Claude Code memory layout out of the box.
+   */
+  memory?: {
+    path?: string;
+    ignore?: string[];
+  };
   telemetry: {
     enabled: boolean;
   };

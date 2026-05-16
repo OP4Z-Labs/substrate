@@ -330,3 +330,170 @@ describe("renderMemoryInjection", () => {
     expect(out).toContain("1 day ago");
   });
 });
+
+// OP-1374 #2: the memory loader treats every .md in the memory dir as
+// a memory needing frontmatter, including Claude Code's `MEMORY.md`
+// index file. This made `substrate doctor` warn "1 memory missing
+// frontmatter" on every consumer. The loader now ignores `MEMORY.md`,
+// `README.md`, `INDEX.md` by default and accepts additional names via
+// `substrate.config.json` `memory.ignore`.
+describe("queryMemory — index file ignore list (OP-1374 #2)", () => {
+  let tmp: string;
+  beforeEach(() => {
+    tmp = makeTempDir();
+  });
+  afterEach(() => {
+    removeTempDir(tmp);
+    delete process.env.SUBSTRATE_MEMORY_PATH;
+  });
+
+  it("skips MEMORY.md by default (the Claude Code index file)", () => {
+    const dir = join(tmp, "mem");
+    seedMemory(
+      dir,
+      "MEMORY.md",
+      // No frontmatter — this is what Claude Code writes for its index.
+      "# Memory Index\n\n- [foo](feedback_foo.md) — short blurb\n",
+    );
+    seedMemory(
+      dir,
+      "feedback_foo.md",
+      `---
+name: feedback_foo
+description: a real memory
+metadata:
+  type: feedback
+  scope: backend
+  tags: [api]
+---
+
+# body
+`,
+    );
+    const result = queryMemory({ memoryPath: dir });
+    expect(result.memories.length).toBe(1);
+    expect(result.memories[0].name).toBe("feedback_foo");
+    // The skipped MEMORY.md must not produce a frontmatter warning.
+    for (const m of result.memories) {
+      expect(m.warnings).toEqual([]);
+    }
+  });
+
+  it("skips README.md and INDEX.md by default", () => {
+    const dir = join(tmp, "mem");
+    seedMemory(dir, "README.md", "# Welcome\n");
+    seedMemory(dir, "INDEX.md", "# Index\n");
+    seedMemory(
+      dir,
+      "feedback_bar.md",
+      `---
+metadata:
+  type: feedback
+---
+
+body
+`,
+    );
+    const result = queryMemory({ memoryPath: dir });
+    const names = result.memories.map((m) => m.name);
+    expect(names).toEqual(["feedback_bar"]);
+  });
+
+  it("matches ignore names case-insensitively", () => {
+    const dir = join(tmp, "mem");
+    seedMemory(dir, "memory.md", "# index\n");
+    seedMemory(dir, "Memory.md", "# index\n");
+    seedMemory(
+      dir,
+      "real.md",
+      `---
+metadata:
+  type: feedback
+---
+
+body
+`,
+    );
+    const result = queryMemory({ memoryPath: dir });
+    const names = result.memories.map((m) => m.name);
+    expect(names).toEqual(["real"]);
+  });
+
+  it("honors `ignore` from substrate.config.json memory.ignore", () => {
+    const dir = join(tmp, "mem");
+    seedMemory(
+      dir,
+      "PROJECT-INDEX.md",
+      "# Project specific index\n",
+    );
+    seedMemory(
+      dir,
+      "feedback_x.md",
+      `---
+metadata:
+  type: feedback
+---
+
+body
+`,
+    );
+    writeFileSync(
+      join(tmp, "substrate.config.json"),
+      JSON.stringify({ memory: { ignore: ["PROJECT-INDEX.md"] } }),
+    );
+    const result = queryMemory({ memoryPath: dir, cwd: tmp });
+    const names = result.memories.map((m) => m.name);
+    expect(names).toEqual(["feedback_x"]);
+  });
+
+  it("honors the in-process `ignore` option (additive on top of defaults + config)", () => {
+    const dir = join(tmp, "mem");
+    seedMemory(dir, "CUSTOM.md", "# extra index\n");
+    seedMemory(
+      dir,
+      "real.md",
+      `---
+metadata:
+  type: feedback
+---
+
+body
+`,
+    );
+    const result = queryMemory({
+      memoryPath: dir,
+      ignore: ["CUSTOM.md"],
+    });
+    const names = result.memories.map((m) => m.name);
+    expect(names).toEqual(["real"]);
+  });
+
+  it("regression: MEMORY.md alongside real memories doesn't trigger a frontmatter warning", () => {
+    // Reproduce the exact OP-1374 #2 scenario: Claude Code-managed
+    // MEMORY.md index file in the same dir as real memories. The
+    // doctor's aggregation reads memory entry warnings, so the
+    // critical assertion is that the MEMORY.md doesn't even surface
+    // as a memory.
+    const dir = join(tmp, "mem");
+    seedMemory(
+      dir,
+      "MEMORY.md",
+      "# Memory Index\n\n- [a](real_a.md)\n",
+    );
+    seedMemory(
+      dir,
+      "real_a.md",
+      `---
+metadata:
+  type: feedback
+---
+hello
+`,
+    );
+    const result = queryMemory({ memoryPath: dir });
+    const offending = result.memories.filter(
+      (m) => (m.warnings ?? []).length > 0,
+    );
+    expect(offending).toEqual([]);
+  });
+});
