@@ -1,19 +1,23 @@
 /**
  * `substrate run <workflow>` — orchestration-layer command.
  *
- * Layer: AI-aware orchestration. Loads context, renders the prompt
- * (in later phases), and dispatches steps. In B1, the runtime
- * supports `invoke-deterministic` steps end-to-end (they shell out
- * to deterministic primitives) and surfaces a clear
- * deferred-feature message for AI-step types (`prompt`,
- * `prompt-and-action`, etc.). The full multi-step AI engine lands
- * in B2/B3.
+ * Layer: AI-aware orchestration. Loads context, dispatches steps via
+ * the step engine (`step-handlers.ts`), emits lifecycle events to the
+ * session-event-log, fires cross-cutting hooks at each boundary, and
+ * surfaces the composed result. The runtime supports every step type:
+ *
+ *   - `invoke-deterministic` / `run-tool` — shell-out (kept inline
+ *     here; deterministic).
+ *   - `prompt` / `prompt-and-action` / `invoke-sub-workflow` / `gate`
+ *     / `discover` / `propose-doc-change` — dispatched to the step
+ *     engine in `./step-handlers.ts`. AI-step types run against the
+ *     attached `OrchestrationTransport` (or no-transport mode in
+ *     tests / CI).
  *
  * Returned exit codes (delegated to the CLI):
  *   0 — workflow completed all runnable steps successfully.
  *   1 — a step failed at runtime.
- *   2 — workflow not found, manifest invalid, or unsupported step
- *       type encountered without `--dry-run`.
+ *   2 — workflow not found or manifest invalid.
  */
 
 import { spawnSync } from "node:child_process";
@@ -37,25 +41,36 @@ import {
   isScheduled,
   recordWorkflowRun,
 } from "../deterministic/scheduler.js";
+import {
+  runPromptStep,
+  runPromptAndActionStep,
+  runInvokeSubWorkflowStep,
+  runGateStep,
+  runDiscoverStep,
+  runProposeDocChangeStep,
+  type StepHandlerContext,
+} from "./step-handlers.js";
+import type { OrchestrationTransport } from "./transport.js";
+import type { RunStepResult } from "./run-command-types.js";
 import type { WorkflowDescriptor, WorkflowStep } from "../types.js";
+
+export type { RunStepResult } from "./run-command-types.js";
 
 export interface RunWorkflowOptions {
   workflowId: string;
   cwd?: string;
-  /** Variables pre-filled by the user (e.g. `--var key=value`). Reserved for B2. */
+  /** Variables pre-filled by the user (e.g. `--var key=value`). */
   vars?: Record<string, string>;
   json?: boolean;
   quiet?: boolean;
   dryRun?: boolean;
-}
-
-export interface RunStepResult {
-  stepId: string;
-  type: string;
-  status: "ok" | "failed" | "deferred" | "skipped";
-  message?: string;
-  /** Captured stdout for `invoke-deterministic` steps when feasible. */
-  output?: string;
+  /** Attached AI transport. When omitted, the step engine runs in
+   *  no-transport mode (prompts emit events; responses default to
+   *  null; gates auto-approve). */
+  transport?: OrchestrationTransport;
+  /** Sub-workflow nesting depth (set by the invoke-sub-workflow
+   *  handler). Top-level calls leave it 0. */
+  depth?: number;
 }
 
 export interface RunWorkflowResult {
@@ -164,6 +179,7 @@ export async function runV2Workflow(
 
   const steps = workflow.manifest.steps ?? [];
   const stepResults: RunStepResult[] = [];
+  const stepOutputs = new Map<string, RunStepResult>();
   let exitCode: 0 | 1 | 2 = 0;
 
   // workflow-start hooks fire before the first step. In dry-run we
@@ -207,8 +223,18 @@ export async function runV2Workflow(
       continue;
     }
 
-    const result = await runStep(step, cwd);
+    const handlerCtx: StepHandlerContext = {
+      cwd,
+      writer: sessionWriter,
+      transport: options.transport,
+      stepOutputs,
+      depth: options.depth ?? 0,
+      manifest: workflow.manifest,
+      quiet: options.quiet,
+    };
+    const result = await runStep(step, handlerCtx);
     stepResults.push(result);
+    stepOutputs.set(step.id, result);
     sessionWriter.emit({
       ts: new Date().toISOString(),
       event: "step-completion",
@@ -251,14 +277,20 @@ export async function runV2Workflow(
     }
 
     if (result.status === "failed") {
-      exitCode = 1;
-      break;
+      // `continue-on-failure: true` lets a workflow keep going past a
+      // failed step. Useful for review/audit workflows that want to
+      // walk every check even when some report failures.
+      if (step["continue-on-failure"] === true) {
+        // Don't bump exitCode; let later steps overwrite it.
+      } else {
+        exitCode = 1;
+        break;
+      }
     }
     if (result.status === "deferred") {
-      // Any prompt-style step requires the B2 step engine. We surface
-      // the deferred message and halt so the user knows where execution
-      // stopped, exiting with code 2 to distinguish from clean success
-      // and runtime failure.
+      // Reserved for future step types that legitimately defer (e.g. a
+      // long-running async step that's "started but not finished"). No
+      // current step type returns this, but the contract supports it.
       exitCode = 2;
       break;
     }
@@ -329,11 +361,6 @@ export async function runV2Workflow(
       console.log(
         kleur.yellow(`↷ workflow ${summary.workflowId} halted (deferred step).`),
       );
-      console.log(
-        kleur.dim(
-          "  AI-step orchestration (prompt / prompt-and-action / invoke-sub-workflow) lands in B2.",
-        ),
-      );
     }
   }
 
@@ -347,23 +374,26 @@ function findWorkflow(
   return discovery.workflows.find((w) => w.manifest.id === id) ?? null;
 }
 
-async function runStep(step: WorkflowStep, cwd: string): Promise<RunStepResult> {
+async function runStep(
+  step: WorkflowStep,
+  ctx: StepHandlerContext,
+): Promise<RunStepResult> {
   switch (step.type) {
     case "invoke-deterministic":
     case "run-tool":
-      return runShellStep(step, cwd);
+      return runShellStep(step, ctx.cwd);
     case "prompt":
+      return runPromptStep(step, ctx);
     case "prompt-and-action":
+      return runPromptAndActionStep(step, ctx);
     case "invoke-sub-workflow":
+      return runInvokeSubWorkflowStep(step, ctx);
     case "gate":
+      return runGateStep(step, ctx);
     case "discover":
+      return runDiscoverStep(step, ctx);
     case "propose-doc-change":
-      return {
-        stepId: step.id,
-        type: step.type,
-        status: "deferred",
-        message: `step type "${step.type}" requires the B2 step engine; deferred`,
-      };
+      return runProposeDocChangeStep(step, ctx);
   }
 }
 

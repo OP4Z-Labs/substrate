@@ -5,7 +5,9 @@
  *   - missing workflow → exit 2
  *   - invoke-deterministic step runs and succeeds → exit 0
  *   - invoke-deterministic step fails → exit 1, halts execution
- *   - AI-step type encountered → exit 2 with `deferred` status
+ *   - AI-step types (prompt / prompt-and-action / gate / discover /
+ *     propose-doc-change / invoke-sub-workflow) execute end-to-end in
+ *     no-transport mode — emit lifecycle events; default to ok
  *   - --dry-run skips all step execution but still loads context
  *   - context summary reports standards/rules counts correctly
  */
@@ -113,7 +115,7 @@ steps:
     expect(result.steps[1].status).toBe("failed");
   });
 
-  it("defers AI-step types and returns exit 2", async () => {
+  it("runs a prompt step end-to-end in no-transport mode (exit 0)", async () => {
     seedWorkflow(
       tmp,
       "ai.yaml",
@@ -131,9 +133,12 @@ steps:
       cwd: tmp,
       quiet: true,
     });
-    expect(result.exitCode).toBe(2);
-    expect(result.steps[0].status).toBe("deferred");
-    expect(result.steps[0].message).toMatch(/B2/);
+    // The step engine runs prompts end-to-end now (TI-1). With no
+    // transport attached, the prompt emits a `prompt-issued` event and
+    // returns ok with output=undefined.
+    expect(result.exitCode).toBe(0);
+    expect(result.steps[0].status).toBe("ok");
+    expect(result.steps[0].message).toMatch(/no transport/);
   });
 
   it("--dry-run skips step execution but still loads context", async () => {

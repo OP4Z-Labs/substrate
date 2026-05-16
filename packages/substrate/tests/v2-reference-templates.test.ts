@@ -8,9 +8,10 @@
  * Per the B1 acceptance criteria:
  *   - `substrate validate templates/workflows/<id>.yaml` returns
  *     exit 0
- *   - `substrate run <id>` can dispatch the workflow (B1 only
- *     fully executes invoke-deterministic steps; AI-step types
- *     surface deferred).
+ *   - `substrate run <id>` can dispatch the workflow. The step engine
+ *     (TI-1) runs every step type end-to-end in no-transport mode;
+ *     sub-workflow steps that reference non-existent workflows fail
+ *     gracefully with a clear "workflow not found" error.
  *
  * The fixture pattern: copy the three templates into a tmp repo's
  * `substrate/workflows/` directory and invoke the v2 commands
@@ -173,19 +174,26 @@ describe("reference workflow templates", () => {
       expect(result.steps[0].status).toBe("skipped");
     });
 
-    it("tackle-task halts at the first prompt step (B2-deferred)", async () => {
+    it("tackle-task runs prompt steps end-to-end then halts at missing sub-workflow", async () => {
       seedTemplates(tmp);
       const result = await runV2Workflow({
         workflowId: "tackle-task",
         cwd: tmp,
         quiet: true,
       });
-      // tackle-task[0] is `research` (type: prompt) — must surface
-      // deferred and exit 2.
-      expect(result.exitCode).toBe(2);
+      // TI-1: every step type executes. tackle-task[0..3] are all
+      // runnable in no-transport mode (prompts + invoke-deterministic
+      // echo). tackle-task[4] is `tests` (invoke-sub-workflow targeting
+      // `run-tests-scoped`, not shipped) — fails cleanly with
+      // exit 1.
+      expect(result.exitCode).toBe(1);
       expect(result.steps[0].stepId).toBe("research");
-      expect(result.steps[0].status).toBe("deferred");
-      expect(result.steps[0].message).toMatch(/B2/);
+      expect(result.steps[0].status).toBe("ok");
+      // The first four steps complete; tests step (sub-workflow) fails.
+      const testsStep = result.steps.find((s) => s.stepId === "tests");
+      expect(testsStep).toBeDefined();
+      expect(testsStep!.status).toBe("failed");
+      expect(testsStep!.message).toMatch(/sub-workflow/i);
     });
 
     it("tackle-task --dry-run walks every step as skipped", async () => {
