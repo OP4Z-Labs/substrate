@@ -1,10 +1,12 @@
 schema_version: v2.0
 id: new-service
-name: New Service Scaffold
+name: New Package or Service Scaffold
 description: >-
-  Scaffold a new backend microservice from substrate templates, then run
-  the backend audit on it. The reference template for the v2 scaffold +
-  audit workflow shape.
+  Reference scaffold workflow. Asks the user for a name + a stack hint,
+  consults `substrate.config.json` for repo conventions, then runs a
+  deterministic scaffold step followed by an audit. Generic on purpose:
+  the actual scaffold command is the user's to wire (substrate ships the
+  workflow shape, not the per-stack codegen).
 kind: scaffold
 authors:
   - substrate
@@ -13,53 +15,58 @@ trigger:
   - manual-command
 
 context:
+  # Pulled into the AI prompt so the model can reason about the user's
+  # stack conventions before suggesting a layout.
   standards:
-    - backend/architecture.md
-    - backend/api.md
+    - cross-cutting/repository.md
   rules:
-    - "BE-*"
+    - "XCUT-*"
 
 # Four-step pattern: gather inputs via prompts, run the deterministic
-# scaffold, then chain into the backend audit so the new service starts
-# its life with a green audit report.
+# scaffold, then chain into an audit so the new module starts its life
+# with a green report.
 steps:
-  - id: ask-service-name
-    name: Ask for the service name
+  - id: ask-name
+    name: Ask for the new module name
     type: prompt
     prompt: >-
-      What is the name of the new service? Use kebab-case
-      (e.g. `notification-service`). The name is used as the directory
-      name under `apps/backend/` and as the package identifier.
+      What is the name of the new package or service? Use kebab-case
+      (e.g. `notification-service`, `billing-client`). The name is used
+      as the directory name under the matching `paths.*` root from
+      `substrate.config.json` and as the package identifier.
     must-confirm: true
 
-  - id: ask-service-stack
-    name: Ask for the service stack
+  - id: ask-stack
+    name: Ask for the stack
     type: prompt
     prompt: >-
-      Which stack should the new service use? Pick `fastapi` for a
-      Python service, or `express` for a Node/TypeScript service. The
-      stack determines which template directory substrate copies from.
+      Which stack should the new module use? Read
+      `substrate.config.json` `stacks` for the repo's supported list
+      (commonly `python`, `typescript`, `fastapi`, `express`). The
+      stack determines which template tree the scaffold step copies
+      from and which audit profile the follow-up step runs.
     must-confirm: true
 
   - id: run-scaffold
     name: Run the scaffold
     type: invoke-deterministic
-    # Placeholder echo so the manifest validates and runs cleanly in B1.
-    # Replace with the actual scaffold invocation (e.g.
-    # `substrate create --template <stack> --name <service-name>`) once
-    # the deterministic scaffold step picks up workflow variables.
+    # Placeholder. Replace with the user's actual scaffold invocation
+    # (e.g. `substrate create --template <stack> --name <name>` or a
+    # repo-local script under `auto/scripts/scaffold/`). Substrate ships
+    # this as a reference manifest — the deterministic step is the
+    # user's to author since codegen is stack-specific.
     run: |
-      echo "run-scaffold: would scaffold service from the selected stack"
+      echo "run-scaffold: replace with your scaffold command. Read substrate.config.json paths.* for the destination directory."
 
-  - id: audit-new-service
-    name: Audit the new service
+  - id: audit-new-module
+    name: Audit the new module
     type: invoke-sub-workflow
-    workflow: audit-service
+    workflow: audit-package
     continue-on-failure: false
 
 followups:
   - suggest: >-
-      Open a PR with the scaffolded service and the audit report so the
+      Open a PR with the scaffolded module and the audit report so the
       reviewer can see both at once.
 
 acceptance:
@@ -68,7 +75,7 @@ acceptance:
     conditional: 1
     fail: 2
   required-steps:
-    - ask-service-name
-    - ask-service-stack
+    - ask-name
+    - ask-stack
     - run-scaffold
-    - audit-new-service
+    - audit-new-module

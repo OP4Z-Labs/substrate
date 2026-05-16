@@ -29,10 +29,7 @@ import { makeTempDir, removeTempDir } from "./helpers.js";
 
 /**
  * Copy only the v2 reference templates (and their bodies) into the
- * target's substrate/workflows/ directory. We deliberately exclude
- * the legacy v0.5 `new-service.yaml` template, which predates the v2
- * schema and is preserved for backwards-compat tests in
- * `tests/workflow.test.ts`.
+ * target's substrate/workflows/ directory.
  */
 function seedTemplates(targetRoot: string): string[] {
   const templatesDir = join(getTemplatesDir(), "workflows");
@@ -62,6 +59,9 @@ const REFERENCE_IDS = [
   "commit-and-push",
   "standards-update",
   "audit-security",
+  // v2.0.0 fix (OP-1374 #1): new-service now ships with a body.md so
+  // it joins the reference set rather than triggering a doctor warn.
+  "new-service",
 ];
 
 describe("reference workflow templates", () => {
@@ -123,16 +123,19 @@ describe("reference workflow templates", () => {
     }
   });
 
-  // Regression test for SMOKE-2026-05-15 finding 4: `new-service.yaml`
-  // was shipped in the v0.5 shape (`type: command` / `type: audit`)
-  // and failed the v2 schema with 11 errors. It now validates cleanly.
-  // We don't require a paired `body.md` for new-service (the scaffold
-  // is deterministic — no prose program needed), so this regression
-  // stands separately from REFERENCE_IDS.
-  it("templates/workflows/new-service.yaml validates against the v2 schema", () => {
+  // Regression test for SMOKE-2026-05-15 finding 4 + OP-1374 #1:
+  // `new-service.yaml` was shipped in the v0.5 shape (`type: command` /
+  // `type: audit`) and failed the v2 schema with 11 errors. It now
+  // validates cleanly AND ships with a paired `body.md` so substrate
+  // doctor no longer warns about it.
+  it("templates/workflows/new-service.yaml validates against the v2 schema and ships with a body.md", () => {
     const templatesDir = join(getTemplatesDir(), "workflows");
     const newServicePath = join(templatesDir, "new-service.yaml");
     expect(existsSync(newServicePath)).toBe(true);
+    expect(
+      existsSync(join(templatesDir, "new-service.body.md")),
+      "new-service.body.md must ship alongside the manifest to silence the doctor warn (OP-1374 #1)",
+    ).toBe(true);
     const result = runValidate({ path: newServicePath, quiet: true });
     expect(result.exitCode, `validation errors: ${JSON.stringify(result.files)}`).toBe(0);
     expect(result.ok).toBe(true);
