@@ -1,23 +1,74 @@
+schema_version: v2.0
 id: new-service
 name: New Service Scaffold
-description: Scaffold a new backend microservice from substrate templates, then run the backend audit.
+description: >-
+  Scaffold a new backend microservice from substrate templates, then run
+  the backend audit on it. The reference template for the v2 scaffold +
+  audit workflow shape.
+kind: scaffold
+authors:
+  - substrate
+
+trigger:
+  - manual-command
+
+context:
+  standards:
+    - backend/architecture.md
+    - backend/api.md
+  rules:
+    - "BE-*"
+
+# Four-step pattern: gather inputs via prompts, run the deterministic
+# scaffold, then chain into the backend audit so the new service starts
+# its life with a green audit report.
 steps:
-  - name: Ask for the service name
+  - id: ask-service-name
+    name: Ask for the service name
     type: prompt
-    prompt: "What's the name of the new service?"
-    var: SERVICE_NAME
+    prompt: >-
+      What is the name of the new service? Use kebab-case
+      (e.g. `notification-service`). The name is used as the directory
+      name under `apps/backend/` and as the package identifier.
+    must-confirm: true
 
-  - name: Ask for the service stack
+  - id: ask-service-stack
+    name: Ask for the service stack
     type: prompt
-    prompt: "Which stack? (fastapi | express)"
-    var: SERVICE_STACK
+    prompt: >-
+      Which stack should the new service use? Pick `fastapi` for a
+      Python service, or `express` for a Node/TypeScript service. The
+      stack determines which template directory substrate copies from.
+    must-confirm: true
 
-  - name: Run the scaffold
-    type: command
-    command: "echo 'Would scaffold service: ${SERVICE_NAME} (${SERVICE_STACK})'"
+  - id: run-scaffold
+    name: Run the scaffold
+    type: invoke-deterministic
+    # Placeholder echo so the manifest validates and runs cleanly in B1.
+    # Replace with the actual scaffold invocation (e.g.
+    # `substrate create --template <stack> --name <service-name>`) once
+    # the deterministic scaffold step picks up workflow variables.
+    run: |
+      echo "run-scaffold: would scaffold service from the selected stack"
 
-  - name: Audit the new service
-    type: audit
-    audit: backend
-    # Only run the audit if the user actually filled in a service name.
-    condition: "${SERVICE_NAME}"
+  - id: audit-new-service
+    name: Audit the new service
+    type: invoke-sub-workflow
+    workflow: audit-service
+    continue-on-failure: false
+
+followups:
+  - suggest: >-
+      Open a PR with the scaffolded service and the audit report so the
+      reviewer can see both at once.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    conditional: 1
+    fail: 2
+  required-steps:
+    - ask-service-name
+    - ask-service-stack
+    - run-scaffold
+    - audit-new-service

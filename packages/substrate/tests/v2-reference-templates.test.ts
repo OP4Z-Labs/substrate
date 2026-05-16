@@ -116,6 +116,21 @@ describe("reference workflow templates", () => {
     }
   });
 
+  // Regression test for SMOKE-2026-05-15 finding 4: `new-service.yaml`
+  // was shipped in the v0.5 shape (`type: command` / `type: audit`)
+  // and failed the v2 schema with 11 errors. It now validates cleanly.
+  // We don't require a paired `body.md` for new-service (the scaffold
+  // is deterministic — no prose program needed), so this regression
+  // stands separately from REFERENCE_IDS.
+  it("templates/workflows/new-service.yaml validates against the v2 schema", () => {
+    const templatesDir = join(getTemplatesDir(), "workflows");
+    const newServicePath = join(templatesDir, "new-service.yaml");
+    expect(existsSync(newServicePath)).toBe(true);
+    const result = runValidate({ path: newServicePath, quiet: true });
+    expect(result.exitCode, `validation errors: ${JSON.stringify(result.files)}`).toBe(0);
+    expect(result.ok).toBe(true);
+  });
+
   describe("substrate run <reference-workflow>", () => {
     it("audit-service: executes invoke-deterministic detector pass (may exit 1 if substrate CLI not on PATH; this verifies dispatch reached the step)", async () => {
       seedTemplates(tmp);

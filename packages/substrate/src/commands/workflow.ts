@@ -198,16 +198,63 @@ function normalizeStep(raw: unknown): WorkflowStep | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const type = r.type;
-  if (type !== "command" && type !== "audit" && type !== "prompt") return null;
-  return {
-    name: typeof r.name === "string" ? r.name : "(unnamed step)",
-    type,
-    command: typeof r.command === "string" ? r.command : undefined,
-    audit: typeof r.audit === "string" ? r.audit : undefined,
-    prompt: typeof r.prompt === "string" ? r.prompt : undefined,
-    var: typeof r.var === "string" ? r.var : undefined,
-    condition: typeof r.condition === "string" ? r.condition : undefined,
-  };
+  // v1 step types (legacy `auto/config/workflows.yaml` shape).
+  if (type === "command" || type === "audit" || type === "prompt") {
+    return {
+      name: typeof r.name === "string" ? r.name : "(unnamed step)",
+      type,
+      command: typeof r.command === "string" ? r.command : undefined,
+      audit: typeof r.audit === "string" ? r.audit : undefined,
+      prompt: typeof r.prompt === "string" ? r.prompt : undefined,
+      var: typeof r.var === "string" ? r.var : undefined,
+      condition: typeof r.condition === "string" ? r.condition : undefined,
+    };
+  }
+  // v2 step types — bundled `templates/workflows/<id>.yaml` files now
+  // ship in the v2 shape (`schema_version: v2.0`, step types like
+  // `invoke-deterministic`, `invoke-sub-workflow`). The legacy
+  // `substrate workflow describe` surface still needs a sensible
+  // rendering for these. Map each v2 type to its nearest v1 analogue
+  // so existing `[prompt|command|audit]` consumers (tests, scripts,
+  // docs) keep working without rewriting against the v2 shape.
+  if (
+    type === "prompt-and-action" ||
+    type === "gate" ||
+    type === "discover" ||
+    type === "propose-doc-change"
+  ) {
+    return {
+      name: typeof r.name === "string" ? r.name : "(unnamed step)",
+      type: "prompt",
+      prompt: typeof r.prompt === "string" ? r.prompt : undefined,
+    };
+  }
+  if (type === "invoke-deterministic" || type === "run-tool") {
+    return {
+      name: typeof r.name === "string" ? r.name : "(unnamed step)",
+      type: "command",
+      command: typeof r.run === "string" ? r.run : undefined,
+    };
+  }
+  if (type === "invoke-sub-workflow") {
+    const wf = typeof r.workflow === "string" ? r.workflow : "";
+    // Workflows whose id starts with `audit-` are conventionally audit
+    // sub-workflows; render them with the audit pill so the legacy
+    // describe surface stays informative.
+    if (wf.startsWith("audit-")) {
+      return {
+        name: typeof r.name === "string" ? r.name : "(unnamed step)",
+        type: "audit",
+        audit: wf.replace(/^audit-/, ""),
+      };
+    }
+    return {
+      name: typeof r.name === "string" ? r.name : "(unnamed step)",
+      type: "command",
+      command: `substrate run ${wf}`,
+    };
+  }
+  return null;
 }
 
 /**
