@@ -59,8 +59,12 @@ import {
 } from "./v2/deterministic/hooks-command.js";
 import { runV2Workflow } from "./v2/orchestrator/run-command.js";
 import { runWatchCommand } from "./v2/deterministic/watch-command.js";
+import { runExplain } from "./v2/deterministic/explain-command.js";
 import { walkProposals } from "./v2/deterministic/proposals/review-command.js";
-import { runSchedulerCheck } from "./v2/deterministic/scheduler-command.js";
+import {
+  runSchedulerAutoRun,
+  runSchedulerCheck,
+} from "./v2/deterministic/scheduler-command.js";
 import {
   emitTelemetryEvent,
   logPath,
@@ -835,6 +839,42 @@ function buildProgram(): Command {
       },
     );
 
+  // -------------------------------------------------- explain (v2)
+  // The missing inspection primitive. Renders the prompt + context a
+  // workflow would emit, without running it. Lets workflow authors
+  // iterate on context tuning without launching an AI session.
+  program
+    .command("explain")
+    .description(
+      "Show the context + prompts a v2 workflow would emit, without running it.",
+    )
+    .argument("<workflow-id>", "Workflow id to explain")
+    .option(
+      "--for-files <files>",
+      "Comma-separated changed-files list (for `intersect-with-changed-files` memory filters)",
+    )
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (
+        workflowId: string,
+        options: { forFiles?: string; json?: boolean; quiet?: boolean },
+      ) => {
+        const forFiles = options.forFiles
+          ? options.forFiles.split(",").map((s) => s.trim()).filter(Boolean)
+          : undefined;
+        const result = runExplain({
+          workflowId,
+          forFiles,
+          json: options.json,
+          quiet: options.quiet,
+        });
+        if (result.exitCode !== 0) {
+          process.exitCode = result.exitCode;
+        }
+      },
+    );
+
   // -------------------------------------------------- watch (v2)
   // File-change trigger producer. Monitors a directory tree and fires
   // hooks with `trigger: [file-change]` on each save event. Closes the
@@ -878,23 +918,52 @@ function buildProgram(): Command {
   program
     .command("scheduler")
     .description(
-      "Inspect `trigger: schedule` workflows (deterministic — never invokes anything).",
+      "Inspect or fire `trigger: schedule` workflows. --check lists due workflows; --auto-run fires them.",
     )
     .option("--check", "Print scheduled workflows and their due-in status", false)
-    .option("--due-only", "Restrict output to currently-due workflows", false)
+    .option(
+      "--auto-run",
+      "Fire every overdue scheduled workflow (or a single one with --workflow). Mutates scheduler/state.json.",
+      false,
+    )
+    .option(
+      "--workflow <id>",
+      "Restrict --auto-run to a single workflow id.",
+    )
+    .option(
+      "--batch",
+      "[--auto-run] CI mode: exit after firing all overdue. Implicit when --auto-run is set; flag is for documentation.",
+      false,
+    )
+    .option("--due-only", "Restrict --check output to currently-due workflows", false)
     .option("--json", "Emit machine-readable JSON", false)
     .option("--quiet", "Suppress informational output", false)
     .action(
-      (options: {
+      async (options: {
         check?: boolean;
+        autoRun?: boolean;
+        workflow?: string;
+        batch?: boolean;
         dueOnly?: boolean;
         json?: boolean;
         quiet?: boolean;
       }) => {
+        if (options.autoRun) {
+          const result = await runSchedulerAutoRun({
+            workflowId: options.workflow,
+            batch: options.batch,
+            json: options.json,
+            quiet: options.quiet,
+          });
+          if (result.fired.some((f) => !f.ok)) {
+            process.exitCode = 1;
+          }
+          return;
+        }
         if (!options.check) {
           console.error(
             kleur.yellow(
-              "substrate scheduler: pass --check to inspect schedule state.",
+              "substrate scheduler: pass --check to inspect schedule state, or --auto-run to fire overdue workflows.",
             ),
           );
           process.exitCode = 2;

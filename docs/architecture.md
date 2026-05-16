@@ -71,7 +71,11 @@ command takes `--json`.
 | `substrate hooks list`           | `src/v2/deterministic/hooks-command.ts`          | v2.0 (B2); inspect cross-cutting hooks.                        |
 | `substrate hooks describe <id>`  | `src/v2/deterministic/hooks-command.ts`          | v2.0 (B2); show one hook's full manifest.                      |
 | `substrate knowledge`            | `src/commands/knowledge.ts`                      | v1.0; regenerate KNOWLEDGE.md from docker-compose.             |
-| `substrate emit-sidecar`         | (planned, B3)                                    | Writes audit sidecar JSON.                                     |
+| `substrate explain <id>`         | `src/v2/deterministic/explain-command.ts`        | v2.0; show context + prompts a workflow would emit, without running it. |
+| `substrate watch [path]`         | `src/v2/deterministic/watch-command.ts`          | v2.0; long-running watcher; fires `file-change` hooks on save. |
+| `substrate scheduler --check`    | `src/v2/deterministic/scheduler-command.ts`      | v2.0; list scheduled workflows.                                |
+| `substrate scheduler --auto-run` | `src/v2/deterministic/scheduler-command.ts`      | v2.0; fire every overdue scheduled workflow.                    |
+| `substrate emit-sidecar`         | (planned)                                        | Writes audit sidecar JSON.                                     |
 
 The Discoverer (`src/v2/discoverer.ts`) and Context loader
 (`src/v2/context-loader.ts`) are deterministic library modules that
