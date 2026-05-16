@@ -27,6 +27,17 @@ beforeEach(() => {
   previousCwd = process.cwd();
   process.chdir(tmpRoot);
   runInit({ projectName: "doc-v2", shortCode: "DV", quiet: true });
+  // These tests want to probe doctor with their own narrow fixtures.
+  // `runInit` (since the v2-layout scaffold fix) seeds `substrate/workflows/`
+  // with reference manifests; clear that dir so each test starts from a
+  // known-empty workflows + RULES baseline. Tests that need workflows write
+  // them via `writeWorkflowManifest`; tests that need RULES write it via
+  // `writeRulesYaml`.
+  rmSync(join(tmpRoot, "substrate", "workflows"), {
+    recursive: true,
+    force: true,
+  });
+  rmSync(join(tmpRoot, "substrate", "RULES.yaml"), { force: true });
   logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 });
 

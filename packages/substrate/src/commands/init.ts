@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import kleur from "kleur";
 import {
   ALL_STACKS,
@@ -9,6 +9,7 @@ import {
   detectStacks,
 } from "../util/detect.js";
 import { copyTemplate, ensureDir, writeFileIfMissing } from "../util/fs.js";
+import { atomicWriteFileIfMissing } from "../util/atomic-write.js";
 import { AUTO_SUBDIRS, getTemplatesDir, resolveTargetRoot } from "../util/paths.js";
 import { readPreference, setTelemetryEnabled } from "../util/telemetry.js";
 import type { SubstrateConfig, SubstrateManifest } from "../util/types.js";
@@ -41,6 +42,8 @@ export interface InitOptions {
 export interface InitResult {
   /** Repo-absolute path of the auto/ directory. */
   autoDir: string;
+  /** Repo-absolute path of the substrate/ (v2) directory. */
+  substrateDir: string;
   /** Whether substrate.config.json was newly created. */
   configCreated: boolean;
   /** Whether the manifest stub was newly created. */
@@ -57,23 +60,33 @@ export interface InitResult {
   filesCreated: string[];
   /** Files that already existed and were skipped. */
   filesSkipped: string[];
+  /** Files created under the v2 substrate/ tree (relative paths). */
+  v2FilesCreated: string[];
+  /** Files under substrate/ that already existed and were preserved. */
+  v2FilesSkipped: string[];
 }
 
 /**
  * Programmatic entry point for `substrate init`.
  *
- * Behavioural contract (the v0.1 acceptance criterion):
+ * Behavioural contract:
  *
- *   1. Create `<auto>/` and the seven canonical subdirectories.
+ *   1. Create `<auto>/` and the seven canonical v1 subdirectories.
  *   2. Copy the bundled `templates/init/` tree (default audit
  *      instructions, README placeholders, etc.) into the user's repo.
  *   3. Write `substrate.config.json` at the repo root if missing.
  *   4. Write an empty `auto/.substrate-manifest.json` stub if missing.
- *   5. If `withClaude`, scaffold `.claude/commands/substrate.md`.
+ *   5. Scaffold the v2 `substrate/` layout: workflows, hooks,
+ *      doc-checks, sessions, proposals/{pending,applied,rejected},
+ *      audits, plus the bundled reference manifests under each. Also
+ *      drops a `substrate/RULES.yaml` (copied from the default catalog)
+ *      so `substrate audit` runs immediately.
+ *   6. If `withClaude`, scaffold `.claude/commands/substrate.md`.
  *
  * The function is idempotent: re-running on a populated repo skips
  * existing files rather than overwriting (matches shadcn's add-only
- * ergonomic).
+ * ergonomic). v2 writes use atomic file IO so a crash mid-init leaves
+ * either the old content or the new content — never a partial.
  */
 export function runInit(options: InitOptions = {}): InitResult {
   const root = resolveTargetRoot(options.cwd);
@@ -204,6 +217,17 @@ export function runInit(options: InitOptions = {}): InitResult {
     if (anyCreated) bridgesScaffolded.push(bridge);
   }
 
+  // v2 layout — `substrate/` tree. Scaffolded alongside the v1 `auto/`
+  // tree so a fresh `substrate init` produces a repo that's immediately
+  // usable by both surfaces (audit + workflows + hooks + doc-checks).
+  // Idempotent: existing files are preserved, never overwritten.
+  const v2 = scaffoldV2Layout({
+    root,
+    templatesDir,
+    log,
+  });
+  const substrateDir = v2.substrateDir;
+
   log(
     "\n" +
       kleur.bold("Next steps:") +
@@ -215,7 +239,15 @@ export function runInit(options: InitOptions = {}): InitResult {
       " to see the scaffolded audits." +
       "\n  3. Edit " +
       kleur.cyan("auto/instructions/main/audit-*.md") +
-      " — these are yours now; the framework reads from your copy.\n",
+      " — these are yours now; the framework reads from your copy." +
+      "\n  4. Try " +
+      kleur.cyan("substrate validate") +
+      " — confirms the v2 manifests under `substrate/workflows/` are well-formed." +
+      "\n  5. Inspect the v2 layer with " +
+      kleur.cyan("substrate hooks list") +
+      " / " +
+      kleur.cyan("substrate query rules") +
+      ".\n",
   );
 
   // v0.8: surface the telemetry opt-in to a user who's just scaffolded
@@ -228,6 +260,7 @@ export function runInit(options: InitOptions = {}): InitResult {
 
   return {
     autoDir,
+    substrateDir,
     configCreated,
     manifestCreated,
     claudeBridgeCreated,
@@ -236,7 +269,178 @@ export function runInit(options: InitOptions = {}): InitResult {
     bridgesScaffolded,
     filesCreated: created,
     filesSkipped: skipped,
+    v2FilesCreated: v2.filesCreated,
+    v2FilesSkipped: v2.filesSkipped,
   };
+}
+
+/**
+ * Scaffold the v2 `substrate/` layout. Pure side-effects on disk —
+ * caller owns reporting + the rest of the init flow.
+ *
+ * Layout (always created, including the empty directories so users can
+ * drop their own files in without having to mkdir first):
+ *
+ *   substrate/
+ *     workflows/        ← reference manifests copied from templates/workflows/
+ *     hooks/            ← reference hook manifests
+ *     doc-checks/       ← conditional-doc-check manifests
+ *     sessions/         ← (empty) populated by `substrate run`
+ *     proposals/
+ *       pending/        ← (empty) drift → proposal queue
+ *       applied/        ← (empty) accepted proposals are moved here
+ *       rejected/       ← (empty) rejected proposals are moved here
+ *     audits/           ← (empty) populated by `substrate audit`
+ *     RULES.yaml        ← copied from templates/standards/cross-cutting/RULES.yaml
+ *     knowledge-sources.yaml  ← stub config (commented-out examples)
+ *
+ * Re-running init on a populated tree:
+ *   - Existing files are NOT modified or overwritten.
+ *   - Missing files are filled in. (Lets a user delete one reference
+ *     workflow and have a re-init bring it back if they want.)
+ *   - The empty session/proposal/audit dirs are recreated if removed.
+ */
+function scaffoldV2Layout(args: {
+  root: string;
+  templatesDir: string;
+  log: (msg: string) => void;
+}): {
+  substrateDir: string;
+  filesCreated: string[];
+  filesSkipped: string[];
+} {
+  const { root, templatesDir, log } = args;
+  const substrateDir = join(root, "substrate");
+  const filesCreated: string[] = [];
+  const filesSkipped: string[] = [];
+
+  // Empty directories that must exist so commands like
+  // `substrate run` and `substrate audit` don't fail with "not found"
+  // before they've ever written a file.
+  const emptyDirs = [
+    "sessions",
+    "proposals/pending",
+    "proposals/applied",
+    "proposals/rejected",
+    "audits",
+    "standards",
+  ];
+  for (const sub of emptyDirs) {
+    ensureDir(join(substrateDir, sub));
+  }
+
+  // Directories that get their reference content copied from the
+  // bundled templates. Tracked as (sourceSubdir, targetSubdir) pairs.
+  // Files inside are recursively copied with idempotent skip-existing.
+  const copyDirs: Array<{ source: string; target: string }> = [
+    { source: "workflows", target: "workflows" },
+    { source: "hooks", target: "hooks" },
+    { source: "doc-checks", target: "doc-checks" },
+  ];
+  for (const { source, target } of copyDirs) {
+    const sourceAbs = join(templatesDir, source);
+    const targetAbs = join(substrateDir, target);
+    ensureDir(targetAbs);
+    if (!existsSync(sourceAbs)) continue;
+    copyDirAtomicIfMissing(sourceAbs, targetAbs, {
+      onCreated: (rel) => {
+        filesCreated.push(`${target}/${rel}`);
+        log(kleur.green("✓") + ` substrate/${target}/${rel}`);
+      },
+      onSkipped: (rel) => {
+        filesSkipped.push(`${target}/${rel}`);
+        log(kleur.dim(`  skipped substrate/${target}/${rel} (exists)`));
+      },
+    });
+  }
+
+  // RULES.yaml — copy the shipped catalog into substrate/RULES.yaml.
+  // Lives at the substrate/ root rather than under a subfolder because
+  // `substrate audit` discovers it at exactly this path by default.
+  const rulesSource = join(
+    templatesDir,
+    "standards",
+    "cross-cutting",
+    "RULES.yaml",
+  );
+  const rulesTarget = join(substrateDir, "RULES.yaml");
+  if (existsSync(rulesSource)) {
+    const wrote = atomicWriteFileIfMissing(
+      rulesTarget,
+      readFileSync(rulesSource, "utf8"),
+    );
+    if (wrote) {
+      filesCreated.push("RULES.yaml");
+      log(kleur.green("✓") + ` substrate/RULES.yaml`);
+    } else {
+      filesSkipped.push("RULES.yaml");
+      log(kleur.dim(`  skipped substrate/RULES.yaml (exists)`));
+    }
+  }
+
+  // knowledge-sources.yaml is intentionally NOT scaffolded. The absent
+  // file is a first-class state (the loader returns `manifestPath: null`
+  // when missing, which lets `substrate knowledge refresh` fall through
+  // to its v1 docker-compose + .env.example default discovery). Users
+  // who want extra knowledge sources (Kubernetes, env-registry, etc.)
+  // create the file themselves — see the knowledge-sources page in the
+  // substrate docs for the schema.
+
+  return { substrateDir, filesCreated, filesSkipped };
+}
+
+/**
+ * Recursively copy a directory tree, atomic-writing each file only when
+ * the destination doesn't exist. Mirrors `copyTemplate` from `util/fs.ts`
+ * but (a) uses the atomic-write helpers so a crash mid-init leaves
+ * either the old content or the new content (never partial), and (b)
+ * surfaces per-file callbacks so the init flow can log each file as it
+ * lands.
+ */
+function copyDirAtomicIfMissing(
+  sourceDir: string,
+  targetDir: string,
+  callbacks: {
+    onCreated?: (rel: string) => void;
+    onSkipped?: (rel: string) => void;
+  },
+): void {
+  const stack: string[] = [sourceDir];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let entries: string[];
+    try {
+      entries = readdirSync(current);
+    } catch {
+      continue;
+    }
+    for (const name of entries) {
+      const abs = join(current, name);
+      let st: ReturnType<typeof statSync>;
+      try {
+        st = statSync(abs);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        stack.push(abs);
+        continue;
+      }
+      if (!st.isFile()) continue;
+      const rel = relative(sourceDir, abs).replace(/\\/g, "/");
+      const targetAbs = join(targetDir, rel);
+      ensureDir(join(targetDir, rel.split("/").slice(0, -1).join("/")));
+      const wrote = atomicWriteFileIfMissing(
+        targetAbs,
+        readFileSync(abs, "utf8"),
+      );
+      if (wrote) {
+        callbacks.onCreated?.(rel);
+      } else {
+        callbacks.onSkipped?.(rel);
+      }
+    }
+  }
 }
 
 /**

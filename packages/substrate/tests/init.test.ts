@@ -130,4 +130,98 @@ describe("runInit", () => {
     ) as SubstrateConfig;
     expect(config.project.shortCode).toMatch(/^[A-Z]{1,3}$/);
   });
+
+  // Regression tests for SMOKE-2026-05-15 finding 3: `substrate init`
+  // must scaffold the v2 layout so a fresh consumer can immediately
+  // invoke v2 commands (`audit`, `validate`, `hooks list`, etc.) without
+  // having to copy templates out of node_modules.
+  describe("v2 layout scaffold", () => {
+    it("creates substrate/ with the v2 layout (workflows, hooks, doc-checks, RULES, empty dirs)", () => {
+      const result = runInit({ projectName: PROJECT_NAME, shortCode: SHORT_CODE, quiet: true });
+
+      expect(result.substrateDir).toBe(join(tmp, "substrate"));
+      expect(existsSync(join(tmp, "substrate"))).toBe(true);
+
+      // Workflows + hooks + doc-checks each get the bundled reference manifests.
+      const expectedWorkflows = [
+        "audit-composite.yaml",
+        "audit-package.yaml",
+        "audit-service.yaml",
+        "new-service.yaml",
+        "tackle-task.yaml",
+        "weekly-proposal-walk.yaml",
+      ];
+      for (const name of expectedWorkflows) {
+        expect(
+          existsSync(join(tmp, "substrate", "workflows", name)),
+          `workflow ${name}`,
+        ).toBe(true);
+      }
+
+      const expectedHooks = [
+        "auto-drift-detect.yaml",
+        "auto-emit-sidecar.yaml",
+        "auto-propose-tasks.yaml",
+        "auto-update-trend.yaml",
+      ];
+      for (const name of expectedHooks) {
+        expect(
+          existsSync(join(tmp, "substrate", "hooks", name)),
+          `hook ${name}`,
+        ).toBe(true);
+      }
+
+      // RULES.yaml at the substrate/ root so `substrate audit` runs immediately.
+      expect(existsSync(join(tmp, "substrate", "RULES.yaml"))).toBe(true);
+
+      // Empty runtime dirs are pre-created so commands that write into them
+      // don't fail with ENOENT on a fresh install.
+      for (const sub of [
+        "sessions",
+        "audits",
+        "standards",
+        "proposals/pending",
+        "proposals/applied",
+        "proposals/rejected",
+      ]) {
+        expect(
+          existsSync(join(tmp, "substrate", sub)),
+          `expected substrate/${sub}/`,
+        ).toBe(true);
+      }
+
+      // filesCreated should report at least one workflow + one hook + one doc-check + RULES.
+      expect(result.v2FilesCreated.length).toBeGreaterThan(0);
+      expect(result.v2FilesCreated).toContain("RULES.yaml");
+    });
+
+    it("does NOT overwrite user-modified v2 files on re-run", () => {
+      runInit({ projectName: PROJECT_NAME, shortCode: SHORT_CODE, quiet: true });
+
+      const wfPath = join(tmp, "substrate", "workflows", "tackle-task.yaml");
+      const sentinel = "# USER EDIT — DO NOT OVERWRITE\nid: tackle-task\n";
+      writeFileSync(wfPath, sentinel, "utf8");
+
+      const rulesPath = join(tmp, "substrate", "RULES.yaml");
+      const rulesSentinel = "# USER RULES\nrules: []\n";
+      writeFileSync(rulesPath, rulesSentinel, "utf8");
+
+      const second = runInit({ projectName: PROJECT_NAME, shortCode: SHORT_CODE, quiet: true });
+
+      expect(readFileSync(wfPath, "utf8")).toBe(sentinel);
+      expect(readFileSync(rulesPath, "utf8")).toBe(rulesSentinel);
+      // The skipped list should mention both files we tampered with.
+      const skipped = second.v2FilesSkipped.join(" ");
+      expect(skipped).toContain("tackle-task.yaml");
+      expect(skipped).toContain("RULES.yaml");
+    });
+
+    it("does not write a knowledge-sources.yaml stub (absent file is a first-class state)", () => {
+      runInit({ projectName: PROJECT_NAME, shortCode: SHORT_CODE, quiet: true });
+      expect(
+        existsSync(join(tmp, "substrate", "knowledge-sources.yaml")),
+        "init should not scaffold knowledge-sources.yaml",
+      ).toBe(false);
+    });
+  });
 });
