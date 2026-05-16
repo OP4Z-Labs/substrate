@@ -222,10 +222,41 @@ not yet published, so no consumer would break).
 - See "Fixed — Targeted improvements" above for the TI-4
   ripgrep look-around fix.
 
+#### Pre-publish cleanup (OP-1374, 2026-05-15)
+
+- `new-service.yaml` reference template now ships with a `body.md`
+  (was triggering `substrate doctor` warnings on every consumer).
+  Rewritten as a generic scaffolding workflow that points at the
+  user's `substrate.config.json` for stack hints rather than
+  hard-coding the OP4Z FastAPI pattern, and joined the reference
+  workflow set.
+- Memory loader now skips `MEMORY.md`, `README.md`, `INDEX.md` by
+  default (Claude Code's index / readme conventions). The previous
+  loader treated them as memories needing frontmatter, generating a
+  spurious "missing frontmatter" doctor warning on every consumer.
+  Configurable per-repo via `substrate.config.json` `memory.ignore`
+  (additive on top of the defaults).
+- `auto/.substrate-manifest.json` now correctly populates `entries`
+  when `substrate init` scaffolds files. Previously the file was
+  left as `entries: []` despite init writing ~50 files, breaking
+  `substrate uninstall`'s precise-removal path (it had to fall back
+  to the known-location pattern). Every init-scaffolded file is now
+  recorded with `sha256:` content hash + template version + repo-
+  relative path.
+- `BE-APIV-001` script detector now recognises FastAPI's
+  router-include prefix pattern. The v2.0.0 detector only
+  understood decorator-level `/api/v1` prefixes
+  (`@app.get("/api/v1/users")`) and missed the far more common
+  `include_router(..., prefix="/api/v1")` shape, producing 535
+  false positives on OP4Z. Two-pass walk: pass 1 maps router
+  variables to their include-time prefixes; pass 2 walks decorators
+  and flags only routes whose effective path
+  (`prefix + decorator-path`) doesn't start with `/api/vN`.
+
 ### Test count
 
 - v1.0 baseline: 305+ tests.
-- v2.0: 691 passed + 1 skipped across 66 test files (substrate +
+- v2.0: 703 passed + 1 skipped across 66 test files (substrate +
   adapters). Phase deltas:
   - B1: discoverer + context-loader + query + run
   - B2: +141 (hooks, doc-checks, memory, composition, escalation)
@@ -235,6 +266,8 @@ not yet published, so no consumer would break).
   - B4: +35 (doctor v2 checks, query sessions, knowledge sources)
   - TI: +60 (step engine + lifecycle hooks + watch + explain +
     auto-run + ripgrep lookaround + new reference workflows)
+  - OP-1374 cleanup: +12 (new-service body.md, memory ignore list,
+    init manifest population, BE-APIV-001 router-include pattern)
 
 ### Migration
 
