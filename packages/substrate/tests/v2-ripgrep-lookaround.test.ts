@@ -254,6 +254,151 @@ def create_item():
     expect(findings[0].path).toMatch(/routes\.py$/);
   });
 
+  // OP-1374 #4: the v2.0.0 detector only understood decorator-level
+  // `/api/v1` prefixes and missed FastAPI's far more common
+  // `include_router(..., prefix="/api/v1")` pattern. In OP4Z that
+  // produced 535 false positives. The two-pass detector below
+  // resolves the effective path (router-include prefix + decorator
+  // path) before flagging.
+  function seedApivRule(): void {
+    seedScriptDetector(tmp, "be-apiv-001.mjs");
+    seedRule(
+      tmp,
+      `rules:
+  - id: BE-APIV-001
+    title: API versioning
+    severity: medium
+    detector:
+      type: script
+      path: substrate/standards/cross-cutting/detectors/be-apiv-001.mjs
+`,
+    );
+  }
+
+  it("BE-APIV-001 passes routes whose effective path comes from include_router(prefix='/api/v1')", async () => {
+    seedApivRule();
+    const appDir = join(tmp, "app", "api");
+    mkdirSync(appDir, { recursive: true });
+    // Resource file declares routes with bare resource paths (no
+    // `/api/v1` prefix at the decorator) — this is OP4Z's standard
+    // FastAPI shape.
+    writeFileSync(
+      join(appDir, "users.py"),
+      `from fastapi import APIRouter
+router = APIRouter()
+
+@router.get("/users")
+def list_users():
+    return []
+
+@router.post("/users")
+def create_user():
+    return {}
+`,
+    );
+    // Aggregator file applies the `/api/v1` prefix at include time.
+    writeFileSync(
+      join(appDir, "api.py"),
+      `from fastapi import FastAPI
+from . import users
+
+app = FastAPI()
+app.include_router(users.router, prefix="/api/v1")
+`,
+    );
+    const result = await runAuditExecute({ cwd: tmp, quiet: true, json: true });
+    const findings =
+      result.report.rules.find((r) => r.ruleId === "BE-APIV-001")?.findings ?? [];
+    expect(
+      findings.length,
+      `expected zero findings for router-include prefix pattern; got: ${JSON.stringify(findings)}`,
+    ).toBe(0);
+  });
+
+  it("BE-APIV-001 still flags routes when no prefix is applied anywhere", async () => {
+    seedApivRule();
+    const appDir = join(tmp, "app", "api");
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(
+      join(appDir, "legacy.py"),
+      `from fastapi import APIRouter
+router = APIRouter()
+
+@router.get("/legacy/list")
+def list_legacy():
+    return []
+`,
+    );
+    // include_router WITHOUT a prefix kwarg. The router's routes
+    // remain on `/legacy/...` so the rule should still fire.
+    writeFileSync(
+      join(appDir, "api.py"),
+      `from fastapi import FastAPI
+from . import legacy
+
+app = FastAPI()
+app.include_router(legacy.router)
+`,
+    );
+    const result = await runAuditExecute({ cwd: tmp, quiet: true, json: true });
+    const findings =
+      result.report.rules.find((r) => r.ruleId === "BE-APIV-001")?.findings ?? [];
+    expect(findings.length).toBe(1);
+    expect(findings[0].path).toMatch(/legacy\.py$/);
+  });
+
+  it("BE-APIV-001 still flags routes when the include prefix is itself non-versioned", async () => {
+    seedApivRule();
+    const appDir = join(tmp, "app", "api");
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(
+      join(appDir, "users.py"),
+      `from fastapi import APIRouter
+router = APIRouter()
+
+@router.get("/users")
+def list_users():
+    return []
+`,
+    );
+    writeFileSync(
+      join(appDir, "api.py"),
+      `from fastapi import FastAPI
+from . import users
+
+app = FastAPI()
+app.include_router(users.router, prefix="/legacy")
+`,
+    );
+    const result = await runAuditExecute({ cwd: tmp, quiet: true, json: true });
+    const findings =
+      result.report.rules.find((r) => r.ruleId === "BE-APIV-001")?.findings ?? [];
+    expect(findings.length).toBe(1);
+    // The flagged message should report the effective combined path.
+    expect(findings[0].message).toContain("/legacy/users");
+  });
+
+  it("BE-APIV-001 passes decorator-only routes with /api/v1 at the decorator", async () => {
+    seedApivRule();
+    const appDir = join(tmp, "app");
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(
+      join(appDir, "main.py"),
+      `from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/api/v1/health")
+def health():
+    return {"ok": True}
+`,
+    );
+    const result = await runAuditExecute({ cwd: tmp, quiet: true, json: true });
+    const findings =
+      result.report.rules.find((r) => r.ruleId === "BE-APIV-001")?.findings ?? [];
+    expect(findings.length).toBe(0);
+  });
+
   it("FE-TS-001 detects `: any` without justification, passes annotated", async () => {
     seedScriptDetector(tmp, "fe-ts-001.mjs");
     seedRule(
