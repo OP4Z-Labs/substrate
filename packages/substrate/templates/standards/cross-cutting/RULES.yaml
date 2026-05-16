@@ -80,9 +80,14 @@ rules:
     severity: medium
     description: Every public endpoint lives under /api/v1/... (or /v2/, etc.) so version migration is mechanical.
     category: backend
+    # NOTE: previously a ripgrep negative-lookahead pattern which
+    # ripgrep silently dropped without --pcre2. Now a script detector
+    # (see substrate/standards/cross-cutting/detectors/be-apiv-001.mjs)
+    # that walks Python sources + flags decorators whose URL is not
+    # under /api/v<N>.
     detector:
-      type: ripgrep
-      pattern: '@(app|router)\.(get|post|put|patch|delete)\("/(?!api/v)'
+      type: script
+      path: substrate/standards/cross-cutting/detectors/be-apiv-001.mjs
 
   - id: BE-APIV-002
     title: Deprecated endpoints emit a Deprecation header
@@ -330,9 +335,14 @@ rules:
     severity: medium
     description: An `any` is a typed escape hatch — when used, an inline comment must explain why.
     category: frontend
+    # NOTE: previously a ripgrep negative-lookahead pattern which
+    # ripgrep silently dropped without --pcre2. Now a script detector
+    # (see substrate/standards/cross-cutting/detectors/fe-ts-001.mjs)
+    # that scans TS/TSX, flags `: any` without an inline justification
+    # (eslint-disable / TODO / HACK / FIXME / XXX).
     detector:
-      type: ripgrep
-      pattern: ':\s*any\b(?!\s*//\s*(eslint|TODO|HACK))'
+      type: script
+      path: substrate/standards/cross-cutting/detectors/fe-ts-001.mjs
 
   # =======================================================================
   # Infrastructure — CI/CD (INF-CICD)
@@ -403,6 +413,11 @@ rules:
     severity: low
     description: Every standards doc starts with YAML front matter declaring scope, area, last_updated, and update_triggers.
     category: cross-cutting
+    # NOTE: previously a ripgrep pattern using `\n` (multiline) which
+    # ripgrep skipped without --multiline. Now a script detector
+    # (see substrate/standards/cross-cutting/detectors/xcut-md-001.mjs)
+    # that walks substrate/standards/*.md + verifies frontmatter has
+    # both `scope:` and `area:`.
     detector:
-      type: ripgrep
-      pattern: '^---\n(scope|area):'
+      type: script
+      path: substrate/standards/cross-cutting/detectors/xcut-md-001.mjs

@@ -245,7 +245,7 @@ function buildProgram(): Command {
     .description("Diagnose substrate installation, config sanity, and manifest drift.")
     .option(
       "--check <names>",
-      "Comma-separated v2 check ids to run in isolation (rules-doc-coverage, workflow-coverage, memory-frontmatter, stale-proposals, escalation-debt). Omit to run the full suite.",
+      "Comma-separated v2 check ids to run in isolation (rules-doc-coverage, workflow-coverage, memory-frontmatter, stale-proposals, escalation-debt, ripgrep-lookaround). Omit to run the full suite.",
     )
     .option(
       "--stale-proposals-days <n>",

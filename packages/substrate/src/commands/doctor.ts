@@ -43,8 +43,8 @@ export interface DoctorOptions {
    * When set, run only the named check(s). Names are the suffix after
    * `--check` in the v2 surface: `rules-doc-coverage`,
    * `workflow-coverage`, `memory-frontmatter`, `stale-proposals`,
-   * `escalation-debt`. Unknown names produce a warning-severity
-   * "unknown check" entry but do not abort.
+   * `escalation-debt`, `ripgrep-lookaround`. Unknown names produce a
+   * warning-severity "unknown check" entry but do not abort.
    */
   only?: string[];
   /**
@@ -81,6 +81,7 @@ const V2_CHECKS: Array<{ id: string; run: (root: string, options: DoctorOptions)
   { id: "workflow-coverage", run: (root) => checkWorkflowCoverage(root) },
   { id: "stale-proposals", run: (root, opt) => checkStaleProposals(root, opt.staleProposalsDays ?? 90) },
   { id: "escalation-debt", run: (root, opt) => checkEscalationDebt(root, opt.escalationDebtDays ?? 30) },
+  { id: "ripgrep-lookaround", run: (root) => checkRipgrepLookaround(root) },
 ];
 
 export function runDoctor(options: DoctorOptions = {}): DoctorReport {
@@ -812,6 +813,71 @@ function checkEscalationDebt(root: string, debtDays: number): Check[] {
   ];
 }
 
+/**
+ * `--check ripgrep-lookaround`: scans the consumer's RULES.yaml for
+ * ripgrep detector patterns that use look-around (?=, ?!, ?<=, ?<!).
+ * Ripgrep without `--pcre2` silently skips these, so the rule looks
+ * configured but detects nothing. Surfaces each offender as a warn so
+ * the author can rewrite as either a `script` detector or split into
+ * positive-match form.
+ */
+function checkRipgrepLookaround(root: string): Check[] {
+  const rulesPath = locateRulesFile(root);
+  if (!rulesPath) {
+    return [
+      {
+        id: "rules.ripgrep-lookaround",
+        title: "ripgrep look-around patterns",
+        severity: "ok",
+        message: "no RULES.yaml found; nothing to scan.",
+      },
+    ];
+  }
+  let rules;
+  try {
+    rules = loadRules(rulesPath).document.rules ?? [];
+  } catch (err) {
+    return [
+      {
+        id: "rules.ripgrep-lookaround",
+        title: "ripgrep look-around patterns",
+        severity: "error",
+        message: `Could not load ${rulesPath}: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    ];
+  }
+  const offenders: string[] = [];
+  for (const rule of rules) {
+    const det = (rule as { detector?: unknown }).detector as
+      | { type?: string; pattern?: string }
+      | undefined;
+    if (!det || det.type !== "ripgrep") continue;
+    if (typeof det.pattern !== "string") continue;
+    if (/\(\?[=!<]/.test(det.pattern)) {
+      offenders.push(rule.id);
+    }
+  }
+  if (offenders.length === 0) {
+    return [
+      {
+        id: "rules.ripgrep-lookaround",
+        title: "ripgrep look-around patterns",
+        severity: "ok",
+        message: `${rules.length} rule(s) scanned; no look-around regexes in ripgrep detectors.`,
+      },
+    ];
+  }
+  return [
+    {
+      id: "rules.ripgrep-lookaround",
+      title: "ripgrep look-around patterns",
+      severity: "warn",
+      message: `${offenders.length} rule(s) use look-around regexes that ripgrep silently drops without --pcre2: ${offenders.join(", ")}.`,
+      fix: "Rewrite the pattern without look-around, or switch the detector to `type: script` and implement the look-around in a small Node script. See substrate/standards/cross-cutting/detectors/ for examples.",
+    },
+  ];
+}
+
 // ---------------------------------------------------------- rendering
 function renderHumanReport(report: DoctorReport): void {
   console.log(kleur.bold("\nSubstrate doctor\n"));
@@ -849,6 +915,7 @@ export const _internals = {
   checkWorkflowCoverage,
   checkStaleProposals,
   checkEscalationDebt,
+  checkRipgrepLookaround,
   // Use a wrapper rather than mutating readdirSync for tests
   readdir: (dir: string): string[] => (existsSync(dir) ? readdirSync(dir).filter((e) => statSync(join(dir, e))) : []),
 };
