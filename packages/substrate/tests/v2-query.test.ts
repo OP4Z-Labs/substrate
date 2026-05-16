@@ -131,6 +131,112 @@ describe("runQueryStandards", () => {
     expect(result.standards).toEqual([]);
     expect(result.warnings.length).toBeGreaterThan(0);
   });
+
+  // Regression test for SMOKE-2026-05-15 finding 5: `--for-files` is
+  // documented on `query standards` in OP4Z's CLAUDE.md but the flag
+  // was previously rejected as "unknown option". The fix is to mirror
+  // the `--for-files` shape from `query doc-checks`: file extension /
+  // shape → standards-doc scope folder.
+  describe("--for-files filter", () => {
+    function seedStandards(): string {
+      const root = join(tmp, "substrate", "standards");
+      mkdirSync(join(root, "backend"), { recursive: true });
+      writeFileSync(join(root, "backend", "python.md"), "# python");
+      writeFileSync(join(root, "backend", "testing.md"), "# backend testing");
+      writeFileSync(join(root, "backend", "database.md"), "# db");
+      mkdirSync(join(root, "frontend"), { recursive: true });
+      writeFileSync(join(root, "frontend", "react.md"), "# react");
+      writeFileSync(join(root, "frontend", "testing.md"), "# frontend testing");
+      mkdirSync(join(root, "infrastructure"), { recursive: true });
+      writeFileSync(join(root, "infrastructure", "docker.md"), "# docker");
+      writeFileSync(join(root, "infrastructure", "ci-cd.md"), "# ci");
+      mkdirSync(join(root, "operations"), { recursive: true });
+      writeFileSync(join(root, "operations", "database-ops.md"), "# dbops");
+      return root;
+    }
+
+    it("returns backend standards for a .py change", () => {
+      seedStandards();
+      const result = runQueryStandards({
+        cwd: tmp,
+        forFiles: ["apps/backend/foo.py"],
+        quiet: true,
+      });
+      const paths = result.standards.map((s) => s.relativePath).sort();
+      expect(paths).toContain("backend/python.md");
+      expect(paths).toContain("backend/testing.md");
+      // Should NOT include frontend docs.
+      expect(paths).not.toContain("frontend/react.md");
+    });
+
+    it("returns frontend standards for a .tsx change", () => {
+      seedStandards();
+      const result = runQueryStandards({
+        cwd: tmp,
+        forFiles: ["apps/frontend/Button.tsx"],
+        quiet: true,
+      });
+      const paths = result.standards.map((s) => s.relativePath).sort();
+      expect(paths).toContain("frontend/react.md");
+      expect(paths).not.toContain("backend/python.md");
+    });
+
+    it("returns docker standards for Dockerfile changes", () => {
+      seedStandards();
+      const result = runQueryStandards({
+        cwd: tmp,
+        forFiles: ["apps/backend/Dockerfile"],
+        quiet: true,
+      });
+      const paths = result.standards.map((s) => s.relativePath);
+      expect(paths).toContain("infrastructure/docker.md");
+    });
+
+    it("returns ci-cd standards for .github/workflows changes", () => {
+      seedStandards();
+      const result = runQueryStandards({
+        cwd: tmp,
+        forFiles: [".github/workflows/ci.yml"],
+        quiet: true,
+      });
+      const paths = result.standards.map((s) => s.relativePath);
+      expect(paths).toContain("infrastructure/ci-cd.md");
+    });
+
+    it("returns database + ops standards for migration changes", () => {
+      seedStandards();
+      const result = runQueryStandards({
+        cwd: tmp,
+        forFiles: ["alembic/versions/abc123_init.py", "schema/users.sql"],
+        quiet: true,
+      });
+      const paths = result.standards.map((s) => s.relativePath);
+      expect(paths).toContain("backend/database.md");
+      expect(paths).toContain("operations/database-ops.md");
+    });
+
+    it("returns the union when multiple file types are passed", () => {
+      seedStandards();
+      const result = runQueryStandards({
+        cwd: tmp,
+        forFiles: ["api/handler.py", "ui/Button.tsx"],
+        quiet: true,
+      });
+      const paths = result.standards.map((s) => s.relativePath).sort();
+      expect(paths).toContain("backend/python.md");
+      expect(paths).toContain("frontend/react.md");
+    });
+
+    it("returns empty when no file shape matches any scope", () => {
+      seedStandards();
+      const result = runQueryStandards({
+        cwd: tmp,
+        forFiles: ["LICENSE.txt"], // .txt isn't mapped
+        quiet: true,
+      });
+      expect(result.standards).toEqual([]);
+    });
+  });
 });
 
 describe("runQueryMemory (B2: first-class)", () => {

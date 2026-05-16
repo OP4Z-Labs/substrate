@@ -52,6 +52,12 @@ export interface QueryRulesOptions {
 export interface QueryStandardsOptions {
   /** Patterns to match standards relative paths (e.g. `backend/*.md`). */
   patterns?: string[];
+  /**
+   * Changed-file paths to evaluate against. Returns the subset of
+   * standards docs whose scope matches the file extensions / shape.
+   * Mirrors the `--for-files` shape on `query doc-checks`.
+   */
+  forFiles?: string[];
   /** When set, the standards root is resolved against this base. */
   cwd?: string;
   json?: boolean;
@@ -129,6 +135,83 @@ export interface QueryStandardsResult {
   warnings: string[];
 }
 
+/**
+ * Resolve a changed-file path to one or more standards-doc relative paths
+ * that apply to it. Pure heuristic: file extension / shape → scope folder
+ * under `standards/`.
+ *
+ * The mapping is intentionally conservative — it prefers returning more
+ * docs than fewer when in doubt, because consumers (agents, CI) treat
+ * the result as "the docs the AI should load," and missing a doc is
+ * worse than loading one extra.
+ *
+ * Returns a set of relative-path *prefixes* — e.g. `"backend/"` matches
+ * any standards doc under `backend/`. The caller intersects these with
+ * the actually-discovered standards files so prefixes that don't have
+ * any docs in this consumer's tree are silently dropped.
+ */
+function scopesForFile(filePath: string): string[] {
+  // Normalize separators + lowercase the comparison surface.
+  const norm = filePath.replace(/\\/g, "/").toLowerCase();
+  const ext = norm.includes(".") ? norm.slice(norm.lastIndexOf(".")) : "";
+  const base = norm.includes("/") ? norm.slice(norm.lastIndexOf("/") + 1) : norm;
+
+  const scopes = new Set<string>();
+
+  // Backend Python.
+  if (ext === ".py") {
+    scopes.add("backend/");
+  }
+  // Frontend TS/JS — the four common React stack extensions.
+  if (ext === ".ts" || ext === ".tsx" || ext === ".js" || ext === ".jsx") {
+    scopes.add("frontend/");
+  }
+  // SQL and migrations → database docs (backend + ops).
+  if (
+    ext === ".sql" ||
+    norm.includes("/migrations/") ||
+    norm.includes("/alembic/")
+  ) {
+    scopes.add("backend/database.md");
+    scopes.add("operations/database-ops.md");
+  }
+  // Dockerfile, compose, .dockerignore → docker standards.
+  if (
+    base === "dockerfile" ||
+    base.startsWith("dockerfile.") ||
+    base === ".dockerignore" ||
+    /^docker-compose(\.|$)/.test(base)
+  ) {
+    scopes.add("infrastructure/docker.md");
+  }
+  // CI configs → ci-cd standards.
+  if (
+    norm.includes(".github/workflows/") ||
+    norm.includes(".gitlab-ci") ||
+    norm.includes("circleci/")
+  ) {
+    scopes.add("infrastructure/ci-cd.md");
+  }
+  // Test files (Python + TS conventions) → testing docs of the matched stack.
+  const isTestFile =
+    /(^|\/)test_[^/]+\.py$/.test(norm) ||
+    /(^|\/)[^/]+\.test\.(ts|tsx|js|jsx)$/.test(norm) ||
+    /(^|\/)[^/]+\.spec\.(ts|tsx|js|jsx)$/.test(norm) ||
+    /(^|\/)tests?\//.test(norm);
+  if (isTestFile) {
+    if (ext === ".py") scopes.add("backend/testing.md");
+    if (ext === ".ts" || ext === ".tsx" || ext === ".js" || ext === ".jsx") {
+      scopes.add("frontend/testing.md");
+    }
+  }
+  // Markdown changes → cross-cutting markdown standard.
+  if (ext === ".md" || ext === ".markdown") {
+    scopes.add("cross-cutting/markdown-format-specification.md");
+  }
+
+  return Array.from(scopes);
+}
+
 export function runQueryStandards(
   options: QueryStandardsOptions = {},
 ): QueryStandardsResult {
@@ -145,8 +228,10 @@ export function runQueryStandards(
     warnings.push(`Standards root not found. Tried: ${candidates.join(", ")}`);
   } else {
     const files = walkMarkdown(standardsRoot);
+    // Normalize path separators in the relative path so the scope-prefix
+    // intersection works the same way on Windows and POSIX.
     standards = files.map((abs) => ({
-      relativePath: relative(standardsRoot, abs),
+      relativePath: relative(standardsRoot, abs).replace(/\\/g, "/"),
       absolutePath: abs,
     }));
     if (options.patterns && options.patterns.length > 0) {
@@ -154,6 +239,31 @@ export function runQueryStandards(
       standards = standards.filter((s) =>
         matchers.some((m) => m.test(s.relativePath)),
       );
+    }
+    // --for-files: union of file-scope mappings, intersected with the
+    // discovered standards list. A scope entry can be either a folder
+    // prefix (matches any doc under it) or an exact relative path.
+    if (options.forFiles && options.forFiles.length > 0) {
+      const scopes = new Set<string>();
+      for (const f of options.forFiles) {
+        for (const s of scopesForFile(f)) scopes.add(s);
+      }
+      if (scopes.size === 0) {
+        standards = [];
+      } else {
+        standards = standards.filter((entry) => {
+          for (const scope of scopes) {
+            // Treat trailing-slash scopes as folder prefixes; otherwise
+            // require an exact relative-path match.
+            if (scope.endsWith("/")) {
+              if (entry.relativePath.startsWith(scope)) return true;
+            } else if (entry.relativePath === scope) {
+              return true;
+            }
+          }
+          return false;
+        });
+      }
     }
   }
 

@@ -614,15 +614,28 @@ function buildProgram(): Command {
       "--pattern <patterns>",
       "Comma-separated globs against the relative path (e.g. backend/*.md)",
     )
+    .option(
+      "--for-files <list>",
+      "Comma-separated changed-file paths; returns standards docs whose scope matches the file shapes (e.g. .py → backend/*, .tsx → frontend/*).",
+    )
     .option("--json", "Emit machine-readable JSON", false)
     .option("--quiet", "Suppress informational output", false)
     .action(
-      (options: { pattern?: string; json?: boolean; quiet?: boolean }) => {
+      (options: {
+        pattern?: string;
+        forFiles?: string;
+        json?: boolean;
+        quiet?: boolean;
+      }) => {
         const patterns = options.pattern
           ? options.pattern.split(",").map((p) => p.trim()).filter(Boolean)
           : undefined;
+        const forFiles = options.forFiles
+          ? options.forFiles.split(",").map((f) => f.trim()).filter(Boolean)
+          : undefined;
         runQueryStandards({
           patterns,
+          forFiles,
           json: options.json,
           quiet: options.quiet,
         });
