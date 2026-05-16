@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -66,7 +67,12 @@ describe("runInit", () => {
     expect(config.version).toBe(SUBSTRATE_VERSION);
   });
 
-  it("writes an empty manifest stub", () => {
+  it("writes a populated manifest tracking every scaffolded file (OP-1374 #3)", () => {
+    // Regression test for OP-1374 #3: substrate init was leaving the
+    // manifest at `entries: []` despite scaffolding ~50 files. The
+    // manifest now records one entry per file init writes, so the v0.5
+    // upgrade flow + `substrate uninstall` actually know what they're
+    // tracking.
     runInit({ projectName: PROJECT_NAME, shortCode: SHORT_CODE, quiet: true });
 
     const manifestPath = join(tmp, "auto", ".substrate-manifest.json");
@@ -75,7 +81,66 @@ describe("runInit", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as SubstrateManifest;
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.substrateVersion).toBe(SUBSTRATE_VERSION);
-    expect(manifest.entries).toEqual([]);
+    // Multiple files scaffolded — at minimum the auto/ tree + substrate/
+    // tree + config — so we expect many entries.
+    expect(manifest.entries.length).toBeGreaterThan(5);
+
+    // Every entry should have the v0.5+ shape.
+    for (const entry of manifest.entries) {
+      expect(entry.path.length).toBeGreaterThan(0);
+      expect(entry.path).not.toMatch(/^\//); // repo-relative
+      expect(entry.templateVersion).toBe(SUBSTRATE_VERSION);
+      expect(entry.contentHash).toMatch(/^sha256:[0-9a-f]+$/);
+      expect(entry.ejected).toBe(false);
+    }
+
+    // Spot-check a couple of canonical files are tracked. We don't
+    // pin the exact set because the bundled init templates evolve.
+    const paths = manifest.entries.map((e) => e.path);
+    expect(paths).toContain("substrate.config.json");
+    expect(
+      paths.some((p) => p.startsWith("substrate/workflows/")),
+      "expected at least one substrate/workflows/* entry",
+    ).toBe(true);
+    expect(
+      paths.some((p) => p.startsWith("auto/instructions/main/audit-")),
+      "expected at least one auto/instructions/main/audit-* entry",
+    ).toBe(true);
+
+    // The manifest file itself is NOT tracked (it'd be recursive +
+    // crash the hash on every write).
+    expect(paths).not.toContain("auto/.substrate-manifest.json");
+  });
+
+  it("hashes recorded in manifest match the on-disk file contents", () => {
+    // Regression: the v0.5 upgrade flow's three-way merge keys on
+    // `contentHash` — if init writes the wrong hash, every scaffolded
+    // file looks "user-edited" the moment init returns. Verify the
+    // hash matches the file we just wrote.
+    runInit({ projectName: PROJECT_NAME, shortCode: SHORT_CODE, quiet: true });
+
+    const manifestPath = join(tmp, "auto", ".substrate-manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as SubstrateManifest;
+
+    const configEntry = manifest.entries.find((e) => e.path === "substrate.config.json");
+    expect(configEntry).toBeDefined();
+    const configContents = readFileSync(join(tmp, "substrate.config.json"), "utf8");
+    const expected = "sha256:" + createHash("sha256").update(configContents).digest("hex");
+    expect(configEntry?.contentHash).toBe(expected);
+  });
+
+  it("preserves a pre-existing manifest (idempotency)", () => {
+    // First init populates the manifest.
+    runInit({ projectName: PROJECT_NAME, shortCode: SHORT_CODE, quiet: true });
+    const manifestPath = join(tmp, "auto", ".substrate-manifest.json");
+    const before = readFileSync(manifestPath, "utf8");
+
+    // Re-running init must NOT clobber the existing manifest — it's
+    // owned by the consumer once it exists (the same idempotency rule
+    // applies to scaffolded files).
+    runInit({ projectName: PROJECT_NAME, shortCode: SHORT_CODE, quiet: true });
+    const after = readFileSync(manifestPath, "utf8");
+    expect(after).toBe(before);
   });
 
   it("does NOT scaffold the Claude bridge by default", () => {

@@ -8,11 +8,11 @@ import {
   defaultStandardsFor,
   detectStacks,
 } from "../util/detect.js";
-import { copyTemplate, ensureDir, writeFileIfMissing } from "../util/fs.js";
-import { atomicWriteFileIfMissing } from "../util/atomic-write.js";
+import { copyTemplate, ensureDir, hashContent, readText, writeFileIfMissing } from "../util/fs.js";
+import { atomicWriteFileIfMissing, atomicWriteJsonSync } from "../util/atomic-write.js";
 import { AUTO_SUBDIRS, getTemplatesDir, resolveTargetRoot } from "../util/paths.js";
 import { readPreference, setTelemetryEnabled } from "../util/telemetry.js";
-import type { SubstrateConfig, SubstrateManifest } from "../util/types.js";
+import type { ManifestEntry, SubstrateConfig, SubstrateManifest } from "../util/types.js";
 import { SUBSTRATE_VERSION } from "../util/version.js";
 
 export type BridgeName = "claude" | "cursor" | "mcp";
@@ -162,22 +162,39 @@ export function runInit(options: InitOptions = {}): InitResult {
       : kleur.dim("  skipped substrate.config.json (exists)"),
   );
 
-  // auto/.substrate-manifest.json
+  // auto/.substrate-manifest.json — write a stub now so downstream tools
+  // that read it during this init flow see a valid file. We rewrite it
+  // at the END of init with all the entries we just scaffolded
+  // (v2.0.0 fix for OP-1374 #3 — manifest was previously left empty).
   const manifestPath = join(autoDir, ".substrate-manifest.json");
-  const manifest: SubstrateManifest = {
+  const manifestPreExisting = existsSync(manifestPath);
+  const manifestStub: SubstrateManifest = {
     schemaVersion: 1,
     substrateVersion: SUBSTRATE_VERSION,
     entries: [],
   };
-  const manifestCreated = writeFileIfMissing(
-    manifestPath,
-    JSON.stringify(manifest, null, 2) + "\n",
-  );
+  if (!manifestPreExisting) {
+    writeFileIfMissing(
+      manifestPath,
+      JSON.stringify(manifestStub, null, 2) + "\n",
+    );
+  }
+  const manifestCreated = !manifestPreExisting;
   log(
     manifestCreated
       ? kleur.green("✓") + " auto/.substrate-manifest.json (stub)"
       : kleur.dim("  skipped auto/.substrate-manifest.json (exists)"),
   );
+
+  // Manifest entries are collected as init writes each scaffolded file.
+  // Seed with the v1 init template's created files; the v2 layout step
+  // appends to this list. Skipped files are NOT recorded — the manifest
+  // tracks files this init produced, not files the user already had.
+  const manifestEntries: ManifestEntry[] = [];
+  for (const rel of created) {
+    const abs = join(autoDir, rel);
+    manifestEntries.push(buildManifestEntry(root, abs));
+  }
 
   // Bridge files. v0.5: every bridge name in `bridges[]` is scaffolded
   // from `templates/bridges/<name>/<file>` into
@@ -203,7 +220,10 @@ export function runInit(options: InitOptions = {}): InitResult {
         shortCode,
       );
       const created = writeFileIfMissing(targetPath, content);
-      if (created) anyCreated = true;
+      if (created) {
+        anyCreated = true;
+        manifestEntries.push(buildManifestEntryFromContent(root, targetPath, content));
+      }
       const relPath = bridgeTargetDir(bridge) + "/" + filename;
       log(
         created
@@ -217,6 +237,13 @@ export function runInit(options: InitOptions = {}): InitResult {
     if (anyCreated) bridgesScaffolded.push(bridge);
   }
 
+  // Track substrate.config.json as a scaffolded file (when this init
+  // wrote it). Like everything else, skipped means a pre-existing file
+  // owned by the user — we don't claim it in the manifest.
+  if (configCreated) {
+    manifestEntries.push(buildManifestEntry(root, configPath));
+  }
+
   // v2 layout — `substrate/` tree. Scaffolded alongside the v1 `auto/`
   // tree so a fresh `substrate init` produces a repo that's immediately
   // usable by both surfaces (audit + workflows + hooks + doc-checks).
@@ -227,6 +254,36 @@ export function runInit(options: InitOptions = {}): InitResult {
     log,
   });
   const substrateDir = v2.substrateDir;
+  // Roll v2 layout's per-file created list into the manifest entries
+  // so init's manifest captures every scaffolded file (substrate/* +
+  // auto/* + bridges + config). Skipped files (already on disk) are
+  // explicitly NOT tracked — they're the user's, not init's.
+  for (const rel of v2.filesCreated) {
+    const abs = join(substrateDir, rel);
+    manifestEntries.push(buildManifestEntry(root, abs));
+  }
+
+  // Write the final manifest with every entry we just produced. Atomic
+  // write keeps a crash mid-init from leaving a half-populated manifest.
+  // Done only when this init wrote the manifest stub — if the user had
+  // a pre-existing manifest we leave it alone (idempotency contract).
+  // OP-1374 #3 regression: this block used to be missing, leaving the
+  // manifest at `entries: []` despite init having scaffolded N files.
+  if (manifestCreated) {
+    const finalManifest: SubstrateManifest = {
+      schemaVersion: 1,
+      substrateVersion: SUBSTRATE_VERSION,
+      entries: manifestEntries,
+    };
+    atomicWriteJsonSync(manifestPath, finalManifest);
+    if (manifestEntries.length > 0) {
+      log(
+        kleur.dim(
+          `  recorded ${manifestEntries.length} entries in auto/.substrate-manifest.json`,
+        ),
+      );
+    }
+  }
 
   log(
     "\n" +
@@ -702,4 +759,40 @@ function applyBridgeReplacements(input: string, projectName: string, shortCode: 
     .join(shortCode)
     .split("{{SUBSTRATE_VERSION}}")
     .join(SUBSTRATE_VERSION);
+}
+
+/**
+ * Build a manifest entry for a scaffolded file by hashing its current
+ * disk contents. Used at the end of init to record every file that was
+ * just written (OP-1374 #3).
+ *
+ * The path is recorded repo-relative so the manifest stays portable
+ * across machines; the hash is `sha256:<hex>` so future formats can be
+ * discriminated without a migration.
+ */
+function buildManifestEntry(repoRoot: string, absolutePath: string): ManifestEntry {
+  return buildManifestEntryFromContent(repoRoot, absolutePath, readText(absolutePath));
+}
+
+/**
+ * Variant for callers that already have the file contents in memory
+ * (avoids a redundant disk read). Both helpers feed the same
+ * `ManifestEntry` shape, so the manifest is identical regardless of
+ * which call path produced an entry.
+ */
+function buildManifestEntryFromContent(
+  repoRoot: string,
+  absolutePath: string,
+  contents: string,
+): ManifestEntry {
+  let rel = absolutePath;
+  if (rel.startsWith(repoRoot)) {
+    rel = rel.slice(repoRoot.length).replace(/^[/\\]+/, "");
+  }
+  return {
+    path: rel,
+    templateVersion: SUBSTRATE_VERSION,
+    contentHash: `sha256:${hashContent(contents)}`,
+    ejected: false,
+  };
 }
