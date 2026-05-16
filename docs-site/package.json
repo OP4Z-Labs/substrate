@@ -1,6 +1,6 @@
 {
   "name": "substrate-docs-site",
-  "version": "0.8.0",
+  "version": "2.0.0",
   "description": "Public documentation site for substrate. Built with Astro. Deployed to Cloudflare Pages.",
   "license": "MIT",
   "type": "module",
