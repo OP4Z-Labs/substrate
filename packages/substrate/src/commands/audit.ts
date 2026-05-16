@@ -298,6 +298,23 @@ function stripFrontMatterAndCode(source: string): string {
 // instruction-file pattern; `audit` (no flag) and `--rule <id>` drive the
 // new runtime.
 
+/**
+ * Sentinel thrown by command paths that already emitted a JSON error
+ * envelope to stdout. The CLI top-level handler detects this and
+ * suppresses its own human-readable error formatting (which would
+ * otherwise add a stray `✗ ...` line after the JSON output).
+ *
+ * Exit code is still set non-zero — this only suppresses the duplicate
+ * human message.
+ */
+export class JsonAlreadyEmittedError extends Error {
+  readonly jsonAlreadyEmitted = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "JsonAlreadyEmittedError";
+  }
+}
+
 export interface AuditExecuteOptions {
   cwd?: string;
   /** Override RULES.yaml path (defaults to substrate.config / discovery). */
@@ -335,11 +352,23 @@ export async function runAuditExecute(
   const repoRoot = resolveTargetRoot(options.cwd);
   const rulesFile = locateRulesFile(repoRoot, options.rulesPath);
   if (!rulesFile) {
-    throw new Error(
+    const message =
       "Substrate: no RULES.yaml found. Expected at substrate/RULES.yaml. " +
-        'Run `substrate add standard cross-cutting/RULES` to scaffold one, ' +
-        "or pass --rules-path to point at an existing file.",
-    );
+      "Run `substrate add standard cross-cutting/RULES` to scaffold one, " +
+      "or pass --rules-path to point at an existing file.";
+    if (options.json) {
+      // `--json` callers (CI scripts, automation) need a stable error
+      // envelope rather than a human-readable string buried on stderr.
+      // We emit the envelope here, set the exit code, and re-throw a
+      // sentinel so main()'s catch can keep the non-zero exit but skip
+      // its own human-prose error printing for this path.
+      process.stdout.write(
+        JSON.stringify({ ok: false, error: { code: "rules-not-found", message } }, null, 2) + "\n",
+      );
+      process.exitCode = 1;
+      throw new JsonAlreadyEmittedError(message);
+    }
+    throw new Error(message);
   }
   let loaded;
   try {

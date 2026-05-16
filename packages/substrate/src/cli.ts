@@ -15,6 +15,7 @@ import { Command, Option } from "commander";
 import kleur from "kleur";
 import { runAdd } from "./commands/add.js";
 import {
+  JsonAlreadyEmittedError,
   runAuditExecute,
   runAuditList,
   runAuditTrend,
@@ -793,7 +794,14 @@ function buildProgram(): Command {
     .option("--json", "Emit machine-readable JSON", false)
     .option("--quiet", "Suppress informational output", false)
     .action((id: string, options: { json?: boolean; quiet?: boolean }) => {
-      runHooksDescribe({ id, json: options.json, quiet: options.quiet });
+      const result = runHooksDescribe({ id, json: options.json, quiet: options.quiet });
+      if (!result.found) {
+        // The describe command writes its "not found" line itself; we just
+        // surface the failure as a non-zero exit so CI can gate on it. Plain
+        // `process.exit(1)` would skip telemetry emission upstream — set
+        // `process.exitCode` and let main() finish normally.
+        process.exitCode = 1;
+      }
     });
 
   // ------------------------------------------------------- run (v2 orchestration)
@@ -1048,6 +1056,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const errorType = err instanceof Error ? err.constructor.name : "Unknown";
     const opts = program.opts<{ telemetryEndpoint?: string }>();
     emitTelemetryEvent(commandName, { errorType, endpoint: opts.telemetryEndpoint });
+    // When the command path already emitted a JSON error envelope (for
+    // `--json` callers), don't tack on a `✗ <message>` line — that would
+    // make the stdout output un-parseable. The throw is still treated as
+    // a failure: the exit code is set to 1 (preserving `process.exitCode`
+    // if the command set it to something else, like 2 for usage errors).
+    if (err instanceof JsonAlreadyEmittedError) {
+      process.exit(process.exitCode ?? 1);
+    }
     const message = err instanceof Error ? err.message : String(err);
     console.error(kleur.red("✗ ") + message);
     process.exit(1);
