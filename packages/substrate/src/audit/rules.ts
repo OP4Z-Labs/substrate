@@ -156,6 +156,24 @@ function validateRule(
   if (o.detector !== undefined) {
     const detector = validateDetector(o.detector, id, strict, warnings);
     if (detector) rule.detector = detector;
+  } else if (typeof o.pattern === "string") {
+    // Shorthand: a rule with a top-level `pattern:` (plus optional
+    // `paths:` / `exclude:`) is treated as a ripgrep detector. Lots of
+    // older substrate/automation YAML in the wild uses this shape and
+    // it reads naturally for a one-pattern rule. The canonical
+    // `detector: { type: ripgrep, pattern: ... }` form is still
+    // supported and takes precedence when both are present.
+    const synthetic = {
+      type: "ripgrep",
+      pattern: o.pattern,
+      ...(o.paths !== undefined ? { paths: o.paths } : {}),
+      ...(o.exclude !== undefined ? { exclude: o.exclude } : {}),
+      ...(o.caseSensitive !== undefined ? { caseSensitive: o.caseSensitive } : {}),
+      ...(o.fixedString !== undefined ? { fixedString: o.fixedString } : {}),
+      ...(o.multiline !== undefined ? { multiline: o.multiline } : {}),
+    };
+    const detector = validateDetector(synthetic, id, strict, warnings);
+    if (detector) rule.detector = detector;
   }
 
   if (o.escalate_after !== undefined) {
@@ -164,6 +182,9 @@ function validateRule(
   }
 
   // Surface unknown top-level fields when strict.
+  // `pattern`, `paths`, `exclude`, etc. are accepted as ripgrep-detector
+  // shorthand (see branch above); listing them in `allowed` keeps the
+  // "unknown field" warning honest.
   const allowed = new Set([
     "id",
     "title",
@@ -174,6 +195,12 @@ function validateRule(
     "tags",
     "detector",
     "escalate_after",
+    "pattern",
+    "paths",
+    "exclude",
+    "caseSensitive",
+    "fixedString",
+    "multiline",
   ]);
   for (const key of Object.keys(o)) {
     if (!allowed.has(key)) {

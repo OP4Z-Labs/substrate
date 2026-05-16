@@ -160,6 +160,60 @@ describe("audit-runtime: rules loader", () => {
     writeFileSync(custom, "rules: []\n", "utf8");
     expect(locateRulesFile(tmp, "custom-rules.yaml")).toBe(custom);
   });
+
+  // Regression test for SMOKE-2026-05-15 finding 6: rule-level `pattern`
+  // (and the related `paths` / `exclude` shorthand) was raising
+  // "unknown field" warnings. The shorthand is the most natural way to
+  // write a single-pattern rule and is documented in the wild — the
+  // loader now treats it as `detector: { type: ripgrep, pattern, paths, … }`.
+  it("treats rule-level `pattern` + `paths` as ripgrep-detector shorthand (no unknown-field warning)", () => {
+    const p = join(tmp, "shorthand.yaml");
+    writeFileSync(
+      p,
+      [
+        "rules:",
+        "  - id: SHORT-001",
+        "    title: A rule with shorthand fields",
+        "    severity: medium",
+        '    pattern: "\\\\bTODO\\\\b"',
+        "    paths:",
+        '      - "src/**/*.ts"',
+      ].join("\n"),
+      "utf8",
+    );
+    const loaded = loadRules(p);
+    // No "unknown field" warning for `pattern` or `paths`.
+    expect(loaded.warnings.filter((w) => /unknown field/.test(w))).toEqual([]);
+    // The synthesized detector is the ripgrep kind.
+    expect(loaded.document.rules[0]!.detector).toMatchObject({
+      type: "ripgrep",
+      pattern: "\\bTODO\\b",
+      paths: ["src/**/*.ts"],
+    });
+  });
+
+  it("prefers the explicit `detector:` block over the shorthand when both are present", () => {
+    const p = join(tmp, "both.yaml");
+    writeFileSync(
+      p,
+      [
+        "rules:",
+        "  - id: BOTH-001",
+        "    title: Detector wins",
+        "    severity: medium",
+        "    pattern: shorthand-pattern",
+        "    detector:",
+        "      type: ripgrep",
+        "      pattern: canonical-pattern",
+      ].join("\n"),
+      "utf8",
+    );
+    const loaded = loadRules(p);
+    expect(loaded.document.rules[0]!.detector).toMatchObject({
+      type: "ripgrep",
+      pattern: "canonical-pattern",
+    });
+  });
 });
 
 describe("audit-runtime: ripgrep detector (Node fallback path)", () => {
