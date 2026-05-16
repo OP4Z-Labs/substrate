@@ -103,7 +103,7 @@ export async function runPromptStep(
       stepId: step.id,
       type: step.type,
       status: "failed",
-      message: `step \"${step.id}\" (type ${step.type}) requires a non-empty \`prompt\` field`,
+      message: `step "${step.id}" (type ${step.type}) requires a non-empty \`prompt\` field`,
     };
   }
 
@@ -159,7 +159,7 @@ export async function runPromptStep(
         stepId: step.id,
         type: step.type,
         status: "failed",
-        message: `step \"${step.id}\" rejected at confirmation gate`,
+        message: `step "${step.id}" rejected at confirmation gate`,
       };
     }
   }
@@ -254,7 +254,7 @@ export async function runInvokeSubWorkflowStep(
       stepId: step.id,
       type: step.type,
       status: "failed",
-      message: `step \"${step.id}\" (type invoke-sub-workflow) requires \`workflow\` field`,
+      message: `step "${step.id}" (type invoke-sub-workflow) requires \`workflow\` field`,
     };
   }
   if (ctx.depth >= MAX_SUB_WORKFLOW_DEPTH) {
@@ -282,7 +282,7 @@ export async function runInvokeSubWorkflowStep(
       stepId: step.id,
       type: step.type,
       status: "ok",
-      message: `sub-workflow \"${step.workflow}\" completed (depth ${ctx.depth + 1})`,
+      message: `sub-workflow "${step.workflow}" completed (depth ${ctx.depth + 1})`,
       output: result.sessionLogPath,
     };
   }
@@ -294,7 +294,7 @@ export async function runInvokeSubWorkflowStep(
     stepId: step.id,
     type: step.type,
     status: "failed",
-    message: `sub-workflow \"${step.workflow}\" exit ${result.exitCode}`,
+    message: `sub-workflow "${step.workflow}" exit ${result.exitCode}`,
     output: result.sessionLogPath,
   };
 }
@@ -342,8 +342,8 @@ export async function runGateStep(
       status: outcome === "approved" ? "ok" : "failed",
       message:
         outcome === "approved"
-          ? `gate \"${step.id}\" approved`
-          : `gate \"${step.id}\" rejected`,
+          ? `gate "${step.id}" approved`
+          : `gate "${step.id}" rejected`,
     };
   }
 
@@ -364,7 +364,7 @@ export async function runGateStep(
       stepId: step.id,
       type: step.type,
       status: "ok",
-      message: `gate \"${step.id}\" passed (all ${required.length} required-steps ok)`,
+      message: `gate "${step.id}" passed (all ${required.length} required-steps ok)`,
     };
   }
   const reasons: string[] = [];
@@ -374,7 +374,7 @@ export async function runGateStep(
     stepId: step.id,
     type: step.type,
     status: "failed",
-    message: `gate \"${step.id}\" failed — ${reasons.join("; ")}`,
+    message: `gate "${step.id}" failed — ${reasons.join("; ")}`,
   };
 }
 
@@ -480,7 +480,7 @@ export async function runProposeDocChangeStep(
       stepId: step.id,
       type: step.type,
       status: "failed",
-      message: `step \"${step.id}\" (type propose-doc-change) requires \`run\` or \`description\` to identify the doc to change`,
+      message: `step "${step.id}" (type propose-doc-change) requires \`run\` or \`description\` to identify the doc to change`,
     };
   }
   if (!addition) {
@@ -488,7 +488,7 @@ export async function runProposeDocChangeStep(
       stepId: step.id,
       type: step.type,
       status: "failed",
-      message: `step \"${step.id}\" (type propose-doc-change) requires \`prompt\` to carry the addition body`,
+      message: `step "${step.id}" (type propose-doc-change) requires \`prompt\` to carry the addition body`,
     };
   }
 

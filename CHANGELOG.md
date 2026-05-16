@@ -102,9 +102,9 @@ v2.0 is fully additive.
 
 - **`substrate doctor` v2 checks** (Primitive 10 remainder):
   `rules-doc-coverage`, `workflow-coverage`, `stale-proposals`,
-  `escalation-debt`. Each addressable individually via
-  `--check <name>`; aggregate run includes all of them. `--json`
-  works on every form.
+  `escalation-debt`, `ripgrep-lookaround`. Each addressable
+  individually via `--check <name>`; aggregate run includes all of
+  them. `--json` works on every form.
 - **Plural knowledge sources** (Primitive 11). New
   `substrate/knowledge-sources.yaml` manifest declares typed source
   entries. Built-in plugins: `docker-compose` (existing),
@@ -123,6 +123,62 @@ v2.0 is fully additive.
 - **`docs/migration-from-1.x.md`** — migration guide. v2.0 is
   fully additive — no breaking changes from 1.x.
 - **`docs/release-2.0-checklist.md`** — publish checklist.
+
+### Added — Targeted improvements (pre-publish)
+
+These six items closed gaps identified during the v3 exploration
+pass and folded into v2.0 itself (no separate v2.1 patch — v2.0 had
+not yet published, so no consumer would break).
+
+- **AI step engine — six step types run end-to-end** (TI-1). The
+  orchestrator's `runStep` no longer returns `status: "deferred"`
+  for `prompt` / `prompt-and-action` / `invoke-sub-workflow` /
+  `gate` / `discover` / `propose-doc-change`. Each gets a real
+  handler in `src/v2/orchestrator/step-handlers.ts`. New
+  `OrchestrationTransport` interface (`transport.ts`) is the public
+  extension point for AI surfaces (Claude Code, Cursor, MCP); the
+  built-in no-op transport keeps the engine deterministic for
+  tests / CI. Sub-workflow nesting capped at depth 5. The proposal
+  pipeline now sees real `prompt-issued`, `step-confirm`, and
+  `adhoc-step` events from sessions where they occur.
+- **`session-start`, `session-end`, `file-change` hook triggers
+  wired** (TI-2). HookTrigger declared these but no code path was
+  firing them. Now: `session-start` fires once at the start of
+  `substrate run` (before workflow-start); `session-end` mirrors at
+  the end (after workflow-completion). `file-change` fires from a
+  new `substrate watch [path]` long-running watcher (uses
+  `node:fs.watch` recursively — Node 20+; no external dep).
+  Debounces at 100ms; ignores `substrate/sessions/`,
+  `substrate/proposals/`, `.git/`, `node_modules/`, `dist/` to
+  avoid feedback loops.
+- **`substrate explain <workflow-id>`** (TI-3). The missing
+  inspection primitive. Loads context exactly as `substrate run`
+  would, then prints the resolved manifest + each step's prompt
+  summary — without running anything. `--for-files` supports
+  `intersect-with-changed-files` memory filters. `--json` emits a
+  structured envelope.
+- **`substrate scheduler --auto-run`** (TI-5). Complement to the
+  read-only `--check`. Fires every overdue scheduled workflow (or
+  `--workflow <id>` for one). State updates via the orchestrator's
+  existing `recordWorkflowRun` path; subsequent `--check` shows no
+  overdue. Failures in one workflow don't crash the loop.
+- **Five additional reference workflows** (TI-6): `git-review-pre`,
+  `git-review-deep`, `commit-and-push`, `standards-update`,
+  `audit-security`. Each ships manifest + body.md and demonstrates a
+  specific v2 capability (composition, sub-workflows,
+  prompt-and-action with must-confirm, propose-doc-change, scheduled
+  triggers). `substrate init` now copies them all.
+
+### Fixed — Targeted improvements
+
+- **Ripgrep look-around regexes in shipped RULES** (TI-4). Three
+  rules used negative-lookahead / multi-line syntax that ripgrep
+  silently drops without `--pcre2`. All three rewritten as `type:
+  script` detectors with companion `.mjs` files under
+  `templates/standards/cross-cutting/detectors/`. New doctor check
+  `ripgrep-lookaround` warns when consumer RULES.yaml contains
+  look-around patterns. `substrate init` now copies the script
+  detectors so a fresh init has working rules out of the box.
 
 ### Changed
 
@@ -163,11 +219,13 @@ v2.0 is fully additive.
 - B3: `auto-drift-detect` hook replaced its B2 skeleton handler
   with the real `runProposalPipeline()` integration. Defensive
   `status=skipped` fallback when fired outside the orchestrator path.
+- See "Fixed — Targeted improvements" above for the TI-4
+  ripgrep look-around fix.
 
 ### Test count
 
 - v1.0 baseline: 305+ tests.
-- v2.0: 608 passed + 1 skipped across 59 test files (substrate +
+- v2.0: 691 passed + 1 skipped across 66 test files (substrate +
   adapters). Phase deltas:
   - B1: discoverer + context-loader + query + run
   - B2: +141 (hooks, doc-checks, memory, composition, escalation)
@@ -175,6 +233,8 @@ v2.0 is fully additive.
     pipeline-e2e, yaml-edit, applicators, review, scheduler,
     doctor-memory)
   - B4: +35 (doctor v2 checks, query sessions, knowledge sources)
+  - TI: +60 (step engine + lifecycle hooks + watch + explain +
+    auto-run + ripgrep lookaround + new reference workflows)
 
 ### Migration
 

@@ -11,7 +11,7 @@
  * and that the proposal pipeline picks them up.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runV2Workflow } from "../src/v2/orchestrator/run-command.js";

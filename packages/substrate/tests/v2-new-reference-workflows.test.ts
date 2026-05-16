@@ -8,7 +8,13 @@
  *   - has a body.md companion of useful size
  */
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runValidate } from "../src/v2/deterministic/validate-command.js";
@@ -102,10 +108,10 @@ describe("TI-6 new reference workflows", () => {
   it("body.md companions are non-trivial in size", () => {
     const templatesDir = join(getTemplatesDir(), "workflows");
     for (const id of NEW_REFERENCE_IDS) {
-      const body = require("node:fs").readFileSync(
+      const body = readFileSync(
         join(templatesDir, `${id}.body.md`),
         "utf8",
-      ) as string;
+      );
       expect(
         body.length,
         `${id}.body.md should be > 300 chars`,

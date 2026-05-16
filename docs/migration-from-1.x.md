@@ -52,14 +52,43 @@ substrate run <id> --dry-run                       # plan steps
 substrate run <id>                                 # execute
 ```
 
-Reference templates ship at `templates/workflows/` in the package
-(`tackle-task`, `audit-service`, `audit-package`,
-`weekly-proposal-walk`). Copy one out as a starting point.
+Ten reference templates ship at `templates/workflows/` and are
+scaffolded by `substrate init`:
 
-The v1 `substrate workflow list / describe / start` surface (driven
-by `auto/config/workflows.yaml`) is unchanged. The two systems coexist
-— `substrate workflow` reads the v1 registry, `substrate run` reads
-the v2 manifests. Migrate at your own pace.
+- `tackle-task` — full task workflow (research → ... → commit gate)
+- `audit-service` / `audit-package` — per-scope audit wrappers
+- `audit-composite` — demonstrates `composes_findings_of`
+- `audit-security` — security-rule-filtered audit on a 7d schedule
+- `git-review-pre` — fast pre-merge gate (diff-only audit + doctor + AI summary)
+- `git-review-deep` — thorough review composing `git-review-pre` via
+  sub-workflow + meta-review prompt-and-action
+- `commit-and-push` — ship workflow with `discover` mid-workflow +
+  doc-check evaluation
+- `standards-update` — demonstrates `propose-doc-change` step type
+- `weekly-proposal-walk` — scheduled walk of the proposal queue
+
+Copy one out as a starting point. The v1 `substrate workflow list /
+describe / start` surface (driven by `auto/config/workflows.yaml`) is
+unchanged. The two systems coexist — `substrate workflow` reads the
+v1 registry, `substrate run` reads the v2 manifests. Migrate at your
+own pace.
+
+Inspect a workflow without running it:
+
+```bash
+substrate explain tackle-task                   # show resolved context + step prompts
+substrate explain tackle-task --json            # JSON envelope for CI
+substrate explain tackle-task --for-files src/x.py,src/y.ts
+                                                 # apply changed-files filter to memory load
+```
+
+Run from the file-watcher loop:
+
+```bash
+substrate watch                                 # foreground; fires file-change hooks
+substrate watch src/                            # restrict the watched tree
+substrate watch --max-events 10                 # stop after N events (CI / smoke)
+```
 
 ### Cross-cutting hooks
 
@@ -151,13 +180,17 @@ trigger:
   - schedule: { cron: "0 9 * * 1" }
 ```
 
-Substrate ships only the discovery + state-tracking primitives.
-Invocation is your consumer's choice — three patterns (CI / local
-cron / AI session) are documented in `docs/scheduling.md`. The
-scheduler is non-invasive:
+Substrate ships discovery, state-tracking, and an opt-in
+`--auto-run` mode. Invocation patterns (CI / local cron / AI
+session) are documented in `docs/scheduling.md`. The scheduler is
+non-invasive by default:
 
 ```bash
-substrate scheduler --check --due-only
+substrate scheduler --check --due-only          # read-only — lists due workflows
+substrate scheduler --auto-run                  # fire every overdue workflow
+substrate scheduler --auto-run --workflow audit-security
+                                                 # fire one named workflow
+substrate scheduler --auto-run --json           # CI-friendly result envelope
 ```
 
 ### `composes_findings_of` + `escalate_after`
