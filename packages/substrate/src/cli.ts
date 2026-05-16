@@ -58,6 +58,7 @@ import {
   runHooksList,
 } from "./v2/deterministic/hooks-command.js";
 import { runV2Workflow } from "./v2/orchestrator/run-command.js";
+import { runWatchCommand } from "./v2/deterministic/watch-command.js";
 import { walkProposals } from "./v2/deterministic/proposals/review-command.js";
 import { runSchedulerCheck } from "./v2/deterministic/scheduler-command.js";
 import {
@@ -830,6 +831,43 @@ function buildProgram(): Command {
         });
         if (result.exitCode !== 0) {
           process.exitCode = result.exitCode;
+        }
+      },
+    );
+
+  // -------------------------------------------------- watch (v2)
+  // File-change trigger producer. Monitors a directory tree and fires
+  // hooks with `trigger: [file-change]` on each save event. Closes the
+  // gap that HookTrigger declared but no code path was firing.
+  program
+    .command("watch")
+    .description(
+      "Monitor a path tree and fire `trigger: [file-change]` hooks on save (v2).",
+    )
+    .argument("[path]", "Path to monitor (defaults to repo root)")
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .option(
+      "--max-events <n>",
+      "Stop after N events (useful for CI / testing)",
+      (v: string) => parseInt(v, 10),
+    )
+    .action(
+      async (
+        path: string | undefined,
+        options: { json?: boolean; quiet?: boolean; maxEvents?: number },
+      ) => {
+        try {
+          await runWatchCommand({
+            path,
+            json: options.json,
+            quiet: options.quiet,
+            maxEvents: options.maxEvents,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(kleur.red(`substrate watch: ${msg}`));
+          process.exitCode = 2;
         }
       },
     );

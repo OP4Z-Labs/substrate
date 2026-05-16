@@ -161,24 +161,41 @@ output.
   `run` shell command executes under the consumer's CWD. Stdout/stderr
   are inherited.
 - AI-step types (`prompt`, `prompt-and-action`, `invoke-sub-workflow`,
-  `gate`, `discover`, `propose-doc-change`) — surface
-  `status: "deferred"` with a clear message pointing at B3. The
-  workflow halts at the first deferred step and the CLI exits with
-  code 2. The full AI step engine (prompt loops, mid-workflow user
-  confirms, sub-workflow dispatch, gates) is B3 work.
+  `gate`, `discover`, `propose-doc-change`) — run end-to-end through
+  the step engine (`src/v2/orchestrator/step-handlers.ts`). When an
+  `OrchestrationTransport` is attached, prompts round-trip through it
+  (Claude Code, Cursor, MCP, plain stdin). When no transport is
+  attached, the engine runs in "no-transport mode": prompts emit
+  `prompt-issued` session events, responses default to `null`, gates
+  auto-approve, and the workflow remains fully deterministic — the
+  shape CI / tests rely on.
 
-What B2 adds around the step engine:
+### Lifecycle hooks fire at four points
 
-- **Cross-cutting hooks fire** at `workflow-start`,
-  `workflow-step-completion`, and `workflow-completion`. Each hook
-  invocation surfaces in `result.hookRuns` and (by default) does not
-  fail the workflow.
+| Trigger                     | Fires                                                      |
+| --------------------------- | ---------------------------------------------------------- |
+| `session-start`             | Once at the start of `substrate run` (before workflow-start) |
+| `workflow-start`            | Before the first step                                       |
+| `workflow-step-completion`  | After each step (regardless of outcome)                     |
+| `workflow-completion`       | Once after the last step (regardless of exit code)          |
+| `session-end`               | Once after workflow-completion (mirror of session-start)    |
+| `file-change`               | Fired from `substrate watch` on filesystem save events      |
+
+Each hook invocation surfaces in `result.hookRuns` and (by default)
+does not fail the workflow. Setting `step.fail-on-error: true` on a
+hook escalates that.
+
+What surrounds the step engine:
+
 - **`composes_findings_of` freshness check** runs before the first
   step. Stale sidecar dependencies surface as warnings at workflow
   start.
 - **Memory injection** is rendered into `ResolvedContext.memoryInjection`
   during context-load and is available to the orchestrator before
   step dispatch.
+- **`substrate watch <path>`** is the producer for `file-change`
+  hooks. Long-running foreground watcher; Ctrl-C exits cleanly. Uses
+  `node:fs.watch` recursively (Node 20+); no external deps.
 
 ### Programmatic surface
 

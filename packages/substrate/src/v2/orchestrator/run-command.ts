@@ -122,6 +122,24 @@ export async function runV2Workflow(
   const hooksDiscovery = discoverHooks({ cwd });
   const allHookRuns: HookRunRecord[] = [];
 
+  // Fire `session-start` hooks BEFORE the workflow-start hooks. The
+  // distinction: session-start fires once per `substrate run`
+  // invocation; workflow-start fires once per workflow (which is also
+  // once per session today, but the lifecycle naming reflects the
+  // future case where a single session spans multiple workflows).
+  if (!options.dryRun) {
+    const sessionStartHooks = await dispatchHooks(
+      {
+        trigger: "session-start",
+        workflowId: workflow.manifest.id,
+        workflowKind: workflow.manifest.kind,
+        cwd,
+      },
+      { cwd, quiet: options.quiet, hooks: hooksDiscovery.hooks },
+    );
+    allHookRuns.push(...sessionStartHooks);
+  }
+
   // Open the session-event-log. Dry runs use the in-memory writer so
   // we never pollute substrate/sessions/ with skipped-step runs that
   // would muddy the drift signal.
@@ -335,6 +353,24 @@ export async function runV2Workflow(
       { cwd, quiet: options.quiet, hooks: hooksDiscovery.hooks },
     );
     allHookRuns.push(...completionHooks);
+
+    // session-end fires AFTER workflow-completion to mirror the
+    // session-start ordering. Hooks here see the final exitCode + the
+    // session log on disk (useful for "summarize this session" /
+    // "flush telemetry" patterns).
+    const sessionEndHooks = await dispatchHooks(
+      {
+        trigger: "session-end",
+        workflowId: workflow.manifest.id,
+        workflowKind: workflow.manifest.kind,
+        exitCode,
+        manifest: workflow.manifest,
+        sessionLogPath: sessionPaths.path,
+        cwd,
+      },
+      { cwd, quiet: options.quiet, hooks: hooksDiscovery.hooks },
+    );
+    allHookRuns.push(...sessionEndHooks);
   }
 
   const ok = exitCode === 0;
