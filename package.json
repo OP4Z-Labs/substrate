@@ -24,6 +24,7 @@
     "format": "npm run format --workspaces --if-present",
     "format:check": "npm run format:check --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "smoke:enterprise": "npm run smoke:enterprise --workspace @op4z/substrate",
     "docs:dev": "npm run docs:dev --workspace substrate-docs-site",
     "docs:build": "npm run docs:build --workspace substrate-docs-site"
   },
