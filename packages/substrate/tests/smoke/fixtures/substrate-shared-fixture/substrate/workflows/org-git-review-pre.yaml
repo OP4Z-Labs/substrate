@@ -1,0 +1,24 @@
+schema_version: v2.0
+id: org-git-review-pre
+name: Org pre-merge review
+description: >-
+  Org variant of the pre-merge review. Deterministic-only so the smoke
+  test can execute it without an AI session.
+kind: review
+authors:
+  - acme-platform
+trigger:
+  - manual-command
+
+steps:
+  - id: echo-review
+    name: Emit a review marker
+    type: invoke-deterministic
+    run: 'echo "org-shared:org-git-review-pre OK"'
+
+acceptance:
+  exit_codes:
+    pass: 0
+    fail: 2
+  required-steps:
+    - echo-review

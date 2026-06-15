@@ -1,0 +1,10 @@
+{
+  "name": "@acme/substrate-shared",
+  "version": "1.0.0",
+  "description": "Reference org-shared substrate hub for enterprise smoke testing.",
+  "license": "MIT",
+  "private": true,
+  "files": [
+    "substrate"
+  ]
+}

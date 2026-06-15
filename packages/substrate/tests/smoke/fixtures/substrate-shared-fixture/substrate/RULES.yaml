@@ -1,0 +1,91 @@
+# =============================================================================
+# RULES.yaml — Org-shared rule registry (fixture for substrate enterprise smoke)
+# =============================================================================
+# Simulates an organization's `@acme/substrate-shared` RULES.yaml. Covers
+# backend (BE), frontend (FE), and infrastructure (INF) at a representative
+# breadth — about 10 rules — so the smoke test can assert merge + override
+# semantics across all three scopes.
+# =============================================================================
+
+meta:
+  version: 1.0.0
+  description: |
+    Org-shared rules contributed by @acme/substrate-shared. The
+    smoke-test consumer repo overrides ORG-BE-PY-001 to demonstrate
+    repo-local precedence; the rest pass through unchanged.
+
+rules:
+  # Backend — Python
+  - id: ORG-BE-PY-001
+    title: Force black formatting on commit
+    doc: backend/python.md
+    severity: high
+    description: All Python files run through `black` before commit.
+    category: backend
+
+  - id: ORG-BE-PY-002
+    title: No bare except clauses
+    doc: backend/python.md
+    severity: high
+    description: Bare `except:` swallows everything including KeyboardInterrupt.
+    category: backend
+
+  # Backend — API
+  - id: ORG-BE-API-001
+    title: Errors return canonical shape
+    doc: backend/api.md
+    severity: high
+    description: '{ error, code, correlation_id } is the contract.'
+    category: backend
+
+  - id: ORG-BE-API-002
+    title: URLs under /api/vN
+    doc: backend/api.md
+    severity: medium
+    description: Major-version prefix is mandatory on every public endpoint.
+    category: backend
+
+  # Backend — Security
+  - id: ORG-BE-SEC-001
+    title: Tenant id on every query
+    doc: backend/security.md
+    severity: critical
+    description: Multi-tenant queries always filter tenant_id.
+    category: backend
+
+  - id: ORG-BE-SEC-002
+    title: No secrets in code
+    doc: backend/security.md
+    severity: critical
+    description: API keys, tokens, credentials go through env vars.
+    category: backend
+
+  # Frontend — TypeScript
+  - id: ORG-FE-TS-001
+    title: No bare any
+    doc: frontend/typescript.md
+    severity: medium
+    description: Any usage of `any` requires a justification comment.
+    category: frontend
+
+  - id: ORG-FE-TS-002
+    title: Public exports are typed
+    doc: frontend/typescript.md
+    severity: medium
+    description: Module boundaries declare their types explicitly.
+    category: frontend
+
+  # Infrastructure — Docker
+  - id: ORG-INF-DOCKER-001
+    title: Pin Docker base image tags
+    doc: infrastructure/docker.md
+    severity: medium
+    description: Never `FROM <image>:latest` — always pin to a versioned tag.
+    category: infrastructure
+
+  - id: ORG-INF-DOCKER-002
+    title: Run as non-root
+    doc: infrastructure/docker.md
+    severity: high
+    description: Container runtime user must not be root.
+    category: infrastructure

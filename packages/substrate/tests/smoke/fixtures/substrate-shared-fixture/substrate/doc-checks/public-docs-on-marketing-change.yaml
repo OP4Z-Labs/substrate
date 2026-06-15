@@ -1,0 +1,20 @@
+schema_version: v2.0
+id: public-docs-on-marketing-change
+description: >-
+  When marketing pages change, expect the public-docs site to be
+  updated. Catches cases where the marketing site and docs diverge.
+when:
+  files-changed-any:
+    - "apps/marketing/**"
+    - "apps/web/marketing/**"
+require:
+  one-of:
+    - "docs/public/**/*.md"
+    - "apps/docs/**"
+prompt: >-
+  Marketing change detected without corresponding public docs update.
+  Confirm the public-docs site reflects the new copy.
+severity: should-fix
+authors:
+  - acme-platform
+last_updated: "2026-05-16"

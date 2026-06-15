@@ -1,0 +1,18 @@
+schema_version: v2.0
+id: auto-org-policy
+description: >-
+  Org-wide policy hook. Fires on every workflow start to log that the
+  org content was loaded. Useful for telemetry pipelines that need to
+  count "% of workflows that ran with the org shared layer."
+trigger:
+  - workflow-start
+enabled: true
+order: 1
+step:
+  type: run-deterministic
+  command: 'echo "org-shared:auto-org-policy fired"'
+  pass-result: false
+  fail-on-error: false
+authors:
+  - acme-platform
+last_updated: "2026-05-16"

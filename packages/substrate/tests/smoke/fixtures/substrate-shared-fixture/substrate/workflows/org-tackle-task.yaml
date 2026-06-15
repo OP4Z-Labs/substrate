@@ -1,0 +1,43 @@
+schema_version: v2.0
+id: org-tackle-task
+name: Org tackle-task
+description: >-
+  Org variant of tackle-task. Contains a prompt step (AI session), so
+  the smoke test only exercises discovery / explain / override
+  behavior; it does NOT execute this workflow via `substrate run`.
+kind: task-tackle
+authors:
+  - acme-platform
+trigger:
+  - manual-command
+
+context:
+  standards:
+    - backend/api.md
+    - backend/python.md
+  rules:
+    - "ORG-*"
+
+steps:
+  - id: load-context
+    name: Load org context
+    type: invoke-deterministic
+    run: 'echo "loading org tackle-task context"'
+
+  - id: ai-summary
+    name: AI synthesis
+    type: prompt
+    prompt: >-
+      Summarise the task at hand and propose a step-by-step plan.
+
+followups:
+  - if: ai-summary == done
+    suggest: >-
+      Run `substrate run org-git-review-pre` once the change is staged.
+
+acceptance:
+  exit_codes:
+    pass: 0
+    fail: 2
+  required-steps:
+    - load-context

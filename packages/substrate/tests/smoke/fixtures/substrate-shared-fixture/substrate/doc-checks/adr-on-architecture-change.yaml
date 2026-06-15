@@ -1,0 +1,21 @@
+schema_version: v2.0
+id: adr-on-architecture-change
+description: >-
+  When code under apps/**/architecture/ or packages/**/core/ changes,
+  expect a matching ADR to be added or updated.
+when:
+  files-changed-any:
+    - "apps/**/architecture/**"
+    - "packages/**/core/**"
+    - "**/architecture.md"
+require:
+  one-of:
+    - "docs/adr/**/*.md"
+    - "auto/docs/decisions/DEC-*.md"
+prompt: >-
+  Architecture-shaped change detected. Add or update an ADR documenting
+  the decision (auto/docs/decisions/DEC-NNN-*.md or docs/adr/).
+severity: high
+authors:
+  - acme-platform
+last_updated: "2026-05-16"

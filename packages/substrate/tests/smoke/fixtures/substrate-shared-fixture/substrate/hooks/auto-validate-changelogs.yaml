@@ -1,0 +1,21 @@
+schema_version: v2.0
+id: auto-validate-changelogs
+description: >-
+  After every review workflow completes, check that the changelog was
+  updated if the diff included user-visible changes. Soft-warn only;
+  does not fail the workflow.
+trigger:
+  - workflow-completion
+matches:
+  workflow-kind: review
+  exit-code: any
+enabled: true
+order: 50
+step:
+  type: run-deterministic
+  command: 'echo "org-shared:auto-validate-changelogs fired"'
+  pass-result: false
+  fail-on-error: false
+authors:
+  - acme-platform
+last_updated: "2026-05-16"

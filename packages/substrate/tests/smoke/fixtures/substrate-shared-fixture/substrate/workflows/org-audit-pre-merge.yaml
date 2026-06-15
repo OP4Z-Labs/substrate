@@ -1,0 +1,25 @@
+schema_version: v2.0
+id: org-audit-pre-merge
+name: Org pre-merge audit
+description: >-
+  Deterministic-only pre-merge audit (no AI session). Echoes a marker
+  string the smoke test asserts against to confirm the workflow ran
+  from the org-shared fixture.
+kind: audit
+authors:
+  - acme-platform
+trigger:
+  - manual-command
+
+steps:
+  - id: marker
+    name: Print the org-shared smoke marker
+    type: invoke-deterministic
+    run: 'echo "org-shared:org-audit-pre-merge OK"'
+
+acceptance:
+  exit_codes:
+    pass: 0
+    fail: 2
+  required-steps:
+    - marker
