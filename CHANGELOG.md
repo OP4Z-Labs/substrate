@@ -3,6 +3,13 @@
 All notable changes to the substrate CLI are documented in this file.
 Adheres roughly to [Keep a Changelog](https://keepachangelog.com).
 
+
+## [3.0.0-beta.2] — 2026-06-15
+
+### Changed
+
+- **README rewritten** to accurately reflect v3.0.0 surface. Previous published README was from v0.8 (three majors behind). New README leads with the headline capabilities (self-reinforcing proposal pipeline + org-shared content via `extends`), shows real install commands, lists actual v2 + v3 capabilities, documents the three AI editor bridges, and provides a status + roadmap table. No code changes vs `3.0.0-beta.1`.
+
 ## [3.0.0-beta.1] — 2026-06-15 — `extends`-awareness in consumer commands (NE-11 beta.1)
 
 v3.0.0-beta.1 closes the gap surfaced by the v3.0.0-alpha.1 enterprise
