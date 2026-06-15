@@ -14,6 +14,7 @@ import {
   type RuleDefinition,
   type Severity,
 } from "../audit/index.js";
+import { discoverRulesAcrossExtends } from "../v2/extends/index.js";
 import { listFiles, readText } from "../util/fs.js";
 import { parseFrontMatter } from "../util/frontmatter.js";
 import { getTemplatesDir, resolveTargetRoot } from "../util/paths.js";
@@ -350,36 +351,89 @@ export async function runAuditExecute(
   options: AuditExecuteOptions = {},
 ): Promise<AuditExecuteResult> {
   const repoRoot = resolveTargetRoot(options.cwd);
-  const rulesFile = locateRulesFile(repoRoot, options.rulesPath);
-  if (!rulesFile) {
-    const message =
-      "Substrate: no RULES.yaml found. Expected at substrate/RULES.yaml. " +
-      "Run `substrate add standard cross-cutting/RULES` to scaffold one, " +
-      "or pass --rules-path to point at an existing file.";
-    if (options.json) {
-      // `--json` callers (CI scripts, automation) need a stable error
-      // envelope rather than a human-readable string buried on stderr.
-      // We emit the envelope here, set the exit code, and re-throw a
-      // sentinel so main()'s catch can keep the non-zero exit but skip
-      // its own human-prose error printing for this path.
-      process.stdout.write(
-        JSON.stringify({ ok: false, error: { code: "rules-not-found", message } }, null, 2) + "\n",
+
+  // v3 extends-aware rules resolution (NE-11 beta.1, bug #4).
+  //
+  // Strategy:
+  //   - When `--rules-path` is passed, honor it verbatim (loads a single
+  //     RULES.yaml; no extends merge). This preserves the v1.0 escape
+  //     hatch for "audit a specific RULES file".
+  //   - Otherwise consult `discoverRulesAcrossExtends`, which walks each
+  //     layer's RULES.yaml and merges with repo-local-wins semantics. On
+  //     a v2-shaped consumer (no `extends`), the chain collapses to a
+  //     single repo-local layer; behavior matches v2.x exactly.
+  let allRules: RuleDefinition[];
+  let rulesFile: string;
+  let loadWarnings: string[] = [];
+
+  if (options.rulesPath) {
+    const located = locateRulesFile(repoRoot, options.rulesPath);
+    if (!located) {
+      const message =
+        "Substrate: no RULES.yaml found at the configured path. " +
+        `Tried: ${options.rulesPath}`;
+      if (options.json) {
+        process.stdout.write(
+          JSON.stringify({ ok: false, error: { code: "rules-not-found", message } }, null, 2) + "\n",
+        );
+        process.exitCode = 1;
+        throw new JsonAlreadyEmittedError(message);
+      }
+      throw new Error(message);
+    }
+    let loaded;
+    try {
+      loaded = loadRules(located, { strict: options.strict });
+    } catch (err) {
+      if (err instanceof RulesLoadError) {
+        throw new Error(`Substrate: ${err.message}`);
+      }
+      throw err;
+    }
+    allRules = loaded.document.rules;
+    rulesFile = located;
+    loadWarnings = loaded.warnings;
+  } else {
+    const merged = discoverRulesAcrossExtends({ cwd: repoRoot });
+    // Surface collisions as informational warnings so adopters can see
+    // when a repo-local rule overrode an org-shared one. The CLI prints
+    // them in human mode (non-quiet, non-json) below.
+    for (const collision of merged.collisions) {
+      loadWarnings.push(
+        `rule ${collision.key}: repo-local overrides ${collision.overridden.join(", ")}`,
       );
-      process.exitCode = 1;
-      throw new JsonAlreadyEmittedError(message);
     }
-    throw new Error(message);
-  }
-  let loaded;
-  try {
-    loaded = loadRules(rulesFile, { strict: options.strict });
-  } catch (err) {
-    if (err instanceof RulesLoadError) {
-      throw new Error(`Substrate: ${err.message}`);
+    loadWarnings.push(...merged.warnings);
+    allRules = merged.rules;
+
+    // Pick a representative rulesPath for the report header. Prefer the
+    // repo-local RULES.yaml when it exists; fall back to the first
+    // layer's path. When NO layer has a RULES.yaml, fail with the same
+    // message as the v2.x path so adopters see a stable error.
+    const repoLocal = locateRulesFile(repoRoot);
+    if (repoLocal) {
+      rulesFile = repoLocal;
+    } else if (allRules.length > 0) {
+      // No repo-local RULES.yaml, but extends sources contribute rules.
+      // Use the first contributing source as a marker. The actual
+      // per-rule source provenance lives in merged.provenance.
+      const firstSource = merged.provenance.values().next().value;
+      rulesFile = `<extends:${firstSource ?? "unknown"}>`;
+    } else {
+      const message =
+        "Substrate: no RULES.yaml found across extends chain. Expected at " +
+        "substrate/RULES.yaml (repo-local) or in an extends source. " +
+        "Run `substrate add standard cross-cutting/RULES` to scaffold one.";
+      if (options.json) {
+        process.stdout.write(
+          JSON.stringify({ ok: false, error: { code: "rules-not-found", message } }, null, 2) + "\n",
+        );
+        process.exitCode = 1;
+        throw new JsonAlreadyEmittedError(message);
+      }
+      throw new Error(message);
     }
-    throw err;
   }
-  const allRules = loaded.document.rules;
   let rules: RuleDefinition[];
   let scope: string;
   let pathFilter: string[] | undefined;
@@ -426,8 +480,10 @@ export async function runAuditExecute(
   applyEscalations(report, { rules: allRules, repoRoot });
 
   // Surface load warnings as informational lines (one shot, before reports).
-  if (!options.quiet && !options.json && loaded.warnings.length > 0) {
-    for (const w of loaded.warnings) {
+  // Includes per-source RULES load warnings + extends-merge collision
+  // records ("repo-local overrides org-shared").
+  if (!options.quiet && !options.json && loadWarnings.length > 0) {
+    for (const w of loadWarnings) {
       process.stderr.write(kleur.yellow(`  warn: ${w}\n`));
     }
   }
