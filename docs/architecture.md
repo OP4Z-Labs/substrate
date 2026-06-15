@@ -301,8 +301,72 @@ piece calls into the deterministic-only piece, never re-implements it.
 
 ---
 
+## v3 — the `extends` layer (NE-11)
+
+Substrate v3.0.0-alpha.1 adds one additive layer: **`extends`**, the
+org-scoped content composition primitive. A consumer's
+`substrate.config.json` can declare an `extends` array whose entries
+contribute substrate content (workflows, hooks, doc-checks, standards,
+RULES.yaml rows) into the consumer's effective registry. The repo's
+own `substrate/` always wins on collisions.
+
+```json
+{
+  "extends": [
+    { "source": "npm:@acme/substrate-shared", "version": "^2.0.0" },
+    { "source": "github:acme-corp/substrate-payments", "ref": "v1.2.0" },
+    { "source": "file:../substrate-shared-overrides" }
+  ]
+}
+```
+
+**Three source kinds:**
+
+| Kind     | Resolution                                              | Cache                                  |
+| -------- | ------------------------------------------------------- | -------------------------------------- |
+| `npm:`   | `node_modules/<pkg>/` (walks up to workspace roots)     | npm install (native)                   |
+| `github:`| Clones to `substrate/.cache/extends/github/<slug>/`     | Cache key `<org>-<repo>@<ref>`         |
+| `file:`  | Live filesystem; read on every invocation                | none                                   |
+
+**Ordering** mirrors ESLint's `extends`: earlier entries are the base,
+later entries override earlier; the consumer's own `substrate/`
+overrides all. Same-id workflow / hook / doc-check / rule and
+same-relative-path standards collisions all resolve to "later wins."
+
+**Air-gap:** when `SUBSTRATE_OFFLINE=1`, `github:` sources are not
+fetched. A warm cache continues to serve; a cold cache surfaces a
+`warning` so adopters can mirror via `file:` or a private npm registry.
+
+**CLI:**
+
+- `substrate extends list [--json]` — print the resolved chain with
+  per-layer contribution counts + the effective merged registry +
+  conflicts.
+- `substrate extends sync [--source <id>]` — refresh `github:` caches.
+  `npm:` + `file:` sources are skipped.
+- `substrate extends clear-cache` — wipe `substrate/.cache/extends/`.
+
+**Backwards compat:** a v2.0 consumer who upgrades to v3.0 and does not
+add an `extends` field sees zero behavior change. The resolver's hot
+path returns immediately when no `extends` is configured.
+
+The wiring is layered cleanly over v2:
+
+- `src/v2/extends/resolver.ts` — walks the chain; returns ordered roots.
+- `src/v2/extends/source-kinds.ts` — file: / npm: / github: dispatch.
+- `src/v2/extends/discovery.ts` — wrappers around the v2 discoverers.
+- `src/v2/extends/context-merge.ts` — standards + RULES merging.
+- `src/v2/deterministic/extends-command.ts` — CLI surface.
+
+The existing v2 single-root discoverers stay untouched — v3 callers
+opt into the merged variant when the config declares `extends`.
+
+---
+
 ## Reference
 
 - Substrate v2 plan: `docs/plans/substrate-v2-plan.md` (out-of-tree)
+- Substrate v3 + extends plan: `docs/plans/substrate-phase-1-2-enterprise-plan.md`
+  (out-of-tree)
 - v1.0 audit runtime: `docs/audit-runtime.md`
 - v1.0 programmatic API: `docs/programmatic-api.md`

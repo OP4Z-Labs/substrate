@@ -3,6 +3,127 @@
 All notable changes to the substrate CLI are documented in this file.
 Adheres roughly to [Keep a Changelog](https://keepachangelog.com).
 
+## [3.0.0-alpha.1] — 2026-06-15 — `extends` primitive (NE-11)
+
+v3.0-alpha.1 ships the **org-scoped content composition** primitive
+that unlocks enterprise adoption — `extends` — as a single additive
+layer over v2.0. A consumer's `substrate.config.json` can now declare
+an upstream substrate-content source (npm package, github repo, or
+local directory); the resolver walks each source's `substrate/` tree
+and merges per-kind with locked-in "repo-local wins" collision
+semantics. v2.0 consumers who don't add an `extends` field see zero
+behavior change.
+
+This is the only feature in 3.0; the rest of the v2.0 surface is
+untouched. The major bump reflects that org-scoped composition adds a
+new dimension to substrate's content model (consumer vs upstream)
+that downstream tooling needs to be aware of.
+
+### Added — sub-phase A (schema)
+
+- `extends` array on `substrate.config.json` schema. Three source
+  forms: `npm:<pkg>`, `github:<org>/<repo>[#ref]`, `file:<path>`.
+  Pattern-validated; `additionalProperties: false` on each entry
+  catches typos (e.g. `verison: "^2.0.0"`).
+- `ExtendsSource` TypeScript type on `SubstrateConfig` (purely
+  additive; optional field).
+- `validateConfig` / `validateConfigFile` ajv-backed validator at
+  `src/v2/extends/config-validator.ts`. v2.0 configs (no `extends`
+  field) continue to validate.
+- 23 schema tests covering all source forms, error cases, and the
+  per-entry warning surface (`version` on a github source, etc.).
+
+### Added — sub-phase B (resolver + layered discovery)
+
+- `src/v2/extends/resolver.ts` — `resolveExtendsChain` returns the
+  ordered layer chain (base → repo-local). Repo-local layer is always
+  appended last so it overrides every extends source.
+- `discoverWorkflowsAcrossExtends`, `discoverHooksAcrossExtends`,
+  `discoverDocChecksAcrossExtends` — extends-aware discovery wrappers.
+  Existing v2 single-root discoverers are untouched per plan §2.2.
+- `discoverStandardsAcrossExtends`, `discoverRulesAcrossExtends` —
+  standards + RULES.yaml merging across the chain. Standards collide
+  on relative path; rules collide on rule id; both with "later wins."
+- `MergedDiscoveryResult` provenance: every entry tags the source it
+  came from (`{ source: "npm:@acme/substrate-shared" | "repo-local",
+  manifestPath }`).
+- 21 tests covering 5 collision scenarios + multi-source ordering in
+  `tests/v3-extends-resolver.test.ts`.
+
+### Added — sub-phase C (source kinds + caching)
+
+- `file:` — live filesystem resolution against the consumer root.
+  Rejects nonexistent paths + non-directory targets with actionable
+  error messages.
+- `npm:` — resolved via the consumer's `node_modules`. Walks up to
+  parent workspace roots (so npm/yarn workspace hoists work).
+- `github:` — shallow clone via `git clone --depth 1 --branch <ref>`
+  into `substrate/.cache/extends/github/<org>-<repo>@<ref>/`. Falls
+  back to full clone + checkout for SHA refs. Cache manifest at
+  `<cache>/manifest.json` tracks each entry's resolved SHA + ref +
+  fetch timestamp per plan §2.5.
+- **Air-gap support.** `SUBSTRATE_OFFLINE=1` env var (or per-call
+  override) refuses `git clone` calls. A warm cache continues to
+  serve; a cold cache surfaces a `warning` and the chain continues
+  without the source.
+- `clearExtendsCache(consumerRoot)` + `refreshGithubSource(...)`
+  helpers for CLI use.
+- 21 source-kind tests in `tests/v3-extends-source-kinds.test.ts`
+  with an injectable `gitRunner` so tests never hit the network.
+
+### Added — sub-phase D (CLI surface)
+
+- `substrate extends list [--json]` — print the resolved chain with
+  per-layer contribution counts (workflows, hooks, doc-checks,
+  standards, RULES rows), the effective merged registry, and any
+  conflicts.
+- `substrate extends sync [--source <id>]` — refresh `github:` caches
+  by re-cloning at the pinned ref. `npm:` + `file:` sources are
+  skipped (with documented reasons). Optional `--source` filter so
+  only one entry is refreshed.
+- `substrate extends clear-cache` — wipe
+  `substrate/.cache/extends/`. No-op when the dir doesn't exist
+  (exit 0).
+- 11 CLI tests in `tests/v3-extends-cli.test.ts` covering text + JSON
+  output shapes + exit codes.
+
+### Added — sub-phase E (polish + release)
+
+- Comprehensive integration test in `tests/v3-extends-integration.test.ts`
+  that exercises npm + github + file sources together against a
+  single consumer fixture, plus an explicit air-gap (`SUBSTRATE_OFFLINE=1`)
+  scenario.
+- `docs/architecture.md` documents the v3 extends layer.
+- `package.json` version bumped to `3.0.0-alpha.1` (both
+  workspace root and `packages/substrate/`).
+
+### Compatibility / migration
+
+- **Zero migration required for v2.0 consumers.** A consumer who
+  upgrades to v3.0-alpha.1 and does not add an `extends` field sees
+  identical behavior. The resolver's hot path returns immediately
+  when the chain is empty.
+- Existing 703-test v2.0 baseline still passes intact (plus the v3
+  test suite for a total of 779+ passing + 1 skipped on this release).
+- No new runtime dependencies. The github clone path shells out to
+  the user's existing `git` binary; no `simple-git` or
+  `isomorphic-git` added.
+
+### Out of scope for 3.0-alpha.1 (deferred per plan §2)
+
+- Transitive extends (an extends source that itself declares
+  `extends`). Plan §2.2 explicitly defers to v3.1; `substrate doctor`
+  will gain an `extends-transitive` warning in a follow-up release.
+- `extends-mode: inherit` (per plan §2.4(a)) and
+  `extends-mode: append` (per plan §2.4(b)) opt-outs. v3.0-alpha.1
+  ships the locked "repo-local wins, log warning" semantics; the
+  override modes land in a later 3.x release if real adoption signal
+  asks for them.
+- `substrate doctor --check extends-*` checks (per plan §2.10). Land
+  in v3.0-beta.1.
+- `substrate audit --explain <rule-id>` provenance line (per plan
+  §2.4(b)). Land in v3.0-beta.1.
+
 ## [2.0.0] — 2026-05-15 — Workflow Runtime + Proposal Pipeline
 
 v2.0 layers an AI-orchestrated workflow runtime over the v1.0

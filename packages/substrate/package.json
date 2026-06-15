@@ -1,6 +1,6 @@
 {
   "name": "@op4z/substrate",
-  "version": "2.0.0",
+  "version": "3.0.0-alpha.1",
   "description": "Repeatable automation patterns for codebases. Audits, scaffolds, standards, and bridges to AI coding assistants.",
   "license": "MIT",
   "author": "Beau Goldberg",

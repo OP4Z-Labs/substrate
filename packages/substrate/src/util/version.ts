@@ -9,4 +9,4 @@
  * If you bump package.json, bump this string. A pre-publish hook in
  * a later version should enforce parity.
  */
-export const SUBSTRATE_VERSION = "2.0.0";
+export const SUBSTRATE_VERSION = "3.0.0-alpha.1";
