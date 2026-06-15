@@ -11,8 +11,11 @@
  * Both subcommands accept `--json` for machine-readable output.
  */
 
+import { join } from "node:path";
 import kleur from "kleur";
-import { discoverHooks, type HookDescriptor } from "../hooks.js";
+import type { HookDescriptor } from "../hooks.js";
+import { discoverHooksAcrossExtends } from "../extends/index.js";
+import { resolveTargetRoot } from "../../util/paths.js";
 
 export interface HooksListOptions {
   cwd?: string;
@@ -38,20 +41,34 @@ export interface HooksListResult {
 }
 
 export function runHooksList(options: HooksListOptions = {}): HooksListResult {
-  const discovery = discoverHooks({ cwd: options.cwd });
-  let hooks = discovery.hooks;
+  // v3 extends-aware hook discovery (NE-11 beta.1, bug #2). Walks the
+  // resolved extends chain and merges by hook id with repo-local-wins.
+  // Collapses to single-root behavior on v2-shaped consumers.
+  const merged = discoverHooksAcrossExtends({ cwd: options.cwd });
+  let hooks = merged.entries.map((e) => e.descriptor);
   if (options.trigger && options.trigger.length > 0) {
     hooks = hooks.filter((h) =>
       h.manifest.trigger.some((t) => options.trigger!.includes(t)),
     );
   }
+  const repoLocalHooksDir = join(
+    resolveTargetRoot(options.cwd),
+    "substrate",
+    "hooks",
+  );
   const result: HooksListResult = {
     hooks: hooks.map(summarize),
-    invalidHooks: discovery.invalidHooks.map((i) => ({
-      manifestPath: i.manifestPath,
-      errors: i.errors,
-    })),
-    hooksDir: discovery.hooksDir,
+    invalidHooks: merged.invalid.map((i) => {
+      const problem = i.problem as {
+        manifestPath: string;
+        errors: unknown[];
+      };
+      return {
+        manifestPath: problem.manifestPath,
+        errors: problem.errors,
+      };
+    }),
+    hooksDir: repoLocalHooksDir,
   };
 
   if (options.json) {
@@ -94,12 +111,15 @@ export interface HooksDescribeResult {
 export function runHooksDescribe(
   options: HooksDescribeOptions,
 ): HooksDescribeResult {
-  const discovery = discoverHooks({ cwd: options.cwd });
-  const match = discovery.hooks.find((h) => h.manifest.id === options.id);
+  // v3 extends-aware: resolves hooks across the extends chain so
+  // `substrate hooks describe <id>` finds org-shared hooks too.
+  const merged = discoverHooksAcrossExtends({ cwd: options.cwd });
+  const hooks = merged.entries.map((e) => e.descriptor);
+  const match = hooks.find((h) => h.manifest.id === options.id);
   if (!match) {
     const result: HooksDescribeResult = {
       found: false,
-      warning: `Hook "${options.id}" not found. Discovered: ${discovery.hooks.map((h) => h.manifest.id).join(", ") || "(none)"}`,
+      warning: `Hook "${options.id}" not found. Discovered: ${hooks.map((h) => h.manifest.id).join(", ") || "(none)"}`,
     };
     if (options.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + "\n");

@@ -17,8 +17,8 @@
  * `--json` is supported on all subjects for CI consumption.
  */
 
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import kleur from "kleur";
 import { resolveTargetRoot } from "../../util/paths.js";
 import {
@@ -28,11 +28,15 @@ import {
 } from "../../audit/index.js";
 import type { RuleDefinition } from "../../audit/index.js";
 import {
-  discoverDocChecks,
   evaluateDocCheck,
   findMatchingDocChecks,
   type DocCheckFinding,
 } from "../doc-checks.js";
+import {
+  discoverDocChecksAcrossExtends,
+  discoverRulesAcrossExtends,
+  discoverStandardsAcrossExtends,
+} from "../extends/index.js";
 import { queryMemory, type MemoryEntry } from "../memory.js";
 import {
   indexSessionLogs,
@@ -85,23 +89,50 @@ export interface QueryRulesResult {
 export function runQueryRules(options: QueryRulesOptions = {}): QueryRulesResult {
   const root = resolveTargetRoot(options.cwd);
   const warnings: string[] = [];
-  const rulesPath = locateRulesFile(root, options.rulesPath);
   let rules: RuleDefinition[] = [];
-  if (!rulesPath) {
-    warnings.push(
-      `RULES.yaml not found under ${root}. Looked at substrate/RULES.yaml + auto/RULES.yaml.`,
-    );
-  } else {
-    try {
-      const result = loadRules(rulesPath);
-      rules = result.document.rules ?? [];
-      warnings.push(...result.warnings);
-    } catch (err) {
-      if (err instanceof RulesLoadError) {
-        warnings.push(err.message);
-      } else {
-        throw err;
+  let rulesPath: string | null = null;
+
+  if (options.rulesPath) {
+    // Explicit --rules-path override: bypass the extends chain and load
+    // the single file the caller pointed at. Matches the v2.x contract.
+    rulesPath = locateRulesFile(root, options.rulesPath);
+    if (!rulesPath) {
+      warnings.push(
+        `RULES.yaml not found at ${options.rulesPath}.`,
+      );
+    } else {
+      try {
+        const result = loadRules(rulesPath);
+        rules = result.document.rules ?? [];
+        warnings.push(...result.warnings);
+      } catch (err) {
+        if (err instanceof RulesLoadError) {
+          warnings.push(err.message);
+        } else {
+          throw err;
+        }
       }
+    }
+  } else {
+    // v3 extends-aware path (NE-11 beta.1, bug #1). Walk every layer's
+    // RULES.yaml; merge with repo-local-wins. On v2-shaped consumers
+    // (no `extends`), this collapses to a single repo-local layer.
+    const merged = discoverRulesAcrossExtends({ cwd: root });
+    rules = merged.rules;
+    for (const collision of merged.collisions) {
+      warnings.push(
+        `rule ${collision.key}: repo-local overrides ${collision.overridden.join(", ")}`,
+      );
+    }
+    warnings.push(...merged.warnings);
+    // Report the repo-local RULES.yaml path when present (preserves
+    // existing JSON shape); otherwise null + a hint warning.
+    rulesPath = locateRulesFile(root);
+    if (!rulesPath && rules.length === 0) {
+      warnings.push(
+        `RULES.yaml not found under ${root}. Looked at substrate/RULES.yaml + auto/RULES.yaml ` +
+          `and across the extends chain.`,
+      );
     }
   }
 
@@ -217,53 +248,64 @@ export function runQueryStandards(
 ): QueryStandardsResult {
   const root = resolveTargetRoot(options.cwd);
   const warnings: string[] = [];
-  const candidates = [
-    join(root, "substrate", "standards"),
-    join(root, "standards"),
-    join(root, "auto", "standards"),
-  ];
-  const standardsRoot = candidates.find((p) => existsSync(p)) ?? null;
-  let standards: Array<{ relativePath: string; absolutePath: string }> = [];
-  if (!standardsRoot) {
-    warnings.push(`Standards root not found. Tried: ${candidates.join(", ")}`);
-  } else {
-    const files = walkMarkdown(standardsRoot);
-    // Normalize path separators in the relative path so the scope-prefix
-    // intersection works the same way on Windows and POSIX.
-    standards = files.map((abs) => ({
-      relativePath: relative(standardsRoot, abs).replace(/\\/g, "/"),
-      absolutePath: abs,
+
+  // v3 extends-aware standards discovery (NE-11 beta.1, bug #1).
+  // Walks every extends layer's `substrate/standards/` tree and merges
+  // by relative path with repo-local-wins. Collapses to single-root
+  // behavior on v2-shaped consumers.
+  const merged = discoverStandardsAcrossExtends({ cwd: root });
+  let standards: Array<{ relativePath: string; absolutePath: string }> =
+    merged.standards.map((s) => ({
+      relativePath: s.relativePath,
+      absolutePath: s.absolutePath,
     }));
-    if (options.patterns && options.patterns.length > 0) {
-      const matchers = options.patterns.map(globToRegex);
-      standards = standards.filter((s) =>
-        matchers.some((m) => m.test(s.relativePath)),
-      );
+  for (const collision of merged.collisions) {
+    warnings.push(
+      `standard ${collision.key}: repo-local overrides ${collision.overridden.join(", ")}`,
+    );
+  }
+  warnings.push(...merged.warnings);
+
+  // Report a representative standards root for the JSON shape — the
+  // repo-local one if present, else null. Per-entry absolute paths in
+  // `standards` still carry the source-of-truth.
+  const repoStandardsRoot = findRepoStandardsRoot(root);
+  const standardsRoot = repoStandardsRoot;
+  if (!standardsRoot && standards.length === 0) {
+    warnings.push(
+      `Standards root not found. Tried: ${join(root, "substrate", "standards")}, ${join(root, "standards")}, ${join(root, "auto", "standards")}, and across the extends chain.`,
+    );
+  }
+
+  if (options.patterns && options.patterns.length > 0) {
+    const matchers = options.patterns.map(globToRegex);
+    standards = standards.filter((s) =>
+      matchers.some((m) => m.test(s.relativePath)),
+    );
+  }
+  // --for-files: union of file-scope mappings, intersected with the
+  // discovered standards list. A scope entry can be either a folder
+  // prefix (matches any doc under it) or an exact relative path.
+  if (options.forFiles && options.forFiles.length > 0) {
+    const scopes = new Set<string>();
+    for (const f of options.forFiles) {
+      for (const s of scopesForFile(f)) scopes.add(s);
     }
-    // --for-files: union of file-scope mappings, intersected with the
-    // discovered standards list. A scope entry can be either a folder
-    // prefix (matches any doc under it) or an exact relative path.
-    if (options.forFiles && options.forFiles.length > 0) {
-      const scopes = new Set<string>();
-      for (const f of options.forFiles) {
-        for (const s of scopesForFile(f)) scopes.add(s);
-      }
-      if (scopes.size === 0) {
-        standards = [];
-      } else {
-        standards = standards.filter((entry) => {
-          for (const scope of scopes) {
-            // Treat trailing-slash scopes as folder prefixes; otherwise
-            // require an exact relative-path match.
-            if (scope.endsWith("/")) {
-              if (entry.relativePath.startsWith(scope)) return true;
-            } else if (entry.relativePath === scope) {
-              return true;
-            }
+    if (scopes.size === 0) {
+      standards = [];
+    } else {
+      standards = standards.filter((entry) => {
+        for (const scope of scopes) {
+          // Treat trailing-slash scopes as folder prefixes; otherwise
+          // require an exact relative-path match.
+          if (scope.endsWith("/")) {
+            if (entry.relativePath.startsWith(scope)) return true;
+          } else if (entry.relativePath === scope) {
+            return true;
           }
-          return false;
-        });
-      }
+        }
+        return false;
+      });
     }
   }
 
@@ -384,17 +426,28 @@ export interface QueryDocChecksResult {
 export function runQueryDocChecks(
   options: QueryDocChecksOptions = {},
 ): QueryDocChecksResult {
-  const discovery = discoverDocChecks({ cwd: options.cwd });
-  const registry = discovery.docChecks.map((d) => ({
+  // v3 extends-aware doc-check discovery (NE-11 beta.1, bug #1).
+  // Walks the resolved extends chain and merges by doc-check id with
+  // repo-local-wins. Collapses to single-root behavior on v2-shaped
+  // consumers.
+  const merged = discoverDocChecksAcrossExtends({ cwd: options.cwd });
+  const mergedDescriptors = merged.entries.map((e) => e.descriptor);
+  const registry = mergedDescriptors.map((d) => ({
     id: d.manifest.id,
     description: d.manifest.description,
     severity: d.manifest.severity ?? "should-fix",
     manifestPath: d.manifestPath,
   }));
   const warnings: string[] = [];
-  for (const invalid of discovery.invalidDocChecks) {
+  for (const invalid of merged.invalid) {
+    const problem = invalid.problem as { manifestPath: string; errors: Array<{ message: string }> };
     warnings.push(
-      `invalid doc-check at ${invalid.manifestPath}: ${invalid.errors.map((e) => e.message).join("; ")}`,
+      `invalid doc-check at ${problem.manifestPath} (${invalid.source}): ${problem.errors.map((e) => e.message).join("; ")}`,
+    );
+  }
+  for (const collision of merged.collisions) {
+    warnings.push(
+      `doc-check ${collision.key}: repo-local overrides ${collision.overridden.join(", ")}`,
     );
   }
   const findings: DocCheckFinding[] = [];
@@ -407,7 +460,7 @@ export function runQueryDocChecks(
       commitMessage: options.commitMessage,
       branch: options.branch,
     };
-    const matching = findMatchingDocChecks(discovery.docChecks, context);
+    const matching = findMatchingDocChecks(mergedDescriptors, context);
     for (const m of matching) {
       findings.push(evaluateDocCheck(m, context));
     }
@@ -420,10 +473,18 @@ export function runQueryDocChecks(
   }
   if (options.quiet) return result;
 
+  // Repo-local doc-checks-dir for the human-mode "Looked under: ..." hint.
+  // Per-layer paths are encoded in each registry entry's manifestPath.
+  const repoLocalDocChecksDir = join(
+    resolveTargetRoot(options.cwd),
+    "substrate",
+    "doc-checks",
+  );
+
   if (registry.length === 0) {
     console.log(kleur.yellow("No doc-checks discovered."));
     console.log(
-      kleur.dim(`  Looked under: ${discovery.docChecksDir}`),
+      kleur.dim(`  Looked under: ${repoLocalDocChecksDir} + extends chain`),
     );
     return result;
   }
@@ -572,32 +633,20 @@ function globToRegex(pattern: string): RegExp {
   return new RegExp(`^${escaped}$`);
 }
 
-function walkMarkdown(root: string): string[] {
-  const out: string[] = [];
-  const stack: string[] = [root];
-  while (stack.length > 0) {
-    const dir = stack.pop()!;
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      continue;
-    }
-    for (const name of entries) {
-      const full = join(dir, name);
-      let st: ReturnType<typeof statSync>;
-      try {
-        st = statSync(full);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
-        stack.push(full);
-      } else if (st.isFile() && name.endsWith(".md")) {
-        out.push(full);
-      }
-    }
+/**
+ * Locate the repo-local `substrate/standards/` directory (or its v1.0
+ * fallback positions). Returns null when none exist. Per-layer
+ * resolution for extends sources is handled inside
+ * `discoverStandardsAcrossExtends`.
+ */
+function findRepoStandardsRoot(root: string): string | null {
+  const candidates = [
+    join(root, "substrate", "standards"),
+    join(root, "standards"),
+    join(root, "auto", "standards"),
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
   }
-  out.sort();
-  return out;
+  return null;
 }
