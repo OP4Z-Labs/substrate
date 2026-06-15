@@ -22,10 +22,13 @@
 
 import { spawnSync } from "node:child_process";
 import kleur from "kleur";
-import { discoverWorkflows, type DiscoveryResult } from "../discoverer.js";
 import { loadContext, type ResolvedContext } from "../context-loader.js";
 import { resolveTargetRoot } from "../../util/paths.js";
-import { discoverHooks } from "../hooks.js";
+import {
+  discoverHooksAcrossExtends,
+  discoverWorkflowsAcrossExtends,
+} from "../extends/index.js";
+import type { HookDescriptor } from "../hooks.js";
 import { dispatchHooks, type HookRunRecord } from "./hook-dispatch.js";
 import {
   checkComposition,
@@ -52,7 +55,7 @@ import {
 } from "./step-handlers.js";
 import type { OrchestrationTransport } from "./transport.js";
 import type { RunStepResult } from "./run-command-types.js";
-import type { WorkflowDescriptor, WorkflowStep } from "../types.js";
+import type { WorkflowStep } from "../types.js";
 
 export type { RunStepResult } from "./run-command-types.js";
 
@@ -96,18 +99,48 @@ export async function runV2Workflow(
   options: RunWorkflowOptions,
 ): Promise<RunWorkflowResult> {
   const cwd = resolveTargetRoot(options.cwd);
-  const discovery = discoverWorkflows({ cwd });
 
-  const workflow = findWorkflow(discovery, options.workflowId);
-  if (!workflow) {
+  // v3 extends-aware workflow discovery (NE-11 beta.1, bug #3).
+  // `discoverWorkflowsAcrossExtends` walks the resolved extends chain
+  // and merges with "repo-local wins" semantics, so a workflow declared
+  // only in an org-shared source is discoverable. On a v2-shaped
+  // consumer (no `extends` field), the chain collapses to a single
+  // repo-local layer and the wrapper delegates straight through.
+  const merged = discoverWorkflowsAcrossExtends({ cwd });
+  const workflowMatch = merged.entries.find(
+    (w) => w.descriptor.manifest.id === options.workflowId,
+  );
+
+  if (!workflowMatch) {
+    const discoveredIds = merged.entries
+      .map((w) => w.descriptor.manifest.id)
+      .join(", ");
     return emitFatal(options, {
       workflowId: options.workflowId,
       ok: false,
       exitCode: 2,
       steps: [],
       contextSummary: { standardsLoaded: 0, memoriesLoaded: 0, rulesMatched: 0 },
-    }, `Workflow "${options.workflowId}" not found in substrate/workflows/. ` +
-        `Discovered: ${discovery.workflows.map((w) => w.manifest.id).join(", ") || "(none)"}`);
+    }, `Workflow "${options.workflowId}" not found across extends chain. ` +
+        `Discovered: ${discoveredIds || "(none)"}`);
+  }
+  const workflow = workflowMatch.descriptor;
+
+  // Warn (stderr, non-fatal) when a repo-local workflow shadows an
+  // org-shared one with the same id. Helps adopters notice unintended
+  // overrides. Skipped under --json (caller can read merged.collisions
+  // via a future programmatic API).
+  if (!options.json && !options.quiet) {
+    for (const collision of merged.collisions) {
+      if (collision.key === workflow.manifest.id) {
+        process.stderr.write(
+          kleur.yellow(
+            `  ! workflow ${collision.key}: repo-local overrides ` +
+              `${collision.overridden.join(", ")}\n`,
+          ),
+        );
+      }
+    }
   }
 
   const context = loadContext({ workflow: workflow.manifest, cwd });
@@ -117,9 +150,17 @@ export async function runV2Workflow(
     rulesMatched: context.rules.length,
   };
 
-  // Discover hooks once per workflow run — pass the descriptor list to
-  // each dispatchHooks() call to avoid re-walking the filesystem.
-  const hooksDiscovery = discoverHooks({ cwd });
+  // v3 extends-aware hook discovery (NE-11 beta.1). Org-shared hooks
+  // declared via `extends` now fire alongside repo-local hooks; repo-
+  // local hooks with the same id override the org version.
+  const mergedHooks = discoverHooksAcrossExtends({ cwd });
+  const hookDescriptors: HookDescriptor[] = mergedHooks.entries.map(
+    (h) => h.descriptor,
+  );
+  // Preserve the v2 discovery surface for any future caller that needs
+  // the invalid-hooks list; discoverHooks is unchanged. The dispatcher
+  // only needs the valid descriptors list.
+  const hooksDiscovery = { hooks: hookDescriptors };
   const allHookRuns: HookRunRecord[] = [];
 
   // Fire `session-start` hooks BEFORE the workflow-start hooks. The
@@ -401,13 +442,6 @@ export async function runV2Workflow(
   }
 
   return summary;
-}
-
-function findWorkflow(
-  discovery: DiscoveryResult,
-  id: string,
-): WorkflowDescriptor | null {
-  return discovery.workflows.find((w) => w.manifest.id === id) ?? null;
 }
 
 async function runStep(
