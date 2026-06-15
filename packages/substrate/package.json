@@ -1,16 +1,16 @@
 {
-  "name": "@op4z/substrate",
+  "name": "@op4z-labs/substrate",
   "version": "3.0.0-beta.1",
   "description": "Repeatable automation patterns for codebases. Audits, scaffolds, standards, and bridges to AI coding assistants.",
   "license": "MIT",
   "author": "Beau Goldberg",
-  "homepage": "https://github.com/op4z/substrate",
+  "homepage": "https://github.com/op4z-labs/substrate",
   "repository": {
     "type": "git",
-    "url": "https://github.com/op4z/substrate.git"
+    "url": "https://github.com/op4z-labs/substrate.git"
   },
   "bugs": {
-    "url": "https://github.com/op4z/substrate/issues"
+    "url": "https://github.com/op4z-labs/substrate/issues"
   },
   "type": "module",
   "bin": {
