@@ -62,6 +62,11 @@ import { runWatchCommand } from "./v2/deterministic/watch-command.js";
 import { runExplain } from "./v2/deterministic/explain-command.js";
 import { walkProposals } from "./v2/deterministic/proposals/review-command.js";
 import {
+  runExtendsClearCache,
+  runExtendsList,
+  runExtendsSync,
+} from "./v2/deterministic/extends-command.js";
+import {
   runSchedulerAutoRun,
   runSchedulerCheck,
 } from "./v2/deterministic/scheduler-command.js";
@@ -1021,6 +1026,64 @@ function buildProgram(): Command {
         });
       },
     );
+
+  // -------------------------------------------------- extends (v3 NE-11)
+  // Org-scoped content composition. Read-only CLI surface for resolving
+  // and refreshing the `extends` array from `substrate.config.json`.
+  const extendsCmd = program
+    .command("extends")
+    .description(
+      "Inspect and manage the org-scoped extends chain (v3 NE-11). Lists, syncs, and clears the extends cache.",
+    );
+  extendsCmd
+    .command("list")
+    .description(
+      "Resolve the extends chain and print per-layer contributions (workflows, hooks, doc-checks, standards, RULES rows).",
+    )
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((options: { json?: boolean; quiet?: boolean }) => {
+      const result = runExtendsList({
+        json: options.json,
+        quiet: options.quiet,
+      });
+      if (result.exitCode !== 0) process.exitCode = result.exitCode;
+    });
+  extendsCmd
+    .command("sync")
+    .description(
+      "Refresh github: cache entries by re-cloning at the pinned ref. npm: + file: sources are skipped.",
+    )
+    .option(
+      "--source <id>",
+      "Only refresh the source matching this exact URL (e.g. 'github:acme/shared').",
+    )
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action(
+      (options: { source?: string; json?: boolean; quiet?: boolean }) => {
+        const result = runExtendsSync({
+          source: options.source,
+          json: options.json,
+          quiet: options.quiet,
+        });
+        if (result.exitCode !== 0) process.exitCode = result.exitCode;
+      },
+    );
+  extendsCmd
+    .command("clear-cache")
+    .description(
+      "Wipe substrate/.cache/extends/. Next 'extends list' will re-fetch github: sources.",
+    )
+    .option("--json", "Emit machine-readable JSON", false)
+    .option("--quiet", "Suppress informational output", false)
+    .action((options: { json?: boolean; quiet?: boolean }) => {
+      const result = runExtendsClearCache({
+        json: options.json,
+        quiet: options.quiet,
+      });
+      if (result.exitCode !== 0) process.exitCode = result.exitCode;
+    });
 
   // Provide a soft hint when a deferred command is invoked.
   for (const deferred of ["standards"]) {
