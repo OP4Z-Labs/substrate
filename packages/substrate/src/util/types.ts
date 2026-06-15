@@ -111,9 +111,51 @@ export interface SubstrateConfig {
     path?: string;
     ignore?: string[];
   };
+  /**
+   * Org-scoped content composition (added in v3.0; NE-11).
+   *
+   * Each entry declares an upstream "substrate-content" source whose
+   * `substrate/` tree is merged into the consumer's effective registry
+   * of workflows, hooks, doc-checks, standards, and RULES.yaml rows.
+   *
+   * Three source kinds (see `ExtendsSource.source`):
+   *   - `npm:<pkg-name>`     resolved via the consumer's `node_modules`.
+   *   - `github:<org>/<repo>` cloned into `substrate/.cache/extends/`.
+   *   - `file:<relative-path>` read live from a local directory.
+   *
+   * Ordering semantics (like ESLint's `extends`): entries earlier in
+   * the array are the conceptual base; later entries override earlier;
+   * the repo's own `substrate/` overrides all. Same-id workflows /
+   * hooks / doc-checks collide with "repo-local wins"; standards docs
+   * collide on relative path with "repo-local wins"; RULES.yaml rows
+   * collide on rule id with "repo-local wins". See plan §2 for the
+   * full collision matrix.
+   *
+   * Air-gap: when `SUBSTRATE_OFFLINE=1`, the resolver refuses to clone
+   * `github:` sources and surfaces a discrete error so adopters can
+   * mirror via `file:` or a private npm registry.
+   */
+  extends?: ExtendsSource[];
   telemetry: {
     enabled: boolean;
   };
+}
+
+/**
+ * One entry in `SubstrateConfig.extends`.
+ *
+ * `source` carries the kind + identity in one URL-like string so configs
+ * stay compact. `version` is only honored for `npm:` sources, `ref` is
+ * only honored for `github:` sources; both are passed through unchanged
+ * for forward-compat (a future v3.1 may add subpath / integrity fields).
+ */
+export interface ExtendsSource {
+  /** "npm:<pkg>" | "github:<org>/<repo>" | "file:<relative-path>". */
+  source: string;
+  /** Optional npm semver range (npm: sources only). */
+  version?: string;
+  /** Optional git ref — tag, branch, or commit SHA (github: sources only). */
+  ref?: string;
 }
 
 /**

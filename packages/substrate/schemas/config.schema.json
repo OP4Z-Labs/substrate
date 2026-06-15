@@ -92,6 +92,33 @@
           "minLength": 1
         }
       }
+    },
+    "extends": {
+      "description": "v3.0 org-scoped content composition (NE-11). Each entry declares an upstream substrate-content source. The resolver walks each source's substrate/ tree and merges per-kind. Repo-local content always wins on collision. Entries are evaluated in order: earlier entries are the base; later entries override earlier; the repo's own substrate/ overrides all. See substrate-phase-1-2-enterprise-plan.md §2.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "description": "Source URL. One of: 'npm:<pkg-name>' (resolved via node_modules), 'github:<org>/<repo>' (cloned to substrate/.cache/extends/), or 'file:<relative-path>' (live filesystem reference).",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(npm:[@A-Za-z0-9][@A-Za-z0-9_./\\-]*|github:[A-Za-z0-9][A-Za-z0-9_.\\-]*/[A-Za-z0-9][A-Za-z0-9_.\\-]*|file:.+)$"
+          },
+          "version": {
+            "description": "Optional npm semver range. Only meaningful for 'npm:' sources; ignored otherwise. Defaults to whatever the consumer's node_modules has installed.",
+            "type": "string",
+            "minLength": 1
+          },
+          "ref": {
+            "description": "Optional git ref (tag, branch, or commit SHA). Only meaningful for 'github:' sources; ignored otherwise. Defaults to the source repo's default branch (resolved at clone time).",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   }
 }
