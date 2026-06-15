@@ -21,3 +21,9 @@ docs-site/dist/
 /tmp/
 test-output/
 .vitest-cache/
+
+# Staged CHANGELOG copy for the substrate package (workspace-root
+# CHANGELOG is the canonical source; the package copy is staged on
+# `npm pack` via prepack — see scripts/copy-changelog.mjs).
+/packages/substrate/CHANGELOG.md
+

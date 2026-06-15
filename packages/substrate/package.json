@@ -24,7 +24,8 @@
     "templates-history",
     "schemas",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=20.0.0"
@@ -42,6 +43,7 @@
     "test:watch": "vitest",
     "smoke:enterprise": "bash tests/smoke/enterprise-smoke.sh",
     "typecheck": "tsc --noEmit",
+    "prepack": "node ../../scripts/copy-changelog.mjs",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
