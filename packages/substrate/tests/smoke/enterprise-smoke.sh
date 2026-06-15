@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# enterprise-smoke.sh — Substrate v3.0.0-alpha.1 enterprise pattern smoke test
+# enterprise-smoke.sh — Substrate v3.0.0-beta.1 enterprise pattern smoke test
 # =============================================================================
 # Validates the full org-hub + consumer-repo `extends` pattern against the
 # packaged tarball (NOT the dev source tree). Designed to run in under a
@@ -43,7 +43,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 ROOT_DIR="$(cd "${PKG_DIR}/../.." && pwd)"
 FIXTURE_DIR="${SCRIPT_DIR}/fixtures/substrate-shared-fixture"
-TARBALL="${PKG_DIR}/op4z-substrate-3.0.0-alpha.1.tgz"
+TARBALL="${PKG_DIR}/op4z-substrate-3.0.0-beta.1.tgz"
 
 # ---------------------------------------------------------------- workspaces
 WORK_ROOT="$(mktemp -d -t substrate-smoke-XXXXXX)"
@@ -518,8 +518,17 @@ EOF
 }
 
 # =============================================================================
-# Scenario 8 — daily-driver CLI surface
+# Scenario 8 — daily-driver CLI surface (extends-aware as of beta.1)
 # =============================================================================
+# As of v3.0.0-beta.1, `query rules / standards / doc-checks` + `hooks
+# list` + `audit` all consult the extends merge wrapper. This scenario
+# asserts they return the MERGED content (org-shared + repo-local), not
+# just repo-local.
+#
+# Pre-state (carried over from scenario 7): consumer has only the
+# file: extends source; the scenario-4 repo-local overrides were
+# overwritten by the scenario 5/7 config-rewrites that left the
+# substrate/ tree intact but the override files in place.
 scenario_8() {
     # extends list — already covered. Re-verify exit 0 + JSON shape.
     (cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate extends list --json >/dev/null 2>&1) || {
@@ -547,49 +556,86 @@ scenario_8() {
         fail 8 "substrate validate did not report success"
         return
     }
-    # query rules — repo-local RULES.yaml only (not extends-aware in alpha.1)
-    (cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate query rules --json >/dev/null 2>&1) || {
-        fail 8 "query rules exited nonzero"
+
+    # query rules: org RULES.yaml has 10 rules; repo-local overrides 1.
+    # Effective merged set: 10 rules (one of which is the repo-local override).
+    local rules_json
+    rules_json="$(cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate query rules --json 2>"${WORK_ROOT}/s8-query-rules-stderr.log")"
+    local rules_count
+    rules_count="$(echo "${rules_json}" | jq -r '.rules | length')"
+    if [ "${rules_count}" -lt 10 ]; then
+        note "rules_count=${rules_count}"
+        note "${rules_json}"
+        fail 8 "query rules (extends-aware) expected >= 10 rules, got ${rules_count}"
+        return
+    fi
+
+    # query standards --for-files: backend/python.md is the repo-local
+    # override; expect it to appear (overriding the org version).
+    local std_json
+    std_json="$(cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate query standards --for-files src/foo.py --json 2>"${WORK_ROOT}/s8-query-std-stderr.log")"
+    echo "${std_json}" | jq -e '[.standards[] | select(.relativePath == "backend/python.md")] | length == 1' >/dev/null || {
+        note "${std_json}"
+        fail 8 "query standards --for-files did not return backend/python.md from merged set"
         return
     }
-    # query standards --for-files
-    (cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate query standards --for-files src/foo.py --json >/dev/null 2>&1) || {
-        fail 8 "query standards --for-files exited nonzero"
+
+    # query doc-checks: org source has 3 doc-checks; one was overridden.
+    # `--for-files` returns the registry + any matching findings. We
+    # only assert the registry is populated from the merge.
+    local dc_json
+    dc_json="$(cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate query doc-checks --for-files src/foo.py --json 2>"${WORK_ROOT}/s8-query-dc-stderr.log")"
+    local dc_count
+    dc_count="$(echo "${dc_json}" | jq -r '.registry | length')"
+    if [ "${dc_count}" -lt 3 ]; then
+        note "${dc_json}"
+        fail 8 "query doc-checks (extends-aware) expected >= 3 registry entries, got ${dc_count}"
         return
-    }
-    # query doc-checks --for-files
-    (cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate query doc-checks --for-files src/foo.py --json >/dev/null 2>&1) || {
-        fail 8 "query doc-checks --for-files exited nonzero"
+    fi
+
+    # hooks list: org source has 3 hooks; one was overridden.
+    # Effective merged hooks list: 3 hooks (one is repo-local).
+    local hooks_json
+    hooks_json="$(cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate hooks list --json 2>"${WORK_ROOT}/s8-hooks-stderr.log")"
+    local hook_count
+    hook_count="$(echo "${hooks_json}" | jq -r '.hooks | length')"
+    if [ "${hook_count}" -lt 3 ]; then
+        note "${hooks_json}"
+        fail 8 "hooks list (extends-aware) expected >= 3 hooks, got ${hook_count}"
         return
-    }
-    # hooks list — repo-local only (not extends-aware in alpha.1)
-    (cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate hooks list --json >/dev/null 2>&1) || {
-        fail 8 "hooks list exited nonzero"
-        return
-    }
-    pass 8 "daily-driver CLI surface runs (note: query/hooks/audit are NOT extends-aware in alpha.1)"
+    fi
+
+    pass 8 "daily-driver CLI surface is extends-aware: query rules/standards/doc-checks + hooks list return merged content"
 }
 
 # =============================================================================
-# Scenario 9 — `substrate run <workflow>` from copied org content
+# Scenario 9 — `substrate run <workflow>` resolves org-shared workflow via extends
 # =============================================================================
-# v3.0.0-alpha.1 has a documented limitation: `substrate run` reads only
-# repo-local substrate/workflows/. To exercise an org-shared workflow via
-# `substrate run`, the smoke test copies the deterministic workflow into
-# the consumer's repo-local workflows/ first.
+# As of v3.0.0-beta.1, `substrate run` is extends-aware: workflows
+# declared only in an org-shared source resolve directly without any
+# repo-local copy. This scenario asserts the runner pulls the workflow
+# from the file: extends source and executes it end-to-end.
 scenario_9() {
-    cp "${ORG_DIR}/substrate/workflows/org-git-review-pre.yaml" \
-       "${CONSUMER_DIR}/substrate/workflows/org-git-review-pre.yaml"
+    # Guard: the workflow must NOT exist repo-locally — we're testing
+    # that the extends-merge wrapper finds it via the file: source.
+    if [ -f "${CONSUMER_DIR}/substrate/workflows/org-git-review-pre.yaml" ]; then
+        fail 9 "guard: repo-local workflow already exists; cannot validate extends-resolution"
+        return
+    fi
+    [ -f "${ORG_DIR}/substrate/workflows/org-git-review-pre.yaml" ] || {
+        fail 9 "guard: org source missing org-git-review-pre.yaml"
+        return
+    }
 
     local out
     out="$(cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate run org-git-review-pre 2>&1 || true)"
 
     echo "${out}" | grep -q "org-shared:org-git-review-pre OK" || {
         note "${out}"
-        fail 9 "deterministic workflow did not produce the org-shared marker"
+        fail 9 "extends-aware run did not produce the org-shared marker"
         return
     }
-    pass 9 "substrate run executes a deterministic org-shared workflow (copied locally)"
+    pass 9 "substrate run resolves org-shared workflow directly via extends chain"
 }
 
 # =============================================================================
@@ -674,26 +720,26 @@ JSON
 scenario_10c() {
     local ver
     ver="$(cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate --version 2>&1)"
-    [ "${ver}" = "3.0.0-alpha.1" ] || {
-        fail 10c "substrate --version != 3.0.0-alpha.1 (got '${ver}')"
+    [ "${ver}" = "3.0.0-beta.1" ] || {
+        fail 10c "substrate --version != 3.0.0-beta.1 (got '${ver}')"
         return
     }
     # Tarball contains package.json with the right version
     local tar_ver
     tar_ver="$(tar -xzOf "${TARBALL}" package/package.json 2>/dev/null | jq -r '.version')"
-    [ "${tar_ver}" = "3.0.0-alpha.1" ] || {
-        fail 10c "tarball package.json version != 3.0.0-alpha.1 (got '${tar_ver}')"
+    [ "${tar_ver}" = "3.0.0-beta.1" ] || {
+        fail 10c "tarball package.json version != 3.0.0-beta.1 (got '${tar_ver}')"
         return
     }
     # NOTE: package.json `files` whitelist does NOT include CHANGELOG.md
-    # in v3.0.0-alpha.1 (the CHANGELOG lives at the workspace root, not
+    # in v3.0.0-beta.1 (the CHANGELOG lives at the workspace root, not
     # the package root). The repo-level CHANGELOG must still have the
-    # [3.0.0-alpha.1] section.
+    # [3.0.0-beta.1] section.
     grep -qE "^## \[3\.0\.0-alpha\.1\]" "${ROOT_DIR}/CHANGELOG.md" || {
-        fail 10c "root CHANGELOG.md missing [3.0.0-alpha.1] section"
+        fail 10c "root CHANGELOG.md missing [3.0.0-beta.1] section"
         return
     }
-    pass 10c "version surface: substrate -v + tarball + CHANGELOG entry all at 3.0.0-alpha.1"
+    pass 10c "version surface: substrate -v + tarball + CHANGELOG entry all at 3.0.0-beta.1"
 }
 
 # =============================================================================
@@ -755,7 +801,7 @@ JSON
         return
     }
 
-    # Circular extends (A → B → A). v3.0.0-alpha.1 doesn't resolve
+    # Circular extends (A → B → A). v3.0.0-beta.1 doesn't resolve
     # transitively, so B's extends back to A is silently ignored.
     # Verify it does NOT crash.
     mkdir -p "${CIRC_A}" "${CIRC_B}"
@@ -799,6 +845,148 @@ EOF
 }
 
 # =============================================================================
+# Scenario 10e — `substrate audit` resolves rules via extends merge wrapper
+# =============================================================================
+# As of v3.0.0-beta.1, `substrate audit` consults the extends chain when
+# loading rules. This scenario stands up a clean consumer with NO repo-
+# local RULES.yaml and asserts the audit picks up the org-shared rules.
+scenario_10e() {
+    local audit_consumer="${WORK_ROOT}/audit-consumer"
+    mkdir -p "${audit_consumer}/substrate"
+    cat > "${audit_consumer}/substrate.config.json" <<EOF
+{
+  "\$schema": "https://op4z.dev/substrate/schemas/config.schema.json",
+  "version": "v3.0",
+  "project": { "name": "audit-consumer" },
+  "stacks": ["typescript"],
+  "paths": { "auto": "auto" },
+  "defaults": { "audits": [], "standards": [], "scaffolds": [], "workflows": [] },
+  "bridges": {},
+  "telemetry": { "enabled": false },
+  "extends": [
+    { "source": "file:${ORG_DIR}" }
+  ]
+}
+EOF
+    # Guard: assert no repo-local RULES.yaml — we're testing pure extends
+    # resolution.
+    if [ -f "${audit_consumer}/substrate/RULES.yaml" ]; then
+        fail 10e "guard: repo-local RULES.yaml present; cannot validate pure extends-resolution"
+        return
+    fi
+    [ -f "${ORG_DIR}/substrate/RULES.yaml" ] || {
+        fail 10e "guard: org RULES.yaml missing"
+        return
+    }
+
+    # Run audit using the substrate binary from the original consumer's
+    # node_modules (saves a tarball install). `--no-report` keeps the
+    # consumer's filesystem tidy.
+    local audit_json
+    audit_json="$(cd "${audit_consumer}" && "${CONSUMER_DIR}/node_modules/.bin/substrate" audit --json 2>"${WORK_ROOT}/s10e-audit-stderr.log" || true)"
+
+    # Validate the report's executedRules count reflects the merged set
+    # (the fixture's 10 org rules).
+    local exec_rules
+    exec_rules="$(echo "${audit_json}" | jq -r '.report.executedRules // 0')"
+    if [ "${exec_rules}" -lt 10 ]; then
+        note "executedRules=${exec_rules}"
+        note "${audit_json}" | head -50
+        fail 10e "substrate audit (extends-aware) expected >= 10 executed rules, got ${exec_rules}"
+        return
+    fi
+    pass 10e "substrate audit resolves rules from org-shared via extends chain (executedRules=${exec_rules})"
+}
+
+# =============================================================================
+# Scenario 10f — tarball CHANGELOG inclusion + extends clear-cache --json
+# =============================================================================
+# beta.1 fixes bugs #5 and #6: ship CHANGELOG in the tarball; emit JSON
+# envelope from `extends clear-cache --json`.
+scenario_10f() {
+    # Bug #5: tarball must include CHANGELOG.md
+    #
+    # NOTE: with `set -o pipefail`, `tar | grep -q` returns nonzero
+    # because grep exits early on the first match and tar dies with
+    # SIGPIPE (141). Materialize the listing first, then grep.
+    local tar_listing
+    tar_listing="$(tar -tzf "${TARBALL}" 2>/dev/null || true)"
+    if ! echo "${tar_listing}" | grep -qE "^package/CHANGELOG\.md$"; then
+        note "tarball entries:"
+        note "$(echo "${tar_listing}" | head -10)"
+        fail 10f "tarball missing package/CHANGELOG.md"
+        return
+    fi
+
+    # Bug #6: extends clear-cache --json emits a structured envelope
+    local clear_json
+    clear_json="$(cd "${CONSUMER_DIR}" && ./node_modules/.bin/substrate extends clear-cache --json 2>"${WORK_ROOT}/s10f-clear-stderr.log")"
+    echo "${clear_json}" | jq -e '.exitCode == 0' >/dev/null || {
+        note "${clear_json}"
+        fail 10f "extends clear-cache --json envelope missing exitCode=0"
+        return
+    }
+    echo "${clear_json}" | jq -e 'has("removed") and has("path")' >/dev/null || {
+        note "${clear_json}"
+        fail 10f "extends clear-cache --json missing 'removed' or 'path' field"
+        return
+    }
+    pass 10f "tarball includes CHANGELOG.md; extends clear-cache --json emits a structured envelope"
+}
+
+# =============================================================================
+# Scenario 10g — extends.opt-out + github cache slug edge cases
+# =============================================================================
+# beta.1 plan §2.4: `extends.opt-out` field on substrate.config.json
+# disables specific extends sources at the consumer level. Also asserts
+# github cache slug naming handles branch names with slashes.
+scenario_10g() {
+    # opt-out: disable the file: source by listing it under
+    # extends.opt-out — the chain should now have only the repo-local layer.
+    local optout_consumer="${WORK_ROOT}/optout-consumer"
+    mkdir -p "${optout_consumer}"
+    cat > "${optout_consumer}/substrate.config.json" <<EOF
+{
+  "\$schema": "https://op4z.dev/substrate/schemas/config.schema.json",
+  "version": "v3.0",
+  "project": { "name": "optout-consumer" },
+  "stacks": ["typescript"],
+  "paths": { "auto": "auto" },
+  "defaults": { "audits": [], "standards": [], "scaffolds": [], "workflows": [] },
+  "bridges": {},
+  "telemetry": { "enabled": false },
+  "extends": [
+    { "source": "file:${ORG_DIR}" }
+  ],
+  "extends-opt-out": [
+    "file:${ORG_DIR}"
+  ]
+}
+EOF
+    local optout_json
+    optout_json="$(cd "${optout_consumer}" && "${CONSUMER_DIR}/node_modules/.bin/substrate" extends list --json 2>"${WORK_ROOT}/s10g-stderr.log")"
+    echo "${optout_json}" | jq -e '.layers | length == 1' >/dev/null || {
+        note "${optout_json}"
+        fail 10g "opt-out: expected exactly 1 layer (repo-local), got $(echo "${optout_json}" | jq '.layers | length')"
+        return
+    }
+    echo "${optout_json}" | jq -e '.layers[0].kind == "local"' >/dev/null || {
+        fail 10g "opt-out: remaining layer should be 'local'"
+        return
+    }
+    # Include-opt-out flag should bring the suppressed layer back.
+    local include_json
+    include_json="$(cd "${optout_consumer}" && "${CONSUMER_DIR}/node_modules/.bin/substrate" extends list --json --include-opt-out 2>"${WORK_ROOT}/s10g-include-stderr.log")"
+    echo "${include_json}" | jq -e '.layers | length == 2' >/dev/null || {
+        note "${include_json}"
+        fail 10g "--include-opt-out: expected 2 layers when opt-out is bypassed"
+        return
+    }
+
+    pass 10g "extends.opt-out hides selected sources; --include-opt-out bypasses the filter"
+}
+
+# =============================================================================
 # Run everything
 # =============================================================================
 START_TIME="$(date +%s)"
@@ -816,6 +1004,9 @@ scenario_10a
 scenario_10b
 scenario_10c
 scenario_10d
+scenario_10e
+scenario_10f
+scenario_10g
 
 END_TIME="$(date +%s)"
 ELAPSED=$((END_TIME - START_TIME))

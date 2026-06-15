@@ -3,6 +3,106 @@
 All notable changes to the substrate CLI are documented in this file.
 Adheres roughly to [Keep a Changelog](https://keepachangelog.com).
 
+## [3.0.0-beta.1] — 2026-06-15 — `extends`-awareness in consumer commands (NE-11 beta.1)
+
+v3.0.0-beta.1 closes the gap surfaced by the v3.0.0-alpha.1 enterprise
+smoke test: the `extends` primitive shipped in alpha.1 (discovery +
+resolution + the merge wrappers) was correct, but the daily-driver
+consumer commands (`run`, `audit`, `query`, `hooks list`) hadn't been
+routed through the wrappers. Beta.1 closes that gap end-to-end so the
+v3 headline value prop — "declare `extends` and the org's content is
+just there" — actually works.
+
+### Fixed — sub-phase A (HIGH bug #3)
+
+- `substrate run <workflow>` now resolves workflows across the
+  extends chain. A workflow declared only in an org-shared `file:`,
+  `npm:`, or `github:` extends source executes directly from the
+  consumer repo with zero copy-into-place ceremony. Before beta.1,
+  `substrate run org-shared-workflow` returned "not found in
+  substrate/workflows/. Discovered: (none)" even when the chain
+  provided the workflow. Cross-cutting hooks fire from extends sources
+  too.
+
+### Fixed — sub-phase B (HIGH bug #4)
+
+- `substrate audit` walks merged RULES.yaml across the extends chain.
+  An org's RULES.yaml declared via `extends: [npm:@acme/shared]` (or
+  any file/github source) is loaded automatically; repo-local rules
+  with the same id override the org version. Adopters no longer need
+  to copy the org's RULES.yaml into their repo to enforce org rules.
+  `--rules-path` keeps its v1.0 single-file escape-hatch behavior.
+
+### Fixed — sub-phase C (medium bugs #1 and #2)
+
+- `substrate query rules` returns merged rules across the chain.
+- `substrate query standards [--for-files <files>]` returns merged
+  standards across the chain (repo-local-overrides-org by relative
+  path, e.g. `backend/python.md`).
+- `substrate query doc-checks [--for-files <files>]` returns merged
+  doc-checks across the chain.
+- `substrate hooks list` and `substrate hooks describe <id>` return
+  merged hooks across the chain.
+
+All four commands surface collision warnings ("rule X: repo-local
+overrides Y") in the `warnings[]` array of their JSON output so CI
+scripts can audit override behavior without re-walking the chain.
+
+### Fixed — sub-phase D (low bugs #5 and #6)
+
+- **Tarball CHANGELOG inclusion.** `@op4z/substrate@3.0.0-beta.1`
+  ships with `CHANGELOG.md` inside the published tarball. The
+  workspace-root CHANGELOG stays the canonical source; a `prepack`
+  script (`scripts/copy-changelog.mjs`) stages it into the package
+  directory before `npm pack` runs. Adopters now find the CHANGELOG
+  in `node_modules/@op4z/substrate/CHANGELOG.md` without visiting
+  the GitHub release page.
+- **`extends clear-cache --json`** had been flagged as missing the
+  `--json` flag in the alpha.1 smoke HANDOFF; verification showed the
+  flag was already wired (this was a smoke handoff inaccuracy, not a
+  code bug). Beta.1 smoke scenario 10f locks the JSON envelope shape
+  (`{ removed, path, exitCode }`) as a regression gate.
+
+### Added — sub-phase E (opt-out + slug docs)
+
+- **`extends-opt-out: string[]`** on `substrate.config.json`. Each
+  entry must match the exact `source` URL of an entry in `extends`;
+  matching sources are suppressed from the resolved chain. Use case:
+  a backend-only service repo opting out of org-shared frontend rules
+  without forking the org package. Per-source warnings ("source
+  suppressed by consumer config") make the suppression visible in
+  `substrate extends list`. `substrate extends list --include-opt-out`
+  bypasses the filter for diagnostics.
+- **GitHub cache slug rules documented** with worked examples.
+  The slug `<org>-<repo>@<sanitized-ref>` handles branch names with
+  `/` (e.g. `feat/extends` → `feat_extends`), tags with special chars
+  (`v1.0+build.5` → `v1.0_build.5`), and missing refs (slug ends in
+  `@HEAD`). The cache manifest still records the source URL + resolved
+  SHA so reproducibility is preserved.
+
+### Tests
+
+- `tests/v3-extends-consumers.test.ts` — 12 new tests covering the
+  merge-wrapper plug-in for run/audit/query/hooks + the opt-out
+  filter + bypass.
+- 4 schema tests for `extends-opt-out` validation.
+- 2 source-kind tests for cache slug edge cases.
+- Smoke regression strengthened: scenarios 8, 9 no longer carry
+  workarounds; scenario 10e (audit extends-awareness), 10f (tarball
+  CHANGELOG + clear-cache JSON), 10g (opt-out + bypass) added.
+- 13 → 16 enterprise smoke scenarios; 778 + 1 skipped baseline
+  preserved at 795 + 1 skipped (17 new tests across all suites).
+
+### Compatibility / migration
+
+- **No breaking changes from v3.0.0-alpha.1.** v3-shaped consumers
+  with `extends` configured see expanded behavior on the consumer
+  commands; v2-shaped consumers (no `extends` field) see identical
+  behavior to v2.x because the merge wrappers collapse to a
+  single-layer chain.
+- The `extends-opt-out` field is a pure additive — configs without it
+  continue to validate.
+
 ## [3.0.0-alpha.1] — 2026-06-15 — `extends` primitive (NE-11)
 
 v3.0-alpha.1 ships the **org-scoped content composition** primitive

@@ -303,7 +303,7 @@ piece calls into the deterministic-only piece, never re-implements it.
 
 ## v3 — the `extends` layer (NE-11)
 
-Substrate v3.0.0-alpha.1 adds one additive layer: **`extends`**, the
+Substrate v3.0.0-beta.1 adds one additive layer: **`extends`**, the
 org-scoped content composition primitive. A consumer's
 `substrate.config.json` can declare an `extends` array whose entries
 contribute substrate content (workflows, hooks, doc-checks, standards,

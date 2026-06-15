@@ -2,7 +2,7 @@
 
 > **Audience:** anyone preparing to pitch Substrate's enterprise pattern,
 > or anyone investigating an `extends`-primitive regression.
-> **Scope:** v3.0.0-alpha.1 (NE-11 — the `extends` primitive).
+> **Scope:** v3.0.0-beta.1 (NE-11 — the `extends` primitive).
 > **Runtime:** under 30s on a warm laptop; under 60s on a cold CI runner.
 
 ---
@@ -26,8 +26,9 @@ The smoke validates four layers:
 | 3 — Daily-driver surface | The CLI commands an adopter runs every day work against the composed setup |
 | 4 — Integration + regression | MCP server starts cleanly with 7 tools; v2-shaped consumers (no `extends` field) regress nowhere; edge cases produce graceful errors |
 
-If all 13 scenarios pass, the v3.0 primitive is on the same quality
-floor as the v2.0 baseline (778 tests + 1 skipped, all green).
+If all 16 scenarios pass, the v3.0 primitive is on the same quality
+floor as the v2.0 baseline (778 tests + 1 skipped, all green; v3
+beta.1 adds 17 new tests for an effective 795 + 1 skipped baseline).
 
 ---
 
@@ -42,7 +43,7 @@ Required on the test machine:
   honors `SMOKE_SKIP_GITHUB=1` to bypass.
 - Outbound network access for the github source (unless skipped).
 - The packaged tarball at
-  `packages/substrate/op4z-substrate-3.0.0-alpha.1.tgz`. The script
+  `packages/substrate/op4z-substrate-3.0.0-beta.1.tgz`. The script
   auto-builds it via `npm pack` if missing.
 
 No other system prerequisites. The smoke script creates its own
@@ -56,7 +57,7 @@ cd /path/to/substrate
 node --version            # >= v20
 npm --version             # any recent
 jq --version              # jq-1.6 or later
-ls packages/substrate/op4z-substrate-3.0.0-alpha.1.tgz   # exists, or:
+ls packages/substrate/op4z-substrate-3.0.0-beta.1.tgz   # exists, or:
 ( cd packages/substrate && npm pack )                    # build it
 ```
 
@@ -98,14 +99,17 @@ Workspace: /tmp/substrate-smoke-XXXXXX
 [OK] Scenario 5: npm: + file: + github: sources resolve through the chain
 [OK] Scenario 6: SUBSTRATE_OFFLINE=1: npm + file still resolve; github cold-cache skipped
 [OK] Scenario 7: doctor runs clean against the composed setup (expected v2 warns documented)
-[OK] Scenario 8: daily-driver CLI surface runs (note: query/hooks/audit are NOT extends-aware in alpha.1)
-[OK] Scenario 9: substrate run executes a deterministic org-shared workflow (copied locally)
+[OK] Scenario 8: daily-driver CLI surface is extends-aware: query rules/standards/doc-checks + hooks list return merged content
+[OK] Scenario 9: substrate run resolves org-shared workflow directly via extends chain
 [OK] Scenario 10a: mcp serve responds to initialize + tools/list with 7 tools
 [OK] Scenario 10b: v2-shaped consumer (no extends field) still works
-[OK] Scenario 10c: version surface: substrate -v + tarball + CHANGELOG entry all at 3.0.0-alpha.1
+[OK] Scenario 10c: version surface: substrate -v + tarball + CHANGELOG entry all at 3.0.0-beta.1
 [OK] Scenario 10d: edge cases: malformed URL → error; missing → exit 1; circular → silent (no transitive)
+[OK] Scenario 10e: substrate audit resolves rules from org-shared via extends chain (executedRules=10)
+[OK] Scenario 10f: tarball includes CHANGELOG.md; extends clear-cache --json emits a structured envelope
+[OK] Scenario 10g: extends.opt-out hides selected sources; --include-opt-out bypasses the filter
 
-Elapsed: 17s
+Elapsed: 20s
 
 ---
 Scenarios passed: 13
@@ -313,23 +317,27 @@ checks (config + runtime + git) pass.
 - `substrate extends sync --json` — exit 0 (file: source is a no-op)
 - `substrate extends clear-cache` — exit 0
 - `substrate validate` — must say "manifest(s) valid"
-- `substrate query rules --json` — exit 0
-- `substrate query standards --for-files src/foo.py --json` — exit 0
-- `substrate query doc-checks --for-files src/foo.py --json` — exit 0
-- `substrate hooks list --json` — exit 0
+- `substrate query rules --json` — `.rules.length >= 10` (merged set
+  from org RULES.yaml)
+- `substrate query standards --for-files src/foo.py --json` —
+  `.standards[]` includes `backend/python.md` (repo-local override of
+  the org version)
+- `substrate query doc-checks --for-files src/foo.py --json` —
+  `.registry.length >= 3` (merged set from org doc-checks)
+- `substrate hooks list --json` — `.hooks.length >= 3` (merged set
+  from org hooks)
 
-**KNOWN GAP (documented, NOT a smoke failure):** v3.0.0-alpha.1's
-`substrate query`, `substrate hooks list`, `substrate audit`, and
-`substrate run` are NOT extends-aware. They read repo-local only.
-The merge wrappers (`discoverAcrossExtends`) exist and are exercised
-by `substrate extends list`, but the legacy commands haven't been
-wired to them. This is the headline gap for `v3.0.0-beta.1`.
+**EXTENDS-AWARENESS (as of v3.0.0-beta.1):** `substrate query`,
+`substrate hooks list`, `substrate audit`, and `substrate run` all
+route through the v3 merge wrappers — they see the merged registry
+(org-shared + repo-local). v2-shaped consumers (no `extends` field)
+see identical behavior to v2.x because the wrappers collapse to a
+single-layer chain.
 
-#### Scenario 9 — `substrate run` from copied org content
+#### Scenario 9 — `substrate run` resolves org-shared workflow
 
-**What:** Copy
-`${ORG_DIR}/substrate/workflows/org-git-review-pre.yaml` into
-`${CONSUMER_DIR}/substrate/workflows/`, then run it.
+**What:** With NO repo-local copy of the workflow file present, run
+the workflow declared only in the file: extends source.
 
 ```bash
 cd ${CONSUMER_DIR} && ./node_modules/.bin/substrate run org-git-review-pre
@@ -338,13 +346,10 @@ cd ${CONSUMER_DIR} && ./node_modules/.bin/substrate run org-git-review-pre
 **Anchors:**
 - Output contains the marker string `org-shared:org-git-review-pre OK`
   emitted by the workflow's deterministic step.
-
-**Why the copy?** As Scenario 8 notes, `substrate run` is not
-extends-aware in `v3.0.0-alpha.1`. The smoke copies the workflow
-locally to validate that (a) the fixture workflow is well-formed
-substrate content and (b) the deterministic step engine executes it
-end-to-end. Once `substrate run` is extends-aware (v3.0-beta.1),
-this scenario will run the workflow directly from the org source.
+- The smoke explicitly asserts the workflow does NOT exist at
+  `${CONSUMER_DIR}/substrate/workflows/org-git-review-pre.yaml`
+  before running — so a passing result proves extends-resolution
+  worked, not a stale-copy fallback.
 
 ### Layer 4 — Integration + regression
 
@@ -387,9 +392,9 @@ v2.0 consumers.
 #### Scenario 10c — Version surface
 
 **Anchors:**
-- `substrate --version` returns exactly `3.0.0-alpha.1`.
-- Tarball's `package/package.json .version` is `3.0.0-alpha.1`.
-- Root `CHANGELOG.md` contains a `## [3.0.0-alpha.1]` heading.
+- `substrate --version` returns exactly `3.0.0-beta.1`.
+- Tarball's `package/package.json .version` is `3.0.0-beta.1`.
+- Root `CHANGELOG.md` contains a `## [3.0.0-beta.1]` heading.
 
 **Documented gap:** the tarball does NOT include `CHANGELOG.md`.
 The `files` whitelist in `packages/substrate/package.json` covers
@@ -411,7 +416,7 @@ unchanged by NE-11. Logged for the next packaging pass.
    Should produce a JSON `errors[]` entry and exit 1.
 
 3. **Circular extends:** A → B → A via two `file:` sources.
-   Per HANDOFF item 3, v3.0.0-alpha.1 does NOT read transitive
+   Per HANDOFF item 3, v3.0.0-beta.1 does NOT read transitive
    extends — B's `extends` back to A is silently ignored. Should NOT
    crash. Expected `exitCode == 0`.
 
@@ -426,7 +431,7 @@ unchanged by NE-11. Logged for the next packaging pass.
 | 3 | Scenarios 7-9 pass |
 | 4 | Scenarios 10a-10d pass |
 
-A full smoke pass is the gate for declaring v3.0.0-alpha.1
+A full smoke pass is the gate for declaring v3.0.0-beta.1
 adoption-ready (against the documented gaps in §8).
 
 ---
@@ -453,7 +458,7 @@ Likely npm install error. Re-run with stderr visible:
 
 ```bash
 cd /tmp/substrate-smoke-XXX/consumer
-npm install --verbose path/to/op4z-substrate-3.0.0-alpha.1.tgz
+npm install --verbose path/to/op4z-substrate-3.0.0-beta.1.tgz
 ```
 
 Common causes: corrupted tarball (rebuild via `npm pack`), missing
@@ -531,17 +536,17 @@ was added — update the expected count in `scenario_10a`. If
 unintentional, check the MCP server bootstrap in
 `packages/substrate/src/cli/mcp/`.
 
-#### Scenario 10c fails — `tarball package.json version != 3.0.0-alpha.1`
+#### Scenario 10c fails — `tarball package.json version != 3.0.0-beta.1`
 
 The tarball is stale. Rebuild:
 
 ```bash
-cd packages/substrate && rm -f op4z-substrate-3.0.0-alpha.1.tgz && npm pack
+cd packages/substrate && rm -f op4z-substrate-3.0.0-beta.1.tgz && npm pack
 ```
 
 #### Scenario 10d fails — circular extends crashed
 
-This is a real bug. v3.0.0-alpha.1 doesn't resolve transitively, so
+This is a real bug. v3.0.0-beta.1 doesn't resolve transitively, so
 A → B → A should be silent. If you see a crash, capture the stderr
 log at `/tmp/substrate-smoke-XXX/s10d-circ-stderr.log` and file a
 follow-up — likely a regression in `resolver.ts`.
@@ -610,9 +615,9 @@ flow is validated separately at release time
 
 ### Transitive extends (an extends source that itself has extends)
 
-Per HANDOFF item 3, v3.0.0-alpha.1 reads only one level. Scenario
+Per HANDOFF item 3, v3.0.0-beta.1 reads only one level. Scenario
 10d verifies the non-crash behavior for a circular case, but
-multi-level resolution is NOT a feature in alpha.1. When
+multi-level resolution is NOT a feature in beta.1. When
 transitive support lands, scenarios 5 + 10d should grow to cover it.
 
 ### Cross-platform shell compatibility
@@ -659,7 +664,7 @@ compared.
 - **Phase 1+2 enterprise plan:** `docs/plans/substrate-phase-1-2-enterprise-plan.md`
   (out-of-tree in TheNexusProject repo) — the org-rollout playbook
   this fixture models.
-- **CHANGELOG entry:** `CHANGELOG.md` §[3.0.0-alpha.1] — full list
+- **CHANGELOG entry:** `CHANGELOG.md` §[3.0.0-beta.1] — full list
   of changes shipped in NE-11.
 - **Integration test:** `tests/v3-extends-integration.test.ts` —
   vitest-driven counterpart to this smoke (exercises the merge
