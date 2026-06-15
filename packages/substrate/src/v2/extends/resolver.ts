@@ -43,6 +43,7 @@ import {
   type SourceResolutionError,
   type SourceResolutionResult,
 } from "./source-kinds.js";
+import type { GitRunner } from "./github-source.js";
 
 /** Identity of one resolved layer in the chain. */
 export interface ResolvedSource {
@@ -97,6 +98,10 @@ export interface ResolveExtendsOptions {
    * air-gap mode without touching `process.env`).
    */
   offline?: boolean;
+  /** Test seam: override the github cache root. */
+  githubCacheRoot?: string;
+  /** Test seam: inject a fake git executor. */
+  gitRunner?: GitRunner;
 }
 
 /**
@@ -151,6 +156,8 @@ export function resolveExtendsChain(
       resolved = resolveSourceRoot(entry, {
         consumerRoot: root,
         offline: options.offline,
+        githubCacheRoot: options.githubCacheRoot,
+        gitRunner: options.gitRunner,
       });
     } catch (err) {
       errors.push({

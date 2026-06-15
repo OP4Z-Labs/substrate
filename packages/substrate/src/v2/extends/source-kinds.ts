@@ -29,7 +29,11 @@ import {
   classifyExtendsSource,
   type ExtendsKind,
 } from "./config-validator.js";
-import { resolveGithubSource, type GithubResolutionContext } from "./github-source.js";
+import {
+  resolveGithubSource,
+  type GithubResolutionContext,
+  type GitRunner,
+} from "./github-source.js";
 
 /** Successful resolution — the `root` directory contains a `substrate/` subdir. */
 export interface SourceResolutionOk {
@@ -71,6 +75,16 @@ export interface ResolveSourceRootOptions {
    * current environment.
    */
   offline?: boolean;
+  /**
+   * Test seam: override the github cache root (so unit tests can sandbox
+   * the cache directory). Default: `<consumerRoot>/substrate/.cache/extends/github/`.
+   */
+  githubCacheRoot?: string;
+  /**
+   * Test seam: override the git executor. Useful so tests can fake the
+   * clone without touching the network.
+   */
+  gitRunner?: GitRunner;
 }
 
 /**
@@ -224,6 +238,8 @@ function resolveGithubSourceWrapper(
   const ctx: GithubResolutionContext = {
     consumerRoot: options.consumerRoot,
     offline: resolveOffline(options.offline),
+    cacheRoot: options.githubCacheRoot,
+    gitRunner: options.gitRunner,
   };
   return resolveGithubSource(entry, ctx);
 }

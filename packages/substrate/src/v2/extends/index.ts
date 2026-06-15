@@ -63,3 +63,11 @@ export {
   type SourceResolutionResult,
   type SourceResolutionWarning,
 } from "./source-kinds.js";
+
+export {
+  clearExtendsCache,
+  refreshGithubSource,
+  resolveGithubSource,
+  type GithubResolutionContext,
+  type GitRunner,
+} from "./github-source.js";
