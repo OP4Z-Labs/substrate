@@ -136,6 +136,19 @@ export interface SubstrateConfig {
    * mirror via `file:` or a private npm registry.
    */
   extends?: ExtendsSource[];
+  /**
+   * v3.0.0-beta.1 (plan §2.4): consumer-level opt-out for selected
+   * extends sources. Each string matches an entry's `source` URL
+   * exactly. Matching sources are suppressed from the resolved chain
+   * — their content does NOT merge into the effective registry.
+   *
+   * Use case: an extends source contains content that doesn't apply
+   * to this consumer (e.g. a backend-only repo opting out of frontend
+   * rules) and forking the org-shared package is overkill.
+   *
+   * Bypass at the CLI: `substrate extends list --include-opt-out`.
+   */
+  "extends-opt-out"?: string[];
   telemetry: {
     enabled: boolean;
   };

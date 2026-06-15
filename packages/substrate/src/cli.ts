@@ -1042,13 +1042,25 @@ function buildProgram(): Command {
     )
     .option("--json", "Emit machine-readable JSON", false)
     .option("--quiet", "Suppress informational output", false)
-    .action((options: { json?: boolean; quiet?: boolean }) => {
-      const result = runExtendsList({
-        json: options.json,
-        quiet: options.quiet,
-      });
-      if (result.exitCode !== 0) process.exitCode = result.exitCode;
-    });
+    .option(
+      "--include-opt-out",
+      "Diagnostic: include sources listed in extends-opt-out (v3.0.0-beta.1).",
+      false,
+    )
+    .action(
+      (options: {
+        json?: boolean;
+        quiet?: boolean;
+        includeOptOut?: boolean;
+      }) => {
+        const result = runExtendsList({
+          json: options.json,
+          quiet: options.quiet,
+          includeOptOut: options.includeOptOut,
+        });
+        if (result.exitCode !== 0) process.exitCode = result.exitCode;
+      },
+    );
   extendsCmd
     .command("sync")
     .description(

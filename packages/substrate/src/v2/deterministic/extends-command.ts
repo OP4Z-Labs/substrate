@@ -41,7 +41,14 @@ interface CliCommonOptions {
   quiet?: boolean;
 }
 
-export interface ExtendsListOptions extends CliCommonOptions {}
+export interface ExtendsListOptions extends CliCommonOptions {
+  /**
+   * Diagnostic flag (v3.0.0-beta.1): bypass `extends-opt-out` filtering
+   * so suppressed sources reappear in the listing. Useful for verifying
+   * "what would the chain look like if I removed the opt-out?".
+   */
+  includeOptOut?: boolean;
+}
 
 export interface ExtendsListLayer {
   source: string;
@@ -88,16 +95,22 @@ export interface ExtendsListResult {
 export function runExtendsList(
   options: ExtendsListOptions = {},
 ): ExtendsListResult {
-  const chain = resolveExtendsChain({ cwd: options.cwd });
+  // Propagate `includeOptOut` (v3.0.0-beta.1) to every discovery walk
+  // so the per-layer counts AND the chain layers stay consistent.
+  const resolveOpts = {
+    cwd: options.cwd,
+    includeOptOut: options.includeOptOut,
+  };
+  const chain = resolveExtendsChain(resolveOpts);
 
   // Per-layer counts: walk each layer in isolation so we can tally
   // contributions before merging. The merge-aware discovery wrappers
   // already do this internally; we reuse them and bucket by provenance.
-  const workflows = discoverWorkflowsAcrossExtends({ cwd: options.cwd });
-  const hooks = discoverHooksAcrossExtends({ cwd: options.cwd });
-  const docChecks = discoverDocChecksAcrossExtends({ cwd: options.cwd });
-  const standards = discoverStandardsAcrossExtends({ cwd: options.cwd });
-  const rules = discoverRulesAcrossExtends({ cwd: options.cwd });
+  const workflows = discoverWorkflowsAcrossExtends(resolveOpts);
+  const hooks = discoverHooksAcrossExtends(resolveOpts);
+  const docChecks = discoverDocChecksAcrossExtends(resolveOpts);
+  const standards = discoverStandardsAcrossExtends(resolveOpts);
+  const rules = discoverRulesAcrossExtends(resolveOpts);
 
   const layers: ExtendsListLayer[] = chain.layers.map((layer) => ({
     source: layer.source,

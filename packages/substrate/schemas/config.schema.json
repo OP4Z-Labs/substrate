@@ -119,6 +119,14 @@
           }
         }
       }
+    },
+    "extends-opt-out": {
+      "description": "v3.0.0-beta.1 (plan §2.4): consumer-level opt-out for selected extends sources. Each string must match the exact `source` URL of an entry in `extends`. Matching sources are suppressed from the chain at resolve time — their content does NOT merge into the effective registry. Useful when an org-shared source contains content that's not applicable to a particular repo (e.g. a backend service repo opting out of frontend rules) without forking the org-shared package. Bypass with `substrate extends list --include-opt-out` for diagnostics.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     }
   }
 }

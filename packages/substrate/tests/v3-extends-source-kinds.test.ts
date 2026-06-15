@@ -229,6 +229,44 @@ describe("github: source kind — caching", () => {
     expect(calls[0][0]).toBe("clone");
   });
 
+  it("sanitizes filesystem-hostile chars in branch names (v3.0.0-beta.1 slug rules)", () => {
+    const { runner } = makeFakeGitRunner();
+    // Branch name with `/` (common: `feat/extends`) and other special
+    // chars (`+`) should be sanitized into `_`.
+    const result = resolveSourceRoot(
+      { source: "github:acme/shared", ref: "feat/extends+v2" },
+      {
+        consumerRoot: consumer,
+        githubCacheRoot: cacheRoot,
+        gitRunner: runner,
+      },
+    );
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      // No raw `/` or `+` should land in the slug; they become `_`.
+      expect(result.root).toMatch(/acme-shared@feat_extends_v2$/);
+      // And the resulting path is a real, walkable directory (no
+      // leftover separators broke into subdirs).
+      expect(existsSync(result.root)).toBe(true);
+    }
+  });
+
+  it("uses @HEAD in the slug when no ref is specified", () => {
+    const { runner } = makeFakeGitRunner();
+    const result = resolveSourceRoot(
+      { source: "github:acme/shared" },
+      {
+        consumerRoot: consumer,
+        githubCacheRoot: cacheRoot,
+        gitRunner: runner,
+      },
+    );
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.root).toMatch(/acme-shared@HEAD$/);
+    }
+  });
+
   it("writes a manifest.json with the resolved SHA and ref", () => {
     const { runner } = makeFakeGitRunner();
     resolveSourceRoot(

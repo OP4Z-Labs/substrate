@@ -102,6 +102,15 @@ export interface ResolveExtendsOptions {
   githubCacheRoot?: string;
   /** Test seam: inject a fake git executor. */
   gitRunner?: GitRunner;
+  /**
+   * v3.0.0-beta.1 (plan §2.4): bypass `extends-opt-out` filtering.
+   *
+   * Default: opt-out entries are honored (matching sources skipped).
+   * When `true`, the resolver ignores `extends-opt-out` and includes
+   * every source — used by `substrate extends list --include-opt-out`
+   * for diagnostics ("what would the chain look like without opt-out?").
+   */
+  includeOptOut?: boolean;
 }
 
 /**
@@ -137,8 +146,36 @@ export function resolveExtendsChain(
 
   // Walk extends entries first (so they land as the base).
   const entries = (config?.extends ?? []) as ExtendsSource[];
+
+  // v3.0.0-beta.1 opt-out filtering (plan §2.4). When a source URL is
+  // listed in `extends-opt-out`, skip it entirely from the chain unless
+  // the caller asked for diagnostics via `includeOptOut`. A warning is
+  // emitted per skipped entry so consumers see the effect in
+  // `substrate extends list` rather than wondering why a layer is
+  // missing.
+  const optOutList = (config?.["extends-opt-out"] ?? []) as string[];
+  const optOutSet = new Set(optOutList);
+  // Validate that every opt-out entry matches an actual extends source.
+  // A typo here would silently no-op, so we warn loudly.
+  for (const optOut of optOutList) {
+    const matched = entries.some((e) => e.source === optOut);
+    if (!matched) {
+      warnings.push({
+        source: optOut,
+        message: `extends-opt-out: '${optOut}' does not match any entry in extends; the directive is a no-op.`,
+      });
+    }
+  }
+
   for (let i = 0; i < entries.length; i += 1) {
     const entry = entries[i];
+    if (!options.includeOptOut && optOutSet.has(entry.source)) {
+      warnings.push({
+        source: entry.source,
+        message: `extends-opt-out: source suppressed by consumer config. Bypass with --include-opt-out.`,
+      });
+      continue;
+    }
     const perEntry = validateExtendsSource(entry);
     for (const w of perEntry.warnings) {
       warnings.push({ source: entry.source, message: w });

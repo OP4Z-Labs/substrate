@@ -242,3 +242,45 @@ describe("validateExtendsSource — per-entry warnings", () => {
     expect(result.kind).toBeNull();
   });
 });
+
+describe("config schema — extends-opt-out (v3.0.0-beta.1)", () => {
+  it("accepts a config with no extends-opt-out field (the default shape)", () => {
+    const result = validateConfig(
+      baseConfig({ extends: [{ source: "npm:@acme/shared" }] }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts extends-opt-out: [] (opt-in but empty)", () => {
+    const result = validateConfig(
+      baseConfig({
+        extends: [{ source: "npm:@acme/shared" }],
+        "extends-opt-out": [],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts extends-opt-out with one source URL", () => {
+    const result = validateConfig(
+      baseConfig({
+        extends: [
+          { source: "npm:@acme/shared" },
+          { source: "file:./local" },
+        ],
+        "extends-opt-out": ["npm:@acme/shared"],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects extends-opt-out as a string (must be array)", () => {
+    const result = validateConfig(
+      baseConfig({
+        extends: [{ source: "npm:@acme/shared" }],
+        "extends-opt-out": "npm:@acme/shared",
+      }),
+    );
+    expect(result.ok).toBe(false);
+  });
+});

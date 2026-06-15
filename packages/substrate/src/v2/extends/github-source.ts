@@ -102,8 +102,37 @@ function parseGithubSource(
 
 /**
  * Slug used for the on-disk cache directory and the manifest entry key.
- * Excludes characters that would be filesystem-hostile (e.g. `/` from
- * the org/repo separator).
+ *
+ * Format: `<org>-<repo>@<sanitized-ref>` (or `<org>-<repo>@HEAD` when no
+ * ref was specified). Tag/branch/SHA refs are normalized via the
+ * sanitization rules below; the resolved SHA is recorded separately in
+ * the cache manifest so reproducibility is preserved.
+ *
+ * Slug sanitization rules (v3.0.0-beta.1, plan §2.5):
+ *
+ *   - Any character outside `[A-Za-z0-9_.-]` is replaced with `_`.
+ *     This handles the two common edge cases:
+ *       - Branch names with `/` (e.g. `feat/extends` → `feat_extends`)
+ *       - Tag names with `+` or other special chars (e.g. `v1.0+build.5`)
+ *   - The org/repo separator is normalized from `/` (in the source URL)
+ *     to `-` (in the slug); the source URL itself remains canonical.
+ *   - When no ref is specified, the slug ends in `@HEAD` (not the
+ *     resolved default branch — that's discoverable from the manifest's
+ *     `resolvedSha` field at refresh time).
+ *
+ * Worked examples:
+ *   - `github:acme/shared`              → `acme-shared@HEAD`
+ *   - `github:acme/shared` ref=`v1.0.0` → `acme-shared@v1.0.0`
+ *   - `github:acme/shared` ref=`main`   → `acme-shared@main`
+ *   - `github:acme/shared` ref=`feat/x` → `acme-shared@feat_x`
+ *   - `github:acme/shared` ref=`v1+b.5` → `acme-shared@v1_b.5`
+ *   - `github:acme/shared` ref=`abc123` → `acme-shared@abc123` (SHA)
+ *
+ * Decision (v3.0.0-alpha.1): the human-readable slug was chosen over a
+ * hash digest (plan §2.5 suggested `sha256(source-spec)[:16]`) so the
+ * cache is grep-able and `ls` output is interpretable. The cache
+ * manifest still records the exact source URL + resolved SHA for
+ * machine-driven workflows.
  */
 function cacheSlug(parsed: ParsedGithubSource): string {
   const refPart = parsed.ref
