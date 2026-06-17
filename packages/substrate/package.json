@@ -1,6 +1,6 @@
 {
   "name": "@op4z/substrate",
-  "version": "3.0.0-beta.2",
+  "version": "3.0.0-beta.4",
   "description": "Repeatable automation patterns for codebases. Audits, scaffolds, standards, and bridges to AI coding assistants.",
   "license": "MIT",
   "author": "Beau Goldberg",
@@ -32,7 +32,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "clean": "rimraf dist",
+    "clean": "rimraf dist tsconfig.tsbuildinfo",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"*.md\" \"*.json\"",

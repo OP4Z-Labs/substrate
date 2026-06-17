@@ -4,6 +4,32 @@ All notable changes to the substrate CLI are documented in this file.
 Adheres roughly to [Keep a Changelog](https://keepachangelog.com).
 
 
+## [3.0.0-beta.4] — 2026-06-17
+
+### Fixed
+
+- **`audit --diff` no longer silently scans the entire repository when git can't resolve the diff.** `listDiffPaths` previously returned `null` for both "not a git repo" and "git command failed", and the audit runner treated `null` as "run every rule against everything". A transient git condition (a stale `.git/index.lock`, a concurrent git operation) therefore turned a diff-scoped audit into a misleading, non-deterministic whole-repo report — with no signal that it had degraded.
+  - `listDiffPaths` now returns a discriminated result: `{ kind: "files" }`, `{ kind: "no-git" }`, or `{ kind: "git-error", detail }`. Unborn-branch repos (no commits yet) are handled explicitly — `git diff HEAD` is only attempted when `HEAD` exists; untracked files are still captured.
+  - `audit --diff` **fails loudly** on `git-error` (throws, or emits a `diff-unresolved` JSON error and exits non-zero) instead of full-scanning. `no-git` still degrades to a full scan but now emits a warning and reports `scope: all`. An empty diff still short-circuits to an empty report.
+- **The Node fallback detector now respects `.gitignore`, matching the ripgrep path.** The fallback walker honored only its hardcoded exclude globs, so it descended into gitignored directories that `rg` skips — most painfully agent worktrees (`.claude/worktrees/`), which are full repo copies and multiplied every finding by the number of live worktrees. The walker now intersects against `git ls-files --cached --others --exclude-standard` (cached per repo root) so the two detector paths produce equivalent findings, as their contract requires.
+
+### Changed
+
+- `DEFAULT_EXCLUDES` gains `.mypy_cache/**`, `.ruff_cache/**`, and `.claude/worktrees/**`.
+
+## [3.0.0-beta.3] — 2026-06-17
+
+### Fixed
+
+- **Published tarball now contains `dist/`.** Both `3.0.0-beta.1` and `3.0.0-beta.2` shipped without `dist/` due to a stale `tsconfig.tsbuildinfo` causing the incremental `tsc -b` invocation in `prepublishOnly` to no-op. The `npm run clean` step removed `dist/` but not the `tsbuildinfo`, so the rebuild thought everything was up-to-date and produced zero output. Registry-installed consumers therefore couldn't invoke the `substrate` bin script.
+  - Fix: `clean` script now removes `tsconfig.tsbuildinfo` alongside `dist/` so `prepublishOnly` always produces a real build.
+  - Verification: `npm pack --dry-run` lists `dist/cli.js` + `dist/index.js`; the 3.0.0-beta.3 tarball is 635 files (vs. 315 in the broken beta.2).
+  - Both `3.0.0-beta.1` and `3.0.0-beta.2` should be deprecated on npm with a pointer at `3.0.0-beta.3`.
+
+### Internal
+
+- No source code changes vs `3.0.0-beta.2`. This release exists solely to ship a complete tarball with `dist/` present.
+
 ## [3.0.0-beta.2] — 2026-06-15
 
 ### Changed

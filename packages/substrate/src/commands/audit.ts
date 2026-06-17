@@ -452,15 +452,39 @@ export async function runAuditExecute(
     scope = options.diff ? "diff" : "all";
   }
   if (options.diff) {
-    const diffPaths = listDiffPaths(repoRoot);
-    if (diffPaths !== null && diffPaths.length > 0) {
-      pathFilter = diffPaths;
-    } else if (diffPaths !== null) {
+    const diff = listDiffPaths(repoRoot);
+    if (diff.kind === "git-error") {
+      // We're in a git repo but couldn't resolve the changed-file set. Refuse
+      // to silently audit the WHOLE repo — that turns a transient git hiccup
+      // (e.g. a stale .git/index.lock) into a misleading, non-deterministic
+      // full-repo report. Fail loudly so `--diff` always means "the diff".
+      const message =
+        `Substrate: --diff could not resolve the changed-file set (${diff.detail}). ` +
+        "Refusing to silently audit the entire repository. Resolve the git issue " +
+        "(e.g. remove a stale .git/index.lock) or re-run without --diff to scan everything.";
+      if (options.json) {
+        process.stdout.write(
+          JSON.stringify({ ok: false, error: { code: "diff-unresolved", message } }, null, 2) + "\n",
+        );
+        process.exitCode = 1;
+        throw new JsonAlreadyEmittedError(message);
+      }
+      throw new Error(message);
+    }
+    if (diff.kind === "no-git") {
+      // `--diff` outside a git repo can't scope to a diff. Degrade to a full
+      // scan, but say so — don't let the report masquerade as diff-scoped.
+      scope = "all";
+      loadWarnings.push(
+        "--diff was requested outside a git repository; auditing all files instead of a diff.",
+      );
+    } else if (diff.files.length > 0) {
+      pathFilter = diff.files;
+    } else {
       // Empty diff — no files changed. Short-circuit to an empty report so
       // we don't pretend all rules executed against zero paths.
       rules = [];
     }
-    // diffPaths === null => not a git repo; let rules run against everything.
   }
   const report = await runAuditExecutor({
     repoRoot,
