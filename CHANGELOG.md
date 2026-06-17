@@ -4,6 +4,19 @@ All notable changes to the substrate CLI are documented in this file.
 Adheres roughly to [Keep a Changelog](https://keepachangelog.com).
 
 
+## [3.0.0-beta.3] — 2026-06-17
+
+### Fixed
+
+- **Published tarball now contains `dist/`.** Both `3.0.0-beta.1` and `3.0.0-beta.2` shipped without `dist/` due to a stale `tsconfig.tsbuildinfo` causing the incremental `tsc -b` invocation in `prepublishOnly` to no-op. The `npm run clean` step removed `dist/` but not the `tsbuildinfo`, so the rebuild thought everything was up-to-date and produced zero output. Registry-installed consumers therefore couldn't invoke the `substrate` bin script.
+  - Fix: `clean` script now removes `tsconfig.tsbuildinfo` alongside `dist/` so `prepublishOnly` always produces a real build.
+  - Verification: `npm pack --dry-run` lists `dist/cli.js` + `dist/index.js`; the 3.0.0-beta.3 tarball is 635 files (vs. 315 in the broken beta.2).
+  - Both `3.0.0-beta.1` and `3.0.0-beta.2` should be deprecated on npm with a pointer at `3.0.0-beta.3`.
+
+### Internal
+
+- No source code changes vs `3.0.0-beta.2`. This release exists solely to ship a complete tarball with `dist/` present.
+
 ## [3.0.0-beta.2] — 2026-06-15
 
 ### Changed
