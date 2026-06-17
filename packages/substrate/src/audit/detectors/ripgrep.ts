@@ -36,6 +36,12 @@ const DEFAULT_EXCLUDES = [
   ".venv/**",
   "venv/**",
   ".pytest_cache/**",
+  ".mypy_cache/**",
+  ".ruff_cache/**",
+  // Agent worktrees are full repo copies; scanning them multiplies every
+  // finding by the number of live worktrees. They're gitignored, so the rg
+  // path already skips them — this keeps the Node fallback honest too.
+  ".claude/worktrees/**",
   "*.lock",
   "package-lock.json",
 ];
@@ -65,6 +71,49 @@ function hasRipgrep(): boolean {
 
 export function resetRipgrepProbe(): void {
   rgAvailable = null;
+}
+
+/**
+ * The set of files git would NOT ignore (tracked + untracked-not-ignored),
+ * relative to repoRoot with forward slashes. The Node fallback walker uses
+ * this to mirror ripgrep's default `.gitignore`-respecting behavior — without
+ * it the two paths diverge (the fallback would descend into gitignored
+ * directories like agent worktrees, which rg skips). Returns null when git is
+ * unavailable or this isn't a repo, so the walker degrades to exclude-globs
+ * only. Cached per repoRoot since an audit run is one-shot.
+ */
+let gitKnownFilesCache: { root: string; set: Set<string> | null } | null = null;
+function gitKnownFiles(repoRoot: string): Set<string> | null {
+  if (gitKnownFilesCache && gitKnownFilesCache.root === repoRoot) {
+    return gitKnownFilesCache.set;
+  }
+  let set: Set<string> | null = null;
+  try {
+    const r = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (!r.error && r.status === 0) {
+      set = new Set<string>();
+      for (const line of (r.stdout ?? "").split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed) set.add(trimmed);
+      }
+    }
+  } catch {
+    set = null;
+  }
+  gitKnownFilesCache = { root: repoRoot, set };
+  return set;
+}
+
+export function resetGitKnownFilesCache(): void {
+  gitKnownFilesCache = null;
+}
+
+function toPosix(p: string): string {
+  return p.split(/[\\/]/).join("/");
 }
 
 /**
@@ -155,11 +204,14 @@ function runWithFallback(detector: RipgrepDetector, options: RunRipgrepOptions):
     }
   }
   const excludeGlobs = detector.exclude ?? DEFAULT_EXCLUDES;
+  // Mirror rg's .gitignore-respecting behavior (null = git unavailable, walk
+  // everything subject to excludeGlobs only).
+  const known = gitKnownFiles(options.repoRoot);
   const targets = (options.pathFilter ?? detector.paths ?? ["."]).map((p) =>
     resolve(options.repoRoot, p),
   );
   for (const target of targets) {
-    walk(target, options.repoRoot, excludeGlobs, (absPath, rel) => {
+    walk(target, options.repoRoot, excludeGlobs, known, (absPath, rel) => {
       let text: string;
       try {
         text = readFileSync(absPath, "utf8");
@@ -206,13 +258,14 @@ function walk(
   root: string,
   repoRoot: string,
   excludeGlobs: string[],
+  known: Set<string> | null,
   visit: (absPath: string, rel: string) => void,
 ): void {
   if (!existsSync(root)) return;
   const st = statSync(root);
   if (st.isFile()) {
     const rel = relative(repoRoot, root);
-    if (!isExcluded(rel, excludeGlobs) && isLikelyTextFile(root)) {
+    if (isVisitableFile(rel, root, excludeGlobs, known)) {
       visit(root, rel);
     }
     return;
@@ -235,11 +288,28 @@ function walk(
       continue;
     }
     if (entrySt.isDirectory()) {
-      walk(full, repoRoot, excludeGlobs, visit);
-    } else if (entrySt.isFile() && isLikelyTextFile(full)) {
+      walk(full, repoRoot, excludeGlobs, known, visit);
+    } else if (entrySt.isFile() && isVisitableFile(rel, full, excludeGlobs, known)) {
       visit(full, rel);
     }
   }
+}
+
+/**
+ * A file is scanned only if it survives the exclude globs, looks like text,
+ * and — when git tells us what it tracks — is not gitignored. The `known`
+ * check is what keeps the fallback from diverging from the rg path.
+ */
+function isVisitableFile(
+  rel: string,
+  abs: string,
+  excludeGlobs: string[],
+  known: Set<string> | null,
+): boolean {
+  if (isExcluded(rel, excludeGlobs)) return false;
+  if (!isLikelyTextFile(abs)) return false;
+  if (known !== null && !known.has(toPosix(rel))) return false;
+  return true;
 }
 
 const BINARY_EXTENSIONS = new Set([
