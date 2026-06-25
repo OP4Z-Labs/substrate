@@ -27,3 +27,6 @@ test-output/
 # `npm pack` via prepack — see scripts/copy-changelog.mjs).
 /packages/substrate/CHANGELOG.md
 
+
+# Locally-built package tarballs (npm pack output)
+packages/substrate/op4z-substrate-*.tgz
