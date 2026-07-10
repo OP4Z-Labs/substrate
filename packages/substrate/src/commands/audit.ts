@@ -422,6 +422,31 @@ export async function runAuditExecute(
     const repoLocal = locateRulesFile(repoRoot);
     if (repoLocal) {
       rulesFile = repoLocal;
+      // OP-2086: fail closed on a corrupt repo-local registry. discoverRules-
+      // AcrossExtends downgrades a load error to a warning and continues, so a
+      // repo-local RULES.yaml with a YAML parse error or a bad severity yields
+      // a totalRules: 0, exit-0 report — a broken registry reporting all-clean.
+      // Re-load it directly; a load error on the PRIMARY registry is fatal.
+      // (An extends layer failing stays a warning — graceful degradation.)
+      try {
+        loadRules(repoLocal);
+      } catch (err) {
+        if (err instanceof RulesLoadError) {
+          const message =
+            `Substrate: the repo-local RULES.yaml failed to load (${err.message}). ` +
+            "Refusing to audit with a broken registry — a corrupt registry would " +
+            "otherwise report zero findings and exit 0.";
+          if (options.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: { code: "rules-load-failed", message } }, null, 2) + "\n",
+            );
+            process.exitCode = 1;
+            throw new JsonAlreadyEmittedError(message);
+          }
+          throw new Error(message);
+        }
+        throw err;
+      }
     } else if (allRules.length > 0) {
       // No repo-local RULES.yaml, but extends sources contribute rules.
       // Use the first contributing source as a marker. The actual
