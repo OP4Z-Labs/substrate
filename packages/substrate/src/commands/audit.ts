@@ -504,10 +504,9 @@ export async function runAuditExecute(
   if (!options.diff && options.baseRef) {
     // U14: scope to what the branch introduced vs the base ref. Same fail-loud
     // contract as --diff — a bad ref or a git error refuses to silently audit
-    // the whole repo. NOTE: on this release pathFilter still OVERRIDES
-    // detector.paths (OP-2084), so a findings gate over --base-ref is unsound
-    // until the intersection lands; keep it advisory (the consumer-side gate
-    // re-applies the intersection in the interim).
+    // the whole repo. pathFilter now INTERSECTS detector.paths (OP-2084, fixed
+    // in beta.6), so a findings gate over --base-ref is sound: a rule scans
+    // only the changed files that fall under its declared scope.
     const changed = listChangedPathsSince(repoRoot, options.baseRef);
     if (changed.kind === "git-error") {
       const message =

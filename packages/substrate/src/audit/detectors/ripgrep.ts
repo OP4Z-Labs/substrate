@@ -17,7 +17,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { resolveDetectorPaths } from "../paths.js";
 import type { Finding, RipgrepDetector, Severity } from "../types.js";
@@ -181,7 +181,10 @@ function runWithRipgrep(
   options: RunRipgrepOptions,
   targets: string[],
 ): Finding[] {
-  const args: string[] = ["--json", "--line-number"];
+  // `--hidden` so rg scans tracked dotfiles (`.github/`, `.eslintrc`, …) — the
+  // Node fallback walks them (they are git-tracked), so without this the two
+  // engines diverge on dotfiles. `.git/**` etc. stay excluded via the globs.
+  const args: string[] = ["--json", "--line-number", "--hidden"];
   if (detector.fixedString) args.push("--fixed-strings");
   if (detector.multiline) args.push("--multiline", "--multiline-dotall");
   if (detector.caseSensitive === false) args.push("--ignore-case");
@@ -265,8 +268,19 @@ function runWithFallback(
   if (detector.fixedString) {
     regex = new RegExp(escapeRegex(detector.pattern), flags);
   } else {
+    // rg uses the Rust regex crate, which supports POSIX bracket classes
+    // (`[[:space:]]`). JS RegExp does not — left untranslated they silently
+    // match the wrong thing, so a real rule (`BE-ARCH-005`, `BE-PY-001`) would
+    // report false-clean on the fallback. Translate the known ones; a POSIX
+    // class we cannot translate is a loud detector error, never a silent miss.
+    const translated = translatePosixClasses(detector.pattern);
+    if (/\[:\^?[a-z]+:\]/.test(translated)) {
+      throw new Error(
+        `ripgrep fallback cannot faithfully evaluate the POSIX class in rule ${options.ruleId}'s pattern; install ripgrep or rewrite the pattern`,
+      );
+    }
     try {
-      regex = new RegExp(detector.pattern, flags);
+      regex = new RegExp(translated, flags);
     } catch (err) {
       throw new Error(
         `ripgrep fallback could not compile pattern for rule ${options.ruleId}: ${(err as Error).message}`,
@@ -288,10 +302,11 @@ function runWithFallback(
       }
       const lines = text.split("\n");
       if (detector.multiline) {
-        regex.lastIndex = 0;
-        const m = regex.exec(text);
-        if (m) {
-          // For multiline matches, attribute to the line where the match starts.
+        // Collect EVERY multiline match, not just the first — rg reports all,
+        // and a rule like BE-DB-008 (multiline) has multiple hits per file.
+        const g = new RegExp(regex.source, regex.flags.includes("g") ? regex.flags : `${regex.flags}g`);
+        let m: RegExpExecArray | null;
+        while ((m = g.exec(text)) !== null) {
           const upto = text.slice(0, m.index);
           const lineNum = upto.split("\n").length;
           findings.push({
@@ -302,6 +317,7 @@ function runWithFallback(
             line: lineNum,
             snippet: truncate(m[0].split("\n")[0]!.trim(), SNIPPET_MAX_LEN),
           });
+          if (m.index === g.lastIndex) g.lastIndex += 1; // avoid an infinite loop on a zero-width match
         }
         return;
       }
@@ -333,7 +349,7 @@ function walk(
   const st = statSync(root);
   if (st.isFile()) {
     const rel = relative(repoRoot, root);
-    if (isVisitableFile(rel, root, excludeGlobs, known)) {
+    if (isVisitableFile(rel, root, excludeGlobs, known, repoRoot)) {
       visit(root, rel);
     }
     return;
@@ -351,13 +367,20 @@ function walk(
     if (isExcluded(rel, excludeGlobs)) continue;
     let entrySt;
     try {
-      entrySt = statSync(full);
+      // lstat, NOT stat: a symlink must be inspected without following it.
+      entrySt = lstatSync(full);
     } catch {
       continue;
     }
+    // Never follow symlinks during the walk. rg does not follow them by
+    // default, so following them here both diverges from rg AND lets a symlink
+    // pointing outside repoRoot exfiltrate outside content when git is
+    // unavailable (the `known`-set guard is null then). Skipping all symlinks
+    // matches rg and closes that hole.
+    if (entrySt.isSymbolicLink()) continue;
     if (entrySt.isDirectory()) {
       walk(full, repoRoot, excludeGlobs, known, visit);
-    } else if (entrySt.isFile() && isVisitableFile(rel, full, excludeGlobs, known)) {
+    } else if (entrySt.isFile() && isVisitableFile(rel, full, excludeGlobs, known, repoRoot)) {
       visit(full, rel);
     }
   }
@@ -373,11 +396,55 @@ function isVisitableFile(
   abs: string,
   excludeGlobs: string[],
   known: Set<string> | null,
+  repoRoot: string,
 ): boolean {
   if (isExcluded(rel, excludeGlobs)) return false;
   if (!isLikelyTextFile(abs)) return false;
   if (known !== null && !known.has(toPosix(rel))) return false;
+  // Defence in depth: never read a file whose real path escapes the repo. The
+  // walk already skips symlinks, but this also catches a target reached through
+  // a symlinked ancestor when git is unavailable to bound the set.
+  if (!isInsideRepo(abs, repoRoot)) return false;
   return true;
+}
+
+/** True when `abs` resolves (via realpath) to a location inside `repoRoot`. */
+function isInsideRepo(abs: string, repoRoot: string): boolean {
+  try {
+    const realRoot = realpathSync(repoRoot);
+    const realAbs = realpathSync(abs);
+    const rel = relative(realRoot, realAbs);
+    return rel === "" || (!rel.startsWith("..") && !/^([A-Za-z]:)?[\\/]/.test(rel));
+  } catch {
+    const rel = relative(repoRoot, abs);
+    return !rel.startsWith("..") && !/^([A-Za-z]:)?[\\/]/.test(rel);
+  }
+}
+
+/**
+ * Translate the POSIX bracket classes rg (Rust regex) supports but JS RegExp
+ * does not. Each `[:name:]` sits inside a `[...]` bracket expression, so the
+ * replacement is a character-class fragment. A class not in this map is left
+ * intact; the caller detects the leftover and fails loud rather than silently
+ * mismatching.
+ */
+const POSIX_CLASS_MAP: Record<string, string> = {
+  space: "\\s",
+  digit: "0-9",
+  alpha: "A-Za-z",
+  alnum: "A-Za-z0-9",
+  upper: "A-Z",
+  lower: "a-z",
+  xdigit: "0-9A-Fa-f",
+  blank: " \\t",
+  word: "\\w",
+  cntrl: "\\x00-\\x1f\\x7f",
+  punct: "!-/:-@\\[-`{-~",
+};
+function translatePosixClasses(pattern: string): string {
+  return pattern.replace(/\[:([a-z]+):\]/g, (whole, name: string) =>
+    Object.prototype.hasOwnProperty.call(POSIX_CLASS_MAP, name) ? POSIX_CLASS_MAP[name]! : whole,
+  );
 }
 
 const BINARY_EXTENSIONS = new Set([
