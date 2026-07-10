@@ -82,6 +82,7 @@ const V2_CHECKS: Array<{ id: string; run: (root: string, options: DoctorOptions)
   { id: "stale-proposals", run: (root, opt) => checkStaleProposals(root, opt.staleProposalsDays ?? 90) },
   { id: "escalation-debt", run: (root, opt) => checkEscalationDebt(root, opt.escalationDebtDays ?? 30) },
   { id: "ripgrep-lookaround", run: (root) => checkRipgrepLookaround(root) },
+  { id: "rules-health", run: (root) => checkRulesHealth(root) },
 ];
 
 export function runDoctor(options: DoctorOptions = {}): DoctorReport {
@@ -762,14 +763,19 @@ function checkEscalationDebt(root: string, debtDays: number): Check[] {
     } catch {
       continue;
     }
-    let report: { scope?: string; results?: Array<{ ruleId?: string; findings?: Array<unknown> }> };
+    let report: { scope?: string; rules?: Array<{ ruleId?: string; findings?: Array<unknown> }> };
     try {
       report = JSON.parse(raw);
     } catch {
       continue;
     }
-    if (!report.results) continue;
-    for (const res of report.results) {
+    // The sidecar shape is `report.rules` (RuleResult[]), not `report.results`.
+    // This loop read the wrong key and so NEVER executed — the check reported
+    // "no findings stuck at critical" unconditionally, inside the tool this
+    // plan's Definition of Done leans on (RC6). A test now plants a stuck
+    // finding and asserts this warns.
+    if (!report.rules) continue;
+    for (const res of report.rules) {
       if (!res.findings) continue;
       for (const f of res.findings as Array<{
         ruleId?: string;
@@ -878,6 +884,114 @@ function checkRipgrepLookaround(root: string): Check[] {
   ];
 }
 
+/**
+ * `--check rules-health`: statically surfaces rules that look configured but
+ * cannot run (RC1/RC5/RC6). Four dimensions, each an independently-firing
+ * check so none can silently go dead like `escalation-debt` did:
+ *
+ *   - executable-types : a `shell` type this runtime cannot execute
+ *   - script-paths     : a `script` detector whose file is missing (error)
+ *   - literal-paths    : a ripgrep detector naming a non-glob path that does
+ *                        not exist (glob paths are resolved at audit time)
+ *   - load-warnings    : the loader's own U4/U5/polarity warnings, surfaced
+ *                        here so a run of `doctor` shows them without an audit
+ *
+ * A no-op glob (`apps/backend/*​/tests` matching nothing) is NOT checked here —
+ * that resolution happens in the runtime and surfaces via the audit's errors[].
+ */
+function checkRulesHealth(root: string): Check[] {
+  const rulesPath = locateRulesFile(root);
+  if (!rulesPath) {
+    return [
+      { id: "rules.health", title: "rules health", severity: "ok", message: "no RULES.yaml found; nothing to check." },
+    ];
+  }
+  let loaded;
+  try {
+    loaded = loadRules(rulesPath);
+  } catch (err) {
+    return [
+      {
+        id: "rules.health",
+        title: "rules health",
+        severity: "error",
+        message: `Could not load ${rulesPath}: ${err instanceof Error ? err.message : String(err)}`,
+        fix: "Fix the RULES.yaml parse/validation error above; a malformed registry disables the whole audit.",
+      },
+    ];
+  }
+  const rules = loaded.document.rules ?? [];
+
+  const shellRules: string[] = [];
+  const missingScripts: string[] = [];
+  const missingLiteralPaths: string[] = [];
+  for (const rule of rules) {
+    if (rule.declaredManualType === "shell") shellRules.push(rule.id);
+    const det = rule.detector;
+    if (det?.type === "script") {
+      if (!existsSync(join(root, det.path))) missingScripts.push(`${rule.id} → ${det.path}`);
+    } else if (det?.type === "ripgrep" && det.paths) {
+      for (const p of det.paths) {
+        if (/[*?[\]]/.test(p)) continue; // glob: resolved at audit time
+        if (!existsSync(join(root, p))) missingLiteralPaths.push(`${rule.id} → ${p}`);
+      }
+    }
+  }
+
+  const out: Check[] = [];
+  out.push(
+    shellRules.length === 0
+      ? { id: "rules.executable-types", title: "rule detector types executable", severity: "ok", message: `${rules.length} rule(s); no unexecutable "shell" types.` }
+      : {
+          id: "rules.executable-types",
+          title: "rule detector types executable",
+          severity: "warn",
+          message: `${shellRules.length} rule(s) declare "shell", which this runtime cannot execute — they will not run: ${truncateList(shellRules)}.`,
+          fix: "Migrate to `type: script`, or convert to a `manual` review pointer.",
+        },
+  );
+  out.push(
+    missingScripts.length === 0
+      ? { id: "rules.script-paths", title: "script detector files exist", severity: "ok", message: "all script detector files resolve." }
+      : {
+          id: "rules.script-paths",
+          title: "script detector files exist",
+          severity: "error",
+          message: `${missingScripts.length} script detector(s) point at a file that does not exist: ${truncateList(missingScripts)}.`,
+          fix: "Create the detector file, or fix the `path`. A missing script errors at audit time.",
+        },
+  );
+  out.push(
+    missingLiteralPaths.length === 0
+      ? { id: "rules.literal-paths", title: "ripgrep literal paths exist", severity: "ok", message: "all non-glob ripgrep paths resolve." }
+      : {
+          id: "rules.literal-paths",
+          title: "ripgrep literal paths exist",
+          severity: "warn",
+          message: `${missingLiteralPaths.length} ripgrep path(s) name a non-glob path that does not exist — the rule errors at audit time: ${truncateList(missingLiteralPaths)}.`,
+          fix: "Fix the stale path, or remove the rule.",
+        },
+  );
+  const loadWarnings = loaded.warnings.filter((w) => !w.includes("shell")); // shell already covered above
+  out.push(
+    loadWarnings.length === 0
+      ? { id: "rules.load-warnings", title: "rule loader warnings", severity: "ok", message: "no unknown-key or polarity warnings." }
+      : {
+          id: "rules.load-warnings",
+          title: "rule loader warnings",
+          severity: "warn",
+          message: `${loadWarnings.length} loader warning(s): ${truncateList(loadWarnings)}.`,
+          fix: "Fix the typo'd detector key, or move an annotation under the sanctioned `metadata`/`expected` keys.",
+        },
+  );
+  return out;
+}
+
+function truncateList(items: string[], max = 6): string {
+  if (items.length <= max) return items.join("; ");
+  return `${items.slice(0, max).join("; ")}; …${items.length - max} more`;
+}
+
 // ---------------------------------------------------------- rendering
 function renderHumanReport(report: DoctorReport): void {
   console.log(kleur.bold("\nSubstrate doctor\n"));
@@ -916,6 +1030,7 @@ export const _internals = {
   checkStaleProposals,
   checkEscalationDebt,
   checkRipgrepLookaround,
+  checkRulesHealth,
   // Use a wrapper rather than mutating readdirSync for tests
   readdir: (dir: string): string[] => (existsSync(dir) ? readdirSync(dir).filter((e) => statSync(join(dir, e))) : []),
 };

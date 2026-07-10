@@ -201,11 +201,15 @@ describe("substrate doctor — escalation-debt", () => {
   function writeSidecar(scope: string, findings: Array<Record<string, unknown>>): void {
     const dir = join(tmpRoot, "substrate", "audits");
     mkdirSync(dir, { recursive: true });
+    // The real sidecar shape is `rules` (RuleResult[]), not `results`. The
+    // escalation-debt check read `results` and so never ran (RC6); this helper
+    // encoded the same wrong key, which let the dead check "pass". Fixed to the
+    // shape substrate actually writes.
     const sidecar = {
       scope,
       generatedAt: new Date().toISOString(),
       substrateVersion: "1.0.0",
-      results: [
+      rules: [
         {
           ruleId: "DUMMY-RULE",
           findings,
