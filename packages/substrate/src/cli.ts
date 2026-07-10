@@ -135,6 +135,10 @@ function buildProgram(): Command {
     .option("--type <name>", "[legacy] load an audit-<name>.md instruction stub")
     .option("--rule <id>", "Run a single rule by id")
     .option("--diff", "Restrict ripgrep detectors to files in the staged diff", false)
+    .option(
+      "--base-ref <ref>",
+      "Restrict to files the branch introduced vs <ref> (git diff <ref>...HEAD). The server-side counterpart to --diff.",
+    )
     .option("--trend", "Print the trend journal (substrate/audits/_trend.jsonl)", false)
     .option("--rules-path <path>", "Override the RULES.yaml location")
     .option("--strict", "Treat unknown RULES.yaml fields as errors", false)
@@ -161,6 +165,7 @@ function buildProgram(): Command {
       await runAuditExecute({
         ruleId: options.rule,
         diff: options.diff,
+        baseRef: options.baseRef,
         rulesPath: options.rulesPath,
         strict: options.strict,
         noReport: options.report === false,
@@ -1129,6 +1134,7 @@ interface AuditCliOptions {
   type?: string;
   rule?: string;
   diff?: boolean;
+  baseRef?: string;
   trend?: boolean;
   rulesPath?: string;
   strict?: boolean;

@@ -23,6 +23,32 @@ export type DiffPaths =
   | { kind: "no-git" }
   | { kind: "git-error"; detail: string };
 
+/**
+ * Files the current branch INTRODUCED relative to a base ref — the primitive
+ * `--diff` should have had for server-side use.
+ *
+ * `--diff` compares the working tree to HEAD, which is empty after a CI
+ * checkout (the tree is clean), so a `substrate audit --diff` in CI audits
+ * nothing and exits 0 — green by construction (RC9). This instead diffs
+ * `<baseRef>...HEAD` (three-dot: against the merge-base, i.e. what the branch
+ * added, not everything that landed on the base since it forked), which is what
+ * `semgrep --baseline-commit`, `golangci-lint --new-from-rev`, and SonarQube
+ * new-code all provide.
+ *
+ * `--diff-filter=ACMR` drops Deletions — you cannot scan a file that no longer
+ * exists. A bad ref is a `git-error`, never a silent full-repo scan.
+ */
+export function listChangedPathsSince(repoRoot: string, baseRef: string): DiffPaths {
+  if (!isGitRepo(repoRoot)) return { kind: "no-git" };
+  const r = gitRun(repoRoot, ["diff", "--name-only", "--diff-filter=ACMR", `${baseRef}...HEAD`]);
+  if (r.status !== 0) {
+    return { kind: "git-error", detail: describeFailure(`git diff ${baseRef}...HEAD`, r) };
+  }
+  const files = new Set<string>();
+  addLines(files, r.stdout);
+  return { kind: "files", files: Array.from(files).sort() };
+}
+
 export function listDiffPaths(repoRoot: string): DiffPaths {
   if (!isGitRepo(repoRoot)) return { kind: "no-git" };
 

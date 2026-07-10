@@ -4,6 +4,7 @@ import kleur from "kleur";
 import {
   applyEscalations,
   hashRuleset,
+  listChangedPathsSince,
   listDiffPaths,
   loadRules,
   locateRulesFile,
@@ -325,6 +326,13 @@ export interface AuditExecuteOptions {
   ruleId?: string;
   /** Run only rules whose detectors touch files in the staged diff. */
   diff?: boolean;
+  /**
+   * Scope to the files the branch introduced vs a base ref
+   * (`git diff --name-only <baseRef>...HEAD`). The server-side counterpart to
+   * `--diff`, which is inert after a CI checkout. Mutually exclusive with
+   * `--diff`; `--diff` wins if both are set.
+   */
+  baseRef?: string;
   /** Strict load: unknown fields become errors. */
   strict?: boolean;
   /** Emit machine-readable JSON instead of human prose. */
@@ -450,7 +458,41 @@ export async function runAuditExecute(
     scope = options.ruleId;
   } else {
     rules = allRules;
-    scope = options.diff ? "diff" : "all";
+    scope = options.diff ? "diff" : options.baseRef ? `base:${options.baseRef}` : "all";
+  }
+  if (!options.diff && options.baseRef) {
+    // U14: scope to what the branch introduced vs the base ref. Same fail-loud
+    // contract as --diff — a bad ref or a git error refuses to silently audit
+    // the whole repo. NOTE: on this release pathFilter still OVERRIDES
+    // detector.paths (OP-2084), so a findings gate over --base-ref is unsound
+    // until the intersection lands; keep it advisory (the consumer-side gate
+    // re-applies the intersection in the interim).
+    const changed = listChangedPathsSince(repoRoot, options.baseRef);
+    if (changed.kind === "git-error") {
+      const message =
+        `Substrate: --base-ref could not resolve the changed-file set (${changed.detail}). ` +
+        "Refusing to silently audit the entire repository. Check that the ref exists and the " +
+        "history is present (CI often needs fetch-depth: 0).";
+      if (options.json) {
+        process.stdout.write(
+          JSON.stringify({ ok: false, error: { code: "base-ref-unresolved", message } }, null, 2) + "\n",
+        );
+        process.exitCode = 1;
+        throw new JsonAlreadyEmittedError(message);
+      }
+      throw new Error(message);
+    }
+    if (changed.kind === "no-git") {
+      scope = "all";
+      loadWarnings.push(
+        "--base-ref was requested outside a git repository; auditing all files instead of a diff.",
+      );
+    } else if (changed.files.length > 0) {
+      pathFilter = changed.files;
+    } else {
+      // The branch introduced no scannable files vs the base ref.
+      rules = [];
+    }
   }
   if (options.diff) {
     const diff = listDiffPaths(repoRoot);
