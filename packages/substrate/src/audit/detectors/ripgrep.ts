@@ -153,6 +153,21 @@ function runWithRipgrep(detector: RipgrepDetector, options: RunRipgrepOptions): 
     maxBuffer: 32 * 1024 * 1024,
   });
 
+  // A spawn-level error (rg missing mid-run, or — the real hazard —
+  // maxBuffer overflow) leaves `status = null` and sets `error`, so the
+  // `status >= 2` guard below never sees it. Left unchecked, a rule whose
+  // output exceeds 32 MB parses TRUNCATED stdout and silently undercounts
+  // (RC3). Treat any spawn error as a detector error so it surfaces in
+  // errors[] instead.
+  if (result.error) {
+    const code = (result.error as NodeJS.ErrnoException).code;
+    const detail =
+      code === "ENOBUFS"
+        ? "output exceeded the 32 MB buffer — the rule is too broad; narrow its paths or pattern"
+        : result.error.message;
+    throw new Error(`ripgrep failed for rule ${options.ruleId}: ${detail}`);
+  }
+
   // rg exits 0 when matches found, 1 when no matches, 2 on error.
   // We only treat 2+ as an error condition; 1 is "all good, no findings".
   if (result.status !== null && result.status >= 2) {

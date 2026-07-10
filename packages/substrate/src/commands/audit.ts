@@ -521,6 +521,15 @@ export async function runAuditExecute(
     reportPaths = writeAuditReport(report, { repoRoot, scope });
   }
 
+  // Under --strict, a rule that could not run is a failure, not a warning:
+  // exit non-zero so a caller can gate on the exit code without parsing JSON.
+  // Default mode stays exit 0 for backward compatibility — the differential
+  // gate reads report.errors[] directly (D4). This never throws, so the report
+  // (JSON or human) is always emitted first.
+  if (options.strict && report.errors.length > 0) {
+    process.exitCode = 1;
+  }
+
   if (options.json) {
     process.stdout.write(JSON.stringify({ report, reportPaths }, null, 2) + "\n");
     return { report, reportPaths };
@@ -539,9 +548,20 @@ function renderConsoleSummary(
   console.log(kleur.bold(`Substrate audit — ${report.scope}`));
   console.log(
     kleur.dim(
-      `  ${report.executedRules}/${report.totalRules} rules · ${report.totalFindings} findings · ${report.durationMs}ms`,
+      `  ${report.totalRules} loaded · ${report.firedRules} fired · ${report.errors.length} errored · ${report.totalFindings} findings · ${report.durationMs}ms`,
     ),
   );
+  // Errored rules are surfaced loudly, before findings — a rule that could not
+  // run is a hole in coverage, and its zero findings mean nothing.
+  if (report.errors.length > 0) {
+    console.log(kleur.red(`  ✗ ${report.errors.length} rule(s) errored and did not run:`));
+    for (const e of report.errors.slice(0, 10)) {
+      console.log(`    ${severityColor(e.severity)("●")} ${e.ruleId.padEnd(18)} ${kleur.dim(e.message)}`);
+    }
+    if (report.errors.length > 10) {
+      console.log(kleur.dim(`    ... and ${report.errors.length - 10} more`));
+    }
+  }
   if (report.totalFindings > 0) {
     const sevs: Severity[] = ["critical", "high", "medium", "low"];
     const parts = sevs
