@@ -11,6 +11,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { isAbsolute, relative } from "node:path";
 import { SUBSTRATE_VERSION } from "../util/version.js";
 import { runCompositeDetector } from "./detectors/composite.js";
 import { runRipgrepDetector } from "./detectors/ripgrep.js";
@@ -128,6 +129,22 @@ export async function runAudit(options: RunAuditOptions): Promise<AuditReport> {
 }
 
 /**
+ * The registry file, as a repo-relative glob to exclude from every scan
+ * (OP-2085). A rule with `match_count: 0` whose `pattern:` string appears in
+ * RULES.yaml would otherwise match its own definition and flag the registry.
+ * Returns [] when the rules path is the synthetic `<extends:…>` marker (no
+ * on-disk file) or resolves outside the repo.
+ */
+function registryExcludes(options: RunAuditOptions): string[] {
+  const p = options.rulesPath;
+  if (!p || p.startsWith("<")) return [];
+  const abs = isAbsolute(p) ? p : `${options.repoRoot}/${p}`;
+  const rel = relative(options.repoRoot, abs);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return [];
+  return [rel.split("\\").join("/")];
+}
+
+/**
  * A stable short content hash of a rule set. Keyed on each rule's identity and
  * detection config (id, severity, detector), sorted by id so array order does
  * not perturb it. Used to detect that the ruleset changed between two trend
@@ -171,11 +188,12 @@ async function runSingleRule(
   }
   try {
     if (rule.detector.type === "ripgrep") {
-      const findings = runRipgrepDetector(rule.detector, {
+      const { findings, unmatched } = runRipgrepDetector(rule.detector, {
         repoRoot: options.repoRoot,
         ruleId: rule.id,
         severity: rule.severity,
         pathFilter: options.pathFilter,
+        alwaysExclude: registryExcludes(options),
       });
       return {
         ruleId: rule.id,
@@ -185,6 +203,7 @@ async function runSingleRule(
         findings,
         durationMs: Date.now() - start,
         skipped: false,
+        ...(unmatched.length > 0 ? { unmatchedPaths: unmatched } : {}),
       };
     }
     if (rule.detector.type === "script") {

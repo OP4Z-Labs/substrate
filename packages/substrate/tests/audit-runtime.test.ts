@@ -228,7 +228,7 @@ describe("audit-runtime: ripgrep detector (Node fallback path)", () => {
 
   it("finds matches in a single file and returns sorted findings", () => {
     writeFileSync(join(tmp, "a.txt"), "first match\nsecond no\nthird match\n", "utf8");
-    const findings = runRipgrepDetector(
+    const { findings } = runRipgrepDetector(
       { type: "ripgrep", pattern: "match" },
       { repoRoot: tmp, ruleId: "T-1", severity: "high", forceFallback: true },
     );
@@ -242,7 +242,7 @@ describe("audit-runtime: ripgrep detector (Node fallback path)", () => {
     mkdirSync(join(tmp, "node_modules"), { recursive: true });
     writeFileSync(join(tmp, "src", "found.ts"), "TARGET\n", "utf8");
     writeFileSync(join(tmp, "node_modules", "skip.js"), "TARGET\n", "utf8");
-    const findings = runRipgrepDetector(
+    const { findings } = runRipgrepDetector(
       { type: "ripgrep", pattern: "TARGET" },
       { repoRoot: tmp, ruleId: "T-2", severity: "medium", forceFallback: true },
     );
@@ -252,7 +252,7 @@ describe("audit-runtime: ripgrep detector (Node fallback path)", () => {
 
   it("honors caseSensitive=false", () => {
     writeFileSync(join(tmp, "a.txt"), "FoO\nbar\n", "utf8");
-    const findings = runRipgrepDetector(
+    const { findings } = runRipgrepDetector(
       { type: "ripgrep", pattern: "foo", caseSensitive: false },
       { repoRoot: tmp, ruleId: "T-3", severity: "low", forceFallback: true },
     );
@@ -261,7 +261,7 @@ describe("audit-runtime: ripgrep detector (Node fallback path)", () => {
 
   it("treats fixedString patterns as literals (regex chars don't apply)", () => {
     writeFileSync(join(tmp, "a.txt"), "fn(\nfn (\n", "utf8");
-    const findings = runRipgrepDetector(
+    const { findings } = runRipgrepDetector(
       { type: "ripgrep", pattern: "fn(", fixedString: true },
       { repoRoot: tmp, ruleId: "T-4", severity: "medium", forceFallback: true },
     );
@@ -272,7 +272,7 @@ describe("audit-runtime: ripgrep detector (Node fallback path)", () => {
   it("skips binary files", () => {
     writeFileSync(join(tmp, "img.png"), "ignore\nTARGET\n", "utf8");
     writeFileSync(join(tmp, "code.ts"), "TARGET\n", "utf8");
-    const findings = runRipgrepDetector(
+    const { findings } = runRipgrepDetector(
       { type: "ripgrep", pattern: "TARGET" },
       { repoRoot: tmp, ruleId: "T-5", severity: "medium", forceFallback: true },
     );

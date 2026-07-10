@@ -17,8 +17,9 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
+import { resolveDetectorPaths } from "../paths.js";
 import type { Finding, RipgrepDetector, Severity } from "../types.js";
 
 /** Cap snippet length so reports stay readable. */
@@ -52,8 +53,31 @@ export interface RunRipgrepOptions {
   severity: Severity;
   /** Force the Node fallback even when rg is available (used by tests for parity). */
   forceFallback?: boolean;
-  /** Restrict to these paths (overrides detector.paths). Used by `--diff`. */
+  /**
+   * The changed-file set under `--diff` / `--base-ref`. It INTERSECTS with
+   * `detector.paths` (a rule scoped to `apps/backend/**` scans only changed
+   * files under that scope), never overrides it (OP-2084). Resolution happens
+   * in {@link resolveDetectorPaths}.
+   */
   pathFilter?: string[];
+  /**
+   * Repo-relative globs excluded from EVERY detector regardless of its own
+   * `exclude`. The runner passes the loaded RULES.yaml here so a rule never
+   * matches its own `pattern:` string inside the registry (OP-2085) — a
+   * `match_count: 0` rule quoting a pattern would otherwise flag itself.
+   */
+  alwaysExclude?: string[];
+}
+
+/**
+ * A detector run's output. `unmatched` lists declared paths that resolved to
+ * nothing (glob with no hit, missing literal, or a path refused for escaping
+ * the repo). The runner hoists it onto the RuleResult so a rule that scanned
+ * nothing is never reported as a clean pass.
+ */
+export interface RipgrepDetectorOutput {
+  findings: Finding[];
+  unmatched: string[];
 }
 
 /** Probe rg presence once per process. */
@@ -117,35 +141,61 @@ function toPosix(p: string): string {
 }
 
 /**
- * Execute a ripgrep detector. Returns the findings sorted by path + line.
+ * Execute a ripgrep detector. Returns the findings sorted by path + line, plus
+ * the declared paths that resolved to nothing.
+ *
+ * Path resolution — glob expansion, `pathFilter` intersection, and repo
+ * containment — happens ONCE, in {@link resolveDetectorPaths}, and both the rg
+ * and the fallback path scan the identical concrete target list. That is what
+ * makes the two paths agree: they historically diverged because each resolved
+ * `detector.paths` for itself (rg passed the literal glob to a shell-less spawn
+ * and errored; the fallback `resolve()`d the same literal and found nothing).
+ * See the parity battery in `tests/audit-ripgrep-parity.test.ts`.
  */
 export function runRipgrepDetector(
   detector: RipgrepDetector,
   options: RunRipgrepOptions,
-): Finding[] {
+): RipgrepDetectorOutput {
+  const resolved = resolveDetectorPaths(options.repoRoot, detector.paths, options.pathFilter);
+  // Nothing to scan: every declared path resolved to nothing, or the diff
+  // touched nothing in scope. Emit no findings — and report `unmatched` so the
+  // caller can tell "scope is gone" from "scanned and clean".
+  if (resolved.targets.length === 0) {
+    return { findings: [], unmatched: resolved.unmatched };
+  }
   const useRg = !options.forceFallback && hasRipgrep();
   const findings = useRg
-    ? runWithRipgrep(detector, options)
-    : runWithFallback(detector, options);
-  return findings.sort((a, b) => {
+    ? runWithRipgrep(detector, options, resolved.targets)
+    : runWithFallback(detector, options, resolved.targets);
+  findings.sort((a, b) => {
     const pa = a.path ?? "";
     const pb = b.path ?? "";
     if (pa !== pb) return pa.localeCompare(pb);
     return (a.line ?? 0) - (b.line ?? 0);
   });
+  return { findings, unmatched: resolved.unmatched };
 }
 
-function runWithRipgrep(detector: RipgrepDetector, options: RunRipgrepOptions): Finding[] {
-  const args: string[] = ["--json", "--line-number"];
+function runWithRipgrep(
+  detector: RipgrepDetector,
+  options: RunRipgrepOptions,
+  targets: string[],
+): Finding[] {
+  // `--hidden` so rg scans tracked dotfiles (`.github/`, `.eslintrc`, …) — the
+  // Node fallback walks them (they are git-tracked), so without this the two
+  // engines diverge on dotfiles. `.git/**` etc. stay excluded via the globs.
+  const args: string[] = ["--json", "--line-number", "--hidden"];
   if (detector.fixedString) args.push("--fixed-strings");
   if (detector.multiline) args.push("--multiline", "--multiline-dotall");
   if (detector.caseSensitive === false) args.push("--ignore-case");
   for (const exc of detector.exclude ?? DEFAULT_EXCLUDES) {
     args.push("--glob", `!${exc}`);
   }
+  for (const exc of options.alwaysExclude ?? []) {
+    args.push("--glob", `!${exc}`);
+  }
   args.push("--", detector.pattern);
-  const paths = options.pathFilter ?? detector.paths ?? ["."];
-  for (const p of paths) args.push(p);
+  for (const p of targets) args.push(p);
 
   const result = spawnSync("rg", args, {
     cwd: options.repoRoot,
@@ -187,10 +237,14 @@ function runWithRipgrep(detector: RipgrepDetector, options: RunRipgrepOptions): 
     if (!isObject(payload) || payload.type !== "match") continue;
     const data = (payload as { data?: unknown }).data;
     if (!isObject(data)) continue;
-    const path = (data as { path?: { text?: string } }).path?.text;
+    const rawPath = (data as { path?: { text?: string } }).path?.text;
     const lineNumber = (data as { line_number?: number }).line_number;
     const lines = (data as { lines?: { text?: string } }).lines?.text;
-    if (!path || !lineNumber) continue;
+    if (!rawPath || !lineNumber) continue;
+    // rg prefixes `./` when scanning `.` (a whole-repo rule); the Node fallback
+    // reports the bare relative path. Strip it so the two paths agree — the
+    // parity contract is that a finding's path is identical from either engine.
+    const path = rawPath.startsWith("./") ? rawPath.slice(2) : rawPath;
     findings.push({
       ruleId: options.ruleId,
       severity: options.severity,
@@ -203,28 +257,41 @@ function runWithRipgrep(detector: RipgrepDetector, options: RunRipgrepOptions): 
   return findings;
 }
 
-function runWithFallback(detector: RipgrepDetector, options: RunRipgrepOptions): Finding[] {
+function runWithFallback(
+  detector: RipgrepDetector,
+  options: RunRipgrepOptions,
+  targetPaths: string[],
+): Finding[] {
   const findings: Finding[] = [];
   const flags = (detector.caseSensitive === false ? "i" : "") + (detector.multiline ? "ms" : "m");
   let regex: RegExp;
   if (detector.fixedString) {
     regex = new RegExp(escapeRegex(detector.pattern), flags);
   } else {
+    // rg uses the Rust regex crate, which supports POSIX bracket classes
+    // (`[[:space:]]`). JS RegExp does not — left untranslated they silently
+    // match the wrong thing, so a real rule (`BE-ARCH-005`, `BE-PY-001`) would
+    // report false-clean on the fallback. Translate the known ones; a POSIX
+    // class we cannot translate is a loud detector error, never a silent miss.
+    const translated = translatePosixClasses(detector.pattern);
+    if (/\[:\^?[a-z]+:\]/.test(translated)) {
+      throw new Error(
+        `ripgrep fallback cannot faithfully evaluate the POSIX class in rule ${options.ruleId}'s pattern; install ripgrep or rewrite the pattern`,
+      );
+    }
     try {
-      regex = new RegExp(detector.pattern, flags);
+      regex = new RegExp(translated, flags);
     } catch (err) {
       throw new Error(
         `ripgrep fallback could not compile pattern for rule ${options.ruleId}: ${(err as Error).message}`,
       );
     }
   }
-  const excludeGlobs = detector.exclude ?? DEFAULT_EXCLUDES;
+  const excludeGlobs = [...(detector.exclude ?? DEFAULT_EXCLUDES), ...(options.alwaysExclude ?? [])];
   // Mirror rg's .gitignore-respecting behavior (null = git unavailable, walk
   // everything subject to excludeGlobs only).
   const known = gitKnownFiles(options.repoRoot);
-  const targets = (options.pathFilter ?? detector.paths ?? ["."]).map((p) =>
-    resolve(options.repoRoot, p),
-  );
+  const targets = targetPaths.map((p) => resolve(options.repoRoot, p));
   for (const target of targets) {
     walk(target, options.repoRoot, excludeGlobs, known, (absPath, rel) => {
       let text: string;
@@ -235,10 +302,11 @@ function runWithFallback(detector: RipgrepDetector, options: RunRipgrepOptions):
       }
       const lines = text.split("\n");
       if (detector.multiline) {
-        regex.lastIndex = 0;
-        const m = regex.exec(text);
-        if (m) {
-          // For multiline matches, attribute to the line where the match starts.
+        // Collect EVERY multiline match, not just the first — rg reports all,
+        // and a rule like BE-DB-008 (multiline) has multiple hits per file.
+        const g = new RegExp(regex.source, regex.flags.includes("g") ? regex.flags : `${regex.flags}g`);
+        let m: RegExpExecArray | null;
+        while ((m = g.exec(text)) !== null) {
           const upto = text.slice(0, m.index);
           const lineNum = upto.split("\n").length;
           findings.push({
@@ -249,6 +317,7 @@ function runWithFallback(detector: RipgrepDetector, options: RunRipgrepOptions):
             line: lineNum,
             snippet: truncate(m[0].split("\n")[0]!.trim(), SNIPPET_MAX_LEN),
           });
+          if (m.index === g.lastIndex) g.lastIndex += 1; // avoid an infinite loop on a zero-width match
         }
         return;
       }
@@ -280,7 +349,7 @@ function walk(
   const st = statSync(root);
   if (st.isFile()) {
     const rel = relative(repoRoot, root);
-    if (isVisitableFile(rel, root, excludeGlobs, known)) {
+    if (isVisitableFile(rel, root, excludeGlobs, known, repoRoot)) {
       visit(root, rel);
     }
     return;
@@ -298,13 +367,20 @@ function walk(
     if (isExcluded(rel, excludeGlobs)) continue;
     let entrySt;
     try {
-      entrySt = statSync(full);
+      // lstat, NOT stat: a symlink must be inspected without following it.
+      entrySt = lstatSync(full);
     } catch {
       continue;
     }
+    // Never follow symlinks during the walk. rg does not follow them by
+    // default, so following them here both diverges from rg AND lets a symlink
+    // pointing outside repoRoot exfiltrate outside content when git is
+    // unavailable (the `known`-set guard is null then). Skipping all symlinks
+    // matches rg and closes that hole.
+    if (entrySt.isSymbolicLink()) continue;
     if (entrySt.isDirectory()) {
       walk(full, repoRoot, excludeGlobs, known, visit);
-    } else if (entrySt.isFile() && isVisitableFile(rel, full, excludeGlobs, known)) {
+    } else if (entrySt.isFile() && isVisitableFile(rel, full, excludeGlobs, known, repoRoot)) {
       visit(full, rel);
     }
   }
@@ -320,11 +396,55 @@ function isVisitableFile(
   abs: string,
   excludeGlobs: string[],
   known: Set<string> | null,
+  repoRoot: string,
 ): boolean {
   if (isExcluded(rel, excludeGlobs)) return false;
   if (!isLikelyTextFile(abs)) return false;
   if (known !== null && !known.has(toPosix(rel))) return false;
+  // Defence in depth: never read a file whose real path escapes the repo. The
+  // walk already skips symlinks, but this also catches a target reached through
+  // a symlinked ancestor when git is unavailable to bound the set.
+  if (!isInsideRepo(abs, repoRoot)) return false;
   return true;
+}
+
+/** True when `abs` resolves (via realpath) to a location inside `repoRoot`. */
+function isInsideRepo(abs: string, repoRoot: string): boolean {
+  try {
+    const realRoot = realpathSync(repoRoot);
+    const realAbs = realpathSync(abs);
+    const rel = relative(realRoot, realAbs);
+    return rel === "" || (!rel.startsWith("..") && !/^([A-Za-z]:)?[\\/]/.test(rel));
+  } catch {
+    const rel = relative(repoRoot, abs);
+    return !rel.startsWith("..") && !/^([A-Za-z]:)?[\\/]/.test(rel);
+  }
+}
+
+/**
+ * Translate the POSIX bracket classes rg (Rust regex) supports but JS RegExp
+ * does not. Each `[:name:]` sits inside a `[...]` bracket expression, so the
+ * replacement is a character-class fragment. A class not in this map is left
+ * intact; the caller detects the leftover and fails loud rather than silently
+ * mismatching.
+ */
+const POSIX_CLASS_MAP: Record<string, string> = {
+  space: "\\s",
+  digit: "0-9",
+  alpha: "A-Za-z",
+  alnum: "A-Za-z0-9",
+  upper: "A-Z",
+  lower: "a-z",
+  xdigit: "0-9A-Fa-f",
+  blank: " \\t",
+  word: "\\w",
+  cntrl: "\\x00-\\x1f\\x7f",
+  punct: "!-/:-@\\[-`{-~",
+};
+function translatePosixClasses(pattern: string): string {
+  return pattern.replace(/\[:([a-z]+):\]/g, (whole, name: string) =>
+    Object.prototype.hasOwnProperty.call(POSIX_CLASS_MAP, name) ? POSIX_CLASS_MAP[name]! : whole,
+  );
 }
 
 const BINARY_EXTENSIONS = new Set([

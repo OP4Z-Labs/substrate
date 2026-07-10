@@ -4,6 +4,60 @@ All notable changes to the substrate CLI are documented in this file.
 Adheres roughly to [Keep a Changelog](https://keepachangelog.com).
 
 
+## [3.0.0-beta.6] — 2026-07-10 — detector path resolution
+
+Where beta.5 made audit failures *visible*, beta.6 makes the runtime *resolve
+paths correctly*. `detector.paths` is now expanded once, in a shared resolver
+that feeds both the ripgrep and the Node-fallback engines the identical concrete
+target list — so the two engines cannot disagree, and a glob path finally
+matches what a human reads it to mean.
+
+> **Adopter note:** this release changes *which files a rule scans*. A registry
+> that leaned on the old "a glob path errors, so the rule quietly runs on
+> nothing" behavior will see those rules start firing. If any of your rules are
+> *presence* checks (a match is evidence of compliance, e.g. "a test exists"),
+> expand-then-run will turn each compliant match into a finding — convert those
+> to `script` detectors before adopting. See the OP4Z detector-integrity plan.
+
+### Added
+
+- **Glob expansion for `detector.paths`.** A star path such as
+  `apps/backend/<star>/app/services` now expands to the matching directories.
+  Previously it was handed to a shell-less `rg` spawn as a literal path — rg
+  exited 2 and the rule errored, while the Node fallback `resolve()`d the same
+  literal and silently found nothing. Same input, two different wrong answers.
+  `**` (globstar), `*`, and `?` are supported; expansion never descends into
+  `node_modules`/`.git` and skips symlinks.
+- **`unmatchedPaths` on each rule result.** A declared path that resolves to
+  nothing — a glob with no hit, a missing literal, or a path refused for leaving
+  the repo — is reported, so a rule that scanned nothing is never mistaken for a
+  clean zero-finding pass.
+
+### Fixed
+
+- **`pathFilter` now intersects `detector.paths` instead of overriding it.**
+  Under `--diff`/`--base-ref`, a rule scoped to `apps/backend/**` scanned *every*
+  changed file (including shell scripts and Markdown). It now scans only the
+  changed files that fall under its declared scope — which also makes a
+  `--base-ref` findings gate sound.
+- **Path traversal via `detector.paths` is refused.** A `paths` entry that
+  escaped the repo root (`../secret.env`) was read by `rg` and its contents
+  copied into a report snippet. Declared paths are now contained to the repo
+  (realpath-checked), closing an exfiltration vector for a registry authored by
+  an untrusted PR.
+- **The audit no longer scans its own `RULES.yaml`.** A `match_count: 0` rule
+  whose `pattern:` string appears in the registry matched its own definition and
+  flagged the registry file. The loaded registry is excluded from every scan.
+- **rg / fallback path parity.** `rg` prefixes `./` when scanning `.` (a
+  whole-repo rule); the Node fallback reports the bare relative path. The prefix
+  is now stripped so a finding's path is identical from either engine, and
+  downstream path-filtering agrees.
+
+### Notes
+
+- Additive to the report schema (`schemaVersion` stays `1`). The behavioral
+  change is which files a rule scans; see the adopter note above.
+
 ## [3.0.0-beta.5] — 2026-07-10 — audit visibility & the gate primitive
 
 The theme of this release is a single failure signature the audit runtime had
