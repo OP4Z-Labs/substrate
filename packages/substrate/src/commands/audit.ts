@@ -508,9 +508,11 @@ export async function runAuditExecute(
   applyEscalations(report, { rules: allRules, repoRoot });
 
   // Surface load warnings as informational lines (one shot, before reports).
-  // Includes per-source RULES load warnings + extends-merge collision
-  // records ("repo-local overrides org-shared").
-  if (!options.quiet && !options.json && loadWarnings.length > 0) {
+  // Includes per-source RULES load warnings, extends-merge collision records
+  // ("repo-local overrides org-shared"), and U5's unexecutable-type warnings.
+  // Written to stderr, so they are shown even in --json mode (where they would
+  // otherwise vanish exactly where CI needs them) without corrupting stdout.
+  if (!options.quiet && loadWarnings.length > 0) {
     for (const w of loadWarnings) {
       process.stderr.write(kleur.yellow(`  warn: ${w}\n`));
     }

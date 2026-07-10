@@ -155,7 +155,15 @@ function validateRule(
 
   if (o.detector !== undefined) {
     const detector = validateDetector(o.detector, id, strict, warnings);
-    if (detector) rule.detector = detector;
+    if (detector) {
+      rule.detector = detector;
+    } else if (isObject(o.detector)) {
+      // The detector declared a known-but-inert type (`manual` or `shell`).
+      // Record which, so the report distinguishes an intentional manual-review
+      // rule from a `shell` rule this runtime silently cannot execute (RC8).
+      const t = (o.detector as Record<string, unknown>).type;
+      if (t === "manual" || t === "shell") rule.declaredManualType = t;
+    }
   } else if (typeof o.pattern === "string") {
     // Shorthand: a rule with a top-level `pattern:` (plus optional
     // `paths:` / `exclude:`) is treated as a ripgrep detector. Lots of
@@ -231,14 +239,22 @@ function validateDetector(
   // "manual" and "shell" are legacy detector types from v0.3's skeleton.
   // They survive as no-op shapes — runtime marks them skipped.
   if (type === "manual" || type === "shell") {
-    if (strict && type === "shell") {
+    if (type === "shell") {
+      // U5: a declared type this runtime cannot execute is a latent break, not
+      // a silent no-op. Warn every time (not only under --strict) so a `shell`
+      // rule is visible as inert rather than passing as a clean skip.
       warnings.push(
-        `rule "${ruleId}" uses legacy detector type "shell" — migrate to "script" for v1.0+`,
+        `rule "${ruleId}" declares detector type "shell", which this runtime cannot execute — it will not run. Migrate to "script".`,
       );
     }
     // Return null so the rule still loads but no detector executes.
     return null;
   }
+  // U4: an unknown key inside `detector` is silently ignored today — 131 rules
+  // of inert annotation, and a typo'd `patern:` becomes a rule that matches
+  // nothing. Warn (or, under --strict, fail) on any key outside the sanctioned
+  // set for this detector type.
+  warnUnknownDetectorKeys(o, type, ruleId, strict, warnings);
   if (type === "ripgrep") {
     const pattern = strField(o, "pattern", `detector(${ruleId})`);
     const d: RipgrepDetector = {
@@ -284,6 +300,51 @@ function validateDetector(
     return d;
   }
   return null;
+}
+
+/**
+ * Keys sanctioned inside a `detector` block, by type.
+ *
+ * `metadata` and `expected` are sanctioned everywhere but INERT: the runtime
+ * dispatches on neither. `metadata` is documentation carried to the review arm
+ * (U11); `expected` is the legacy annotation surface (`match_count`, `exit_code`,
+ * `manual_review`, …) that Wave B migrates into real budgets. Sanctioning them
+ * keeps the unknown-key warning from firing on the 131 rules that legitimately
+ * carry `expected`, so the warning stays high-signal for genuine typos.
+ */
+const SANCTIONED_DETECTOR_KEYS: Record<string, readonly string[]> = {
+  ripgrep: ["type", "pattern", "paths", "exclude", "caseSensitive", "fixedString", "multiline"],
+  script: ["type", "path", "export", "options", "timeoutMs"],
+  composite: ["type", "rules", "operator"],
+};
+const INERT_ANNOTATION_KEYS = ["metadata", "expected"] as const;
+
+function warnUnknownDetectorKeys(
+  o: Record<string, unknown>,
+  type: string,
+  ruleId: string,
+  strict: boolean,
+  warnings: string[],
+): void {
+  const allowed = new Set<string>([
+    ...(SANCTIONED_DETECTOR_KEYS[type] ?? ["type"]),
+    ...INERT_ANNOTATION_KEYS,
+  ]);
+  for (const key of Object.keys(o)) {
+    if (allowed.has(key)) continue;
+    const msg = `rule "${ruleId}" detector has unknown key "${key}" — it is ignored. Sanctioned keys for ${type}: ${(SANCTIONED_DETECTOR_KEYS[type] ?? []).join(", ")}`;
+    if (strict) throw new RulesLoadError(msg);
+    warnings.push(msg);
+  }
+  // D7 / RC4-reborn guard: metadata.polarity is inert on a non-script detector.
+  // An author writing `metadata.polarity: presence` on a ripgrep rule expects
+  // absence-detection and gets an anti-finding per compliant line instead.
+  const metadata = o.metadata;
+  if (isObject(metadata) && metadata.polarity === "presence" && type !== "script") {
+    warnings.push(
+      `rule "${ruleId}" sets metadata.polarity: presence on a "${type}" detector — this is inert. Presence invariants must be script detectors; the ripgrep runtime would emit a finding per compliant match.`,
+    );
+  }
 }
 
 function strField(o: Record<string, unknown>, key: string, where: string | number): string {

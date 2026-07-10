@@ -75,6 +75,17 @@ export interface CompositeDetector {
 
 export type Detector = RipgrepDetector | ScriptDetector | CompositeDetector;
 
+/**
+ * How a rule's detector is reported. Beyond the three executable detector
+ * types, a rule may be reported as:
+ *   - `manual` — no detector block, or an explicit `type: manual`; a human
+ *     review item, intentional.
+ *   - `shell`  — an explicit `type: shell`, which THIS runtime cannot execute.
+ *     Reported distinctly so a silently-inert rule is not mistaken for an
+ *     intentional manual one (RC8). The loader also warns (U5).
+ */
+export type ReportedDetectorType = Detector["type"] | "manual" | "shell";
+
 export interface EscalationStep {
   /** Age threshold in days at which this escalation applies. */
   age_days: number;
@@ -100,6 +111,14 @@ export interface RuleDefinition {
   category?: string;
   /** The detector definition. Undefined when severity-only (manual review). */
   detector?: Detector;
+  /**
+   * Set when the rule declared a detector `type` that produces no executable
+   * detector: `manual` (intentional human review) or `shell` (a type this
+   * runtime cannot run — a latent break). Distinguishes those from a rule with
+   * no `detector` block at all, so the report can tell deliberate review from
+   * silent inertness (RC8).
+   */
+  declaredManualType?: "manual" | "shell";
   /**
    * Tags for filtering. The CLI's `--tag foo` flag matches against this list.
    */
@@ -160,7 +179,7 @@ export interface RuleResult {
   ruleId: string;
   ruleTitle: string;
   severity: Severity;
-  detectorType: Detector["type"] | "manual";
+  detectorType: ReportedDetectorType;
   /** Findings emitted by this rule (may be empty). */
   findings: Finding[];
   /** Wall-clock duration in ms. */
@@ -236,6 +255,6 @@ export interface AuditReport {
 export interface RuleRunError {
   ruleId: string;
   severity: Severity;
-  detectorType: Detector["type"] | "manual";
+  detectorType: ReportedDetectorType;
   message: string;
 }

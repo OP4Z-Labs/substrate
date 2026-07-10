@@ -146,8 +146,18 @@ async function runSingleRule(
   subResults?: Map<string, RuleResult>,
 ): Promise<RuleResult> {
   const start = Date.now();
-  const detectorType = (rule.detector?.type ?? "manual") as RuleResult["detectorType"];
+  const detectorType = (rule.detector?.type ?? rule.declaredManualType ?? "manual") as RuleResult["detectorType"];
   if (!rule.detector) {
+    // Three distinct no-detector cases, reported distinctly (RC8):
+    //   shell  — declared a type this runtime cannot run (latent break)
+    //   manual — declared type: manual (intentional review)
+    //   (none) — no detector block at all (intentional review)
+    const note =
+      rule.declaredManualType === "shell"
+        ? "declared type 'shell' is not executable in this runtime — migrate to 'script'"
+        : rule.declaredManualType === "manual"
+          ? "manual review — declared type: manual"
+          : "manual review — no detector configured";
     return {
       ruleId: rule.id,
       ruleTitle: rule.title,
@@ -156,7 +166,7 @@ async function runSingleRule(
       findings: [],
       durationMs: Date.now() - start,
       skipped: true,
-      note: "manual review — no detector configured",
+      note,
     };
   }
   try {

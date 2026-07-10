@@ -155,6 +155,13 @@ export function discoverRulesAcrossExtends(
       }
       throw err;
     }
+    // Forward per-file load warnings (U4 unknown-key, U5 unexecutable-type)
+    // so they reach the audit command. Without this they were generated and
+    // dropped — the shell-rule and typo'd-key warnings never surfaced in the
+    // normal `substrate audit` path, only in the single-file `--rules-path` one.
+    for (const w of loaded.warnings) {
+      warnings.push(chain.layers.length > 1 ? `layer '${layer.source}': ${w}` : w);
+    }
     const rules = loaded.document.rules ?? [];
     for (const rule of rules) {
       const list = slots.get(rule.id) ?? [];
