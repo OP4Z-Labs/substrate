@@ -50,7 +50,7 @@ describe("ripgrep fallback respects .gitignore", () => {
       "NEEDLE here too\n",
     );
 
-    const findings = runRipgrepDetector(DETECTOR, {
+    const { findings } = runRipgrepDetector(DETECTOR, {
       repoRoot: tmp,
       ruleId: "TEST-001",
       severity: "medium",
@@ -74,7 +74,7 @@ describe("ripgrep fallback respects .gitignore", () => {
     writeFileSync(join(tmp, "untracked.py"), "NEEDLE\n"); // untracked, not ignored
     writeFileSync(join(tmp, "ignored.py"), "NEEDLE\n"); // gitignored
 
-    const findings = runRipgrepDetector(DETECTOR, {
+    const { findings } = runRipgrepDetector(DETECTOR, {
       repoRoot: tmp,
       ruleId: "TEST-002",
       severity: "medium",

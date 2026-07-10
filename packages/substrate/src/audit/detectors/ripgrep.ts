@@ -19,6 +19,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
+import { resolveDetectorPaths } from "../paths.js";
 import type { Finding, RipgrepDetector, Severity } from "../types.js";
 
 /** Cap snippet length so reports stay readable. */
@@ -52,8 +53,31 @@ export interface RunRipgrepOptions {
   severity: Severity;
   /** Force the Node fallback even when rg is available (used by tests for parity). */
   forceFallback?: boolean;
-  /** Restrict to these paths (overrides detector.paths). Used by `--diff`. */
+  /**
+   * The changed-file set under `--diff` / `--base-ref`. It INTERSECTS with
+   * `detector.paths` (a rule scoped to `apps/backend/**` scans only changed
+   * files under that scope), never overrides it (OP-2084). Resolution happens
+   * in {@link resolveDetectorPaths}.
+   */
   pathFilter?: string[];
+  /**
+   * Repo-relative globs excluded from EVERY detector regardless of its own
+   * `exclude`. The runner passes the loaded RULES.yaml here so a rule never
+   * matches its own `pattern:` string inside the registry (OP-2085) — a
+   * `match_count: 0` rule quoting a pattern would otherwise flag itself.
+   */
+  alwaysExclude?: string[];
+}
+
+/**
+ * A detector run's output. `unmatched` lists declared paths that resolved to
+ * nothing (glob with no hit, missing literal, or a path refused for escaping
+ * the repo). The runner hoists it onto the RuleResult so a rule that scanned
+ * nothing is never reported as a clean pass.
+ */
+export interface RipgrepDetectorOutput {
+  findings: Finding[];
+  unmatched: string[];
 }
 
 /** Probe rg presence once per process. */
@@ -117,25 +141,46 @@ function toPosix(p: string): string {
 }
 
 /**
- * Execute a ripgrep detector. Returns the findings sorted by path + line.
+ * Execute a ripgrep detector. Returns the findings sorted by path + line, plus
+ * the declared paths that resolved to nothing.
+ *
+ * Path resolution — glob expansion, `pathFilter` intersection, and repo
+ * containment — happens ONCE, in {@link resolveDetectorPaths}, and both the rg
+ * and the fallback path scan the identical concrete target list. That is what
+ * makes the two paths agree: they historically diverged because each resolved
+ * `detector.paths` for itself (rg passed the literal glob to a shell-less spawn
+ * and errored; the fallback `resolve()`d the same literal and found nothing).
+ * See the parity battery in `tests/audit-ripgrep-parity.test.ts`.
  */
 export function runRipgrepDetector(
   detector: RipgrepDetector,
   options: RunRipgrepOptions,
-): Finding[] {
+): RipgrepDetectorOutput {
+  const resolved = resolveDetectorPaths(options.repoRoot, detector.paths, options.pathFilter);
+  // Nothing to scan: every declared path resolved to nothing, or the diff
+  // touched nothing in scope. Emit no findings — and report `unmatched` so the
+  // caller can tell "scope is gone" from "scanned and clean".
+  if (resolved.targets.length === 0) {
+    return { findings: [], unmatched: resolved.unmatched };
+  }
   const useRg = !options.forceFallback && hasRipgrep();
   const findings = useRg
-    ? runWithRipgrep(detector, options)
-    : runWithFallback(detector, options);
-  return findings.sort((a, b) => {
+    ? runWithRipgrep(detector, options, resolved.targets)
+    : runWithFallback(detector, options, resolved.targets);
+  findings.sort((a, b) => {
     const pa = a.path ?? "";
     const pb = b.path ?? "";
     if (pa !== pb) return pa.localeCompare(pb);
     return (a.line ?? 0) - (b.line ?? 0);
   });
+  return { findings, unmatched: resolved.unmatched };
 }
 
-function runWithRipgrep(detector: RipgrepDetector, options: RunRipgrepOptions): Finding[] {
+function runWithRipgrep(
+  detector: RipgrepDetector,
+  options: RunRipgrepOptions,
+  targets: string[],
+): Finding[] {
   const args: string[] = ["--json", "--line-number"];
   if (detector.fixedString) args.push("--fixed-strings");
   if (detector.multiline) args.push("--multiline", "--multiline-dotall");
@@ -143,9 +188,11 @@ function runWithRipgrep(detector: RipgrepDetector, options: RunRipgrepOptions): 
   for (const exc of detector.exclude ?? DEFAULT_EXCLUDES) {
     args.push("--glob", `!${exc}`);
   }
+  for (const exc of options.alwaysExclude ?? []) {
+    args.push("--glob", `!${exc}`);
+  }
   args.push("--", detector.pattern);
-  const paths = options.pathFilter ?? detector.paths ?? ["."];
-  for (const p of paths) args.push(p);
+  for (const p of targets) args.push(p);
 
   const result = spawnSync("rg", args, {
     cwd: options.repoRoot,
@@ -187,10 +234,14 @@ function runWithRipgrep(detector: RipgrepDetector, options: RunRipgrepOptions): 
     if (!isObject(payload) || payload.type !== "match") continue;
     const data = (payload as { data?: unknown }).data;
     if (!isObject(data)) continue;
-    const path = (data as { path?: { text?: string } }).path?.text;
+    const rawPath = (data as { path?: { text?: string } }).path?.text;
     const lineNumber = (data as { line_number?: number }).line_number;
     const lines = (data as { lines?: { text?: string } }).lines?.text;
-    if (!path || !lineNumber) continue;
+    if (!rawPath || !lineNumber) continue;
+    // rg prefixes `./` when scanning `.` (a whole-repo rule); the Node fallback
+    // reports the bare relative path. Strip it so the two paths agree — the
+    // parity contract is that a finding's path is identical from either engine.
+    const path = rawPath.startsWith("./") ? rawPath.slice(2) : rawPath;
     findings.push({
       ruleId: options.ruleId,
       severity: options.severity,
@@ -203,7 +254,11 @@ function runWithRipgrep(detector: RipgrepDetector, options: RunRipgrepOptions): 
   return findings;
 }
 
-function runWithFallback(detector: RipgrepDetector, options: RunRipgrepOptions): Finding[] {
+function runWithFallback(
+  detector: RipgrepDetector,
+  options: RunRipgrepOptions,
+  targetPaths: string[],
+): Finding[] {
   const findings: Finding[] = [];
   const flags = (detector.caseSensitive === false ? "i" : "") + (detector.multiline ? "ms" : "m");
   let regex: RegExp;
@@ -218,13 +273,11 @@ function runWithFallback(detector: RipgrepDetector, options: RunRipgrepOptions):
       );
     }
   }
-  const excludeGlobs = detector.exclude ?? DEFAULT_EXCLUDES;
+  const excludeGlobs = [...(detector.exclude ?? DEFAULT_EXCLUDES), ...(options.alwaysExclude ?? [])];
   // Mirror rg's .gitignore-respecting behavior (null = git unavailable, walk
   // everything subject to excludeGlobs only).
   const known = gitKnownFiles(options.repoRoot);
-  const targets = (options.pathFilter ?? detector.paths ?? ["."]).map((p) =>
-    resolve(options.repoRoot, p),
-  );
+  const targets = targetPaths.map((p) => resolve(options.repoRoot, p));
   for (const target of targets) {
     walk(target, options.repoRoot, excludeGlobs, known, (absPath, rel) => {
       let text: string;

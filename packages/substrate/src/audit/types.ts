@@ -207,6 +207,14 @@ export interface RuleResult {
    * {@link AuditReport.errors}.
    */
   error?: string;
+  /**
+   * Declared `detector.paths` entries that resolved to nothing on disk — a
+   * glob that matched no directory, a literal path that does not exist, or a
+   * path that pointed outside the repo root and was refused. A non-empty list
+   * means this rule's scope is partly or wholly gone, so its finding count is
+   * not evidence of compliance. Empty/absent when every declared path resolved.
+   */
+  unmatchedPaths?: string[];
 }
 
 export interface AuditReport {
