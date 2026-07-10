@@ -71,7 +71,10 @@ export function renderMarkdownReport(report: AuditReport): string {
   lines.push(`- **Substrate version:** ${report.substrateVersion}`);
   lines.push(`- **Repo:** ${report.repoRoot}`);
   lines.push(`- **Rules file:** ${report.rulesPath}`);
-  lines.push(`- **Rules executed:** ${report.executedRules} of ${report.totalRules}`);
+  lines.push(
+    `- **Rules:** ${report.totalRules} loaded · ${report.firedRules} fired · ${report.errors.length} errored`,
+  );
+  lines.push(`- **Ruleset hash:** \`${report.rulesetHash}\``);
   lines.push(`- **Duration:** ${report.durationMs}ms`);
   lines.push("");
   lines.push("## Summary");
@@ -83,6 +86,18 @@ export function renderMarkdownReport(report: AuditReport): string {
     lines.push(`- ${sevBadge(sev)} ${sev}: ${n}`);
   }
   lines.push("");
+  if (report.errors.length > 0) {
+    // A detector that threw is a broken rule, not a clean one — surface it
+    // prominently so a green-looking report cannot hide a rule that never ran.
+    lines.push(`## ⚠ Errored rules (${report.errors.length})`);
+    lines.push("");
+    lines.push("These rules could not execute. Their zero findings mean nothing.");
+    lines.push("");
+    for (const e of report.errors) {
+      lines.push(`- **${e.ruleId}** (${e.severity}, ${e.detectorType}) — ${e.message}`);
+    }
+    lines.push("");
+  }
   lines.push("## Rules");
   lines.push("");
   if (report.rules.length === 0) {
@@ -125,6 +140,9 @@ function appendTrendEntry(path: string, report: AuditReport): void {
     scope: report.scope,
     substrateVersion: report.substrateVersion,
     executedRules: report.executedRules,
+    firedRules: report.firedRules,
+    rulesetHash: report.rulesetHash,
+    errorCount: report.errors.length,
     totalFindings: report.totalFindings,
     findingsBySeverity: report.findingsBySeverity,
     durationMs: report.durationMs,

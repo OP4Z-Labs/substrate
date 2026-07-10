@@ -10,6 +10,7 @@
  * public surface stays uniform.
  */
 
+import { createHash } from "node:crypto";
 import { SUBSTRATE_VERSION } from "../util/version.js";
 import { runCompositeDetector } from "./detectors/composite.js";
 import { runRipgrepDetector } from "./detectors/ripgrep.js";
@@ -19,6 +20,7 @@ import type {
   Finding,
   RuleDefinition,
   RuleResult,
+  RuleRunError,
   Severity,
 } from "./types.js";
 
@@ -38,6 +40,12 @@ export interface RunAuditOptions {
   pathFilter?: string[];
   /** Total rule count BEFORE filtering — used to populate the report. */
   totalRules?: number;
+  /**
+   * Content hash of the full effective ruleset (before `--rule`/`--diff`
+   * filtering). The audit command computes this over the merged rule set so it
+   * survives extends. Falls back to a hash of `rules` when not provided.
+   */
+  rulesetHash?: string;
 }
 
 /**
@@ -78,10 +86,25 @@ export async function runAudit(options: RunAuditOptions): Promise<AuditReport> {
     low: 0,
   };
   let totalFindings = 0;
+  let firedRules = 0;
+  const errors: RuleRunError[] = [];
   for (const r of results) {
     for (const f of r.findings) {
       findingsBySeverity[f.severity] += 1;
       totalFindings += 1;
+    }
+    if (r.error) {
+      errors.push({
+        ruleId: r.ruleId,
+        severity: r.severity,
+        detectorType: r.detectorType,
+        message: r.error,
+      });
+    } else if (!r.skipped) {
+      // Fired = ran a detector to completion. Excludes manual/no-detector
+      // (skipped) and errored rules (skipped with an error), so it is the
+      // honest count of the registry that is actually live.
+      firedRules += 1;
     }
   }
 
@@ -94,11 +117,27 @@ export async function runAudit(options: RunAuditOptions): Promise<AuditReport> {
     scope: options.scope,
     totalRules: options.totalRules ?? options.rules.length,
     executedRules: options.rules.length,
+    firedRules,
+    rulesetHash: options.rulesetHash ?? hashRuleset(options.rules),
     totalFindings,
     findingsBySeverity,
     rules: results,
+    errors,
     durationMs,
   };
+}
+
+/**
+ * A stable short content hash of a rule set. Keyed on each rule's identity and
+ * detection config (id, severity, detector), sorted by id so array order does
+ * not perturb it. Used to detect that the ruleset changed between two trend
+ * entries — not a security digest, so a truncated sha256 is fine.
+ */
+export function hashRuleset(rules: RuleDefinition[]): string {
+  const normalized = rules
+    .map((r) => ({ id: r.id, severity: r.severity, detector: r.detector ?? null }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return createHash("sha256").update(JSON.stringify(normalized)).digest("hex").slice(0, 12);
 }
 
 async function runSingleRule(
@@ -180,6 +219,13 @@ async function runSingleRule(
   }
 }
 
+/**
+ * A detector that threw. `error` is set (not just `note`) so the failure is
+ * machine-visible and gets hoisted into {@link AuditReport.errors}: a rule that
+ * could not run must never be reported as `skipped` clean. `skipped` stays true
+ * so legacy consumers keying on it still exclude the rule from the "ran clean"
+ * set, but `error` is the load-bearing signal.
+ */
 function errorResult(rule: RuleDefinition, start: number, note: string): RuleResult {
   return {
     ruleId: rule.id,
@@ -189,6 +235,7 @@ function errorResult(rule: RuleDefinition, start: number, note: string): RuleRes
     findings: [] as Finding[],
     durationMs: Date.now() - start,
     skipped: true,
+    error: note,
     note: `detector error: ${note}`,
   };
 }

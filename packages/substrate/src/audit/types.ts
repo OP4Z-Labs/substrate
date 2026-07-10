@@ -169,6 +169,15 @@ export interface RuleResult {
   skipped: boolean;
   /** Skip reason or runtime error message. */
   note?: string;
+  /**
+   * Set when the detector threw. A rule that could not run is NOT the same as
+   * a rule that ran clean — laundering the first into `skipped: true,
+   * findings: []` is how a broken registry reports zero findings. Callers that
+   * gate on the report (CI, pre-commit) must treat a non-empty `error` as a
+   * failure, not a pass. The same message is aggregated into
+   * {@link AuditReport.errors}.
+   */
+  error?: string;
 }
 
 export interface AuditReport {
@@ -186,14 +195,47 @@ export interface AuditReport {
   scope: string;
   /** Total rule count discovered. */
   totalRules: number;
-  /** Rules that were executed (after `--rule` / `--diff` filtering). */
+  /**
+   * Rules that passed the `--rule` / `--diff` filter and were handed to the
+   * runner. NOT the count that actually executed a detector — a manual rule or
+   * an errored rule is counted here but did not fire. See {@link firedRules}.
+   */
   executedRules: number;
+  /**
+   * Rules that actually ran a detector to completion — neither manual/no-detector
+   * nor errored. This is the honest "how much of the registry is live" number;
+   * `executedRules` counts rules loaded, not fired (R3 of the detector-integrity
+   * plan: a registry can load 172 rules and fire 32).
+   */
+  firedRules: number;
+  /**
+   * Short content hash of the effective ruleset (all loaded rules, before
+   * `--rule`/`--diff` filtering). Lets a trend consumer detect that the
+   * RULES.yaml changed between two runs, so a jump in findings is attributed
+   * to a ruleset edit rather than read as a real regression.
+   */
+  rulesetHash: string;
   /** Total findings across all rules. */
   totalFindings: number;
   /** Findings broken down by severity. */
   findingsBySeverity: Record<Severity, number>;
   /** Per-rule results. */
   rules: RuleResult[];
+  /**
+   * Rules whose detector threw at runtime. Mirrors the `error` field on the
+   * corresponding {@link RuleResult}, hoisted so a gate can answer "did every
+   * rule actually execute?" without walking `rules[]`. An audit with a
+   * non-empty `errors` array has NOT run clean, whatever `totalFindings` says.
+   */
+  errors: RuleRunError[];
   /** Total wall-clock duration in ms. */
   durationMs: number;
+}
+
+/** A rule whose detector threw — surfaced at the report top level. */
+export interface RuleRunError {
+  ruleId: string;
+  severity: Severity;
+  detectorType: Detector["type"] | "manual";
+  message: string;
 }

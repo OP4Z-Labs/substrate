@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 import kleur from "kleur";
 import {
   applyEscalations,
+  hashRuleset,
   listDiffPaths,
   loadRules,
   locateRulesFile,
@@ -493,6 +494,9 @@ export async function runAuditExecute(
     scope,
     pathFilter,
     totalRules: allRules.length,
+    // Hash the FULL effective ruleset (pre-filter), so the trend hash is stable
+    // whether a run is full-scope or `--rule`/`--diff`-scoped.
+    rulesetHash: hashRuleset(allRules),
   });
 
   // Apply `escalate_after` (Primitive 7). Reads historical sidecars to
