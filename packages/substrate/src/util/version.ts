@@ -21,7 +21,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Belt-and-suspenders value if package.json cannot be read. Keep in sync with package.json. */
-const FALLBACK_VERSION = "3.0.0-beta.5";
+const FALLBACK_VERSION = "3.0.0-beta.6";
 
 function resolveVersion(): string {
   try {
