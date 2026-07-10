@@ -75,20 +75,20 @@ describe("loader: manual kinds and warnings", () => {
     expect(loaded.warnings.some((w) => w.includes("shell"))).toBe(true);
   });
 
-  it("warns on an unknown detector key but sanctions expected + metadata (U4)", () => {
+  it("warns on an unknown detector key but sanctions expected (U4)", () => {
     const p = write(
       tmp,
       [
         "rules:",
         "  - id: TYPO",
-        "    title: has a typo'd key and a sanctioned one",
+        "    title: has a typo'd detector key and a sanctioned one",
         "    severity: high",
+        "    metadata: { review: 'see docs' }", // rule-level -> no detector warn
         "    detector:",
         "      type: ripgrep",
         "      pattern: x",
         "      patern: oops", // typo -> warn
-        "      expected: { match_count: 0 }", // sanctioned -> no warn
-        "      metadata: { review: 'see docs' }", // sanctioned -> no warn
+        "      expected: { match_count: 0 }", // sanctioned inert key -> no warn
       ].join("\n"),
     );
     const loaded = loadRules(p);
@@ -105,7 +105,7 @@ describe("loader: manual kinds and warnings", () => {
     expect(() => loadRules(p, { strict: true })).toThrow(RulesLoadError);
   });
 
-  it("warns on metadata.polarity: presence on a non-script detector (D7)", () => {
+  it("warns on rule-level metadata.polarity: presence with a non-script detector (D7)", () => {
     const p = write(
       tmp,
       [
@@ -113,10 +113,10 @@ describe("loader: manual kinds and warnings", () => {
         "  - id: P",
         "    title: presence on ripgrep is inert",
         "    severity: critical",
+        "    metadata: { polarity: presence }",
         "    detector:",
         "      type: ripgrep",
         "      pattern: x",
-        "      metadata: { polarity: presence }",
       ].join("\n"),
     );
     const loaded = loadRules(p);

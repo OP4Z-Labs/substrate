@@ -151,6 +151,9 @@ function validateRule(
     description: typeof o.description === "string" ? o.description : undefined,
     category: typeof o.category === "string" ? o.category : undefined,
     tags: Array.isArray(o.tags) ? o.tags.filter((t): t is string => typeof t === "string") : undefined,
+    // U11: preserve rule-level metadata as an opaque bag so the review context
+    // receives rule intent. The runtime never dispatches on it (D7).
+    metadata: isObject(o.metadata) ? (o.metadata as Record<string, unknown>) : undefined,
   };
 
   if (o.detector !== undefined) {
@@ -189,6 +192,21 @@ function validateRule(
     if (steps && steps.length > 0) rule.escalate_after = steps;
   }
 
+  // D7 / RC4-reborn guard: metadata.polarity is inert on anything but a script
+  // detector. An author writing `metadata.polarity: presence` on a ripgrep rule
+  // expects absence-detection and instead gets one anti-finding per compliant
+  // match. Presence invariants must be script detectors (D1).
+  if (
+    isObject(rule.metadata) &&
+    rule.metadata.polarity === "presence" &&
+    rule.detector?.type !== "script"
+  ) {
+    const declared = rule.detector?.type ?? rule.declaredManualType ?? "none";
+    warnings.push(
+      `rule "${id}" sets metadata.polarity: presence on a "${declared}" detector — this is inert. Presence invariants must be script detectors; the ripgrep runtime would emit a finding per compliant match.`,
+    );
+  }
+
   // Surface unknown top-level fields when strict.
   // `pattern`, `paths`, `exclude`, etc. are accepted as ripgrep-detector
   // shorthand (see branch above); listing them in `allowed` keeps the
@@ -203,6 +221,7 @@ function validateRule(
     "tags",
     "detector",
     "escalate_after",
+    "metadata",
     "pattern",
     "paths",
     "exclude",
@@ -305,19 +324,19 @@ function validateDetector(
 /**
  * Keys sanctioned inside a `detector` block, by type.
  *
- * `metadata` and `expected` are sanctioned everywhere but INERT: the runtime
- * dispatches on neither. `metadata` is documentation carried to the review arm
- * (U11); `expected` is the legacy annotation surface (`match_count`, `exit_code`,
- * `manual_review`, …) that Wave B migrates into real budgets. Sanctioning them
- * keeps the unknown-key warning from firing on the 131 rules that legitimately
- * carry `expected`, so the warning stays high-signal for genuine typos.
+ * `expected` is sanctioned everywhere but INERT: the runtime dispatches on none
+ * of its sub-keys (`match_count`, `exit_code`, `manual_review`, …). Wave B
+ * migrates it into real budgets. Sanctioning it keeps the unknown-key warning
+ * from firing on the 131 rules that legitimately carry `expected`, so the
+ * warning stays high-signal for genuine typos. `metadata` is a RULE-level key
+ * (U11), not a detector key, so it is intentionally absent here.
  */
 const SANCTIONED_DETECTOR_KEYS: Record<string, readonly string[]> = {
   ripgrep: ["type", "pattern", "paths", "exclude", "caseSensitive", "fixedString", "multiline"],
   script: ["type", "path", "export", "options", "timeoutMs"],
   composite: ["type", "rules", "operator"],
 };
-const INERT_ANNOTATION_KEYS = ["metadata", "expected"] as const;
+const INERT_ANNOTATION_KEYS = ["expected"] as const;
 
 function warnUnknownDetectorKeys(
   o: Record<string, unknown>,
@@ -335,15 +354,6 @@ function warnUnknownDetectorKeys(
     const msg = `rule "${ruleId}" detector has unknown key "${key}" — it is ignored. Sanctioned keys for ${type}: ${(SANCTIONED_DETECTOR_KEYS[type] ?? []).join(", ")}`;
     if (strict) throw new RulesLoadError(msg);
     warnings.push(msg);
-  }
-  // D7 / RC4-reborn guard: metadata.polarity is inert on a non-script detector.
-  // An author writing `metadata.polarity: presence` on a ripgrep rule expects
-  // absence-detection and gets an anti-finding per compliant line instead.
-  const metadata = o.metadata;
-  if (isObject(metadata) && metadata.polarity === "presence" && type !== "script") {
-    warnings.push(
-      `rule "${ruleId}" sets metadata.polarity: presence on a "${type}" detector — this is inert. Presence invariants must be script detectors; the ripgrep runtime would emit a finding per compliant match.`,
-    );
   }
 }
 

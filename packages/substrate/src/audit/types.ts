@@ -130,6 +130,16 @@ export interface RuleDefinition {
    * Steps are applied in order; the highest-age step that applies wins.
    */
   escalate_after?: EscalationStep[];
+  /**
+   * Documentation the runtime carries but never dispatches on: `intent`,
+   * `review` (the reviewer's instruction), `polarity`, `rollupBy`, and the
+   * signal-quality axes (`confidence`, `precision`, `references`, `known_fp`).
+   * Preserved through `loadRules` into the review context so the AI-review arm
+   * receives each rule's intent instead of 108 indistinguishable id+severity
+   * pairs (RC7/D12). The runner does NOT branch on it — polarity is realized by
+   * a script detector, not by this flag (D7).
+   */
+  metadata?: Record<string, unknown>;
 }
 
 export interface RulesYamlMeta {
