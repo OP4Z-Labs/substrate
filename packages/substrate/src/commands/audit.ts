@@ -395,7 +395,18 @@ export async function runAuditExecute(
       loaded = loadRules(located, { strict: options.strict });
     } catch (err) {
       if (err instanceof RulesLoadError) {
-        throw new Error(`Substrate: ${err.message}`);
+        // Fail closed. In --json mode emit the same error envelope as the
+        // discovery path (rules-load-failed), so a JSON consumer of
+        // --rules-path gets a parseable error instead of empty stdout.
+        const message = `Substrate: the RULES.yaml at ${located} failed to load (${err.message}).`;
+        if (options.json) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: { code: "rules-load-failed", message } }, null, 2) + "\n",
+          );
+          process.exitCode = 1;
+          throw new JsonAlreadyEmittedError(message);
+        }
+        throw new Error(message);
       }
       throw err;
     }
@@ -428,8 +439,13 @@ export async function runAuditExecute(
       // a totalRules: 0, exit-0 report — a broken registry reporting all-clean.
       // Re-load it directly; a load error on the PRIMARY registry is fatal.
       // (An extends layer failing stays a warning — graceful degradation.)
+      //
+      // This re-load is ALSO where --strict takes effect on the discovery path:
+      // discoverRulesAcrossExtends loads non-strict and downgrades the resulting
+      // error to a warning, so without this, `audit --strict` never made an
+      // unknown field fatal outside of --rules-path.
       try {
-        loadRules(repoLocal);
+        loadRules(repoLocal, { strict: options.strict });
       } catch (err) {
         if (err instanceof RulesLoadError) {
           const message =

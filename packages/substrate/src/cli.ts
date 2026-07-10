@@ -141,7 +141,11 @@ function buildProgram(): Command {
     )
     .option("--trend", "Print the trend journal (substrate/audits/_trend.jsonl)", false)
     .option("--rules-path <path>", "Override the RULES.yaml location")
-    .option("--strict", "Treat unknown RULES.yaml fields as errors", false)
+    .option(
+      "--strict",
+      "Fail the audit on a registry problem: treat unknown RULES.yaml fields as errors, and exit non-zero if any rule's detector errored.",
+      false,
+    )
     .option("--no-report", "Skip writing report files (stdout only)")
     .option("--json", "Emit machine-readable JSON")
     .option("--quiet", "Suppress informational output", false)
