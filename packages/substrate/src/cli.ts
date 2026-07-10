@@ -135,9 +135,17 @@ function buildProgram(): Command {
     .option("--type <name>", "[legacy] load an audit-<name>.md instruction stub")
     .option("--rule <id>", "Run a single rule by id")
     .option("--diff", "Restrict ripgrep detectors to files in the staged diff", false)
+    .option(
+      "--base-ref <ref>",
+      "Restrict to files the branch introduced vs <ref> (git diff <ref>...HEAD). The server-side counterpart to --diff.",
+    )
     .option("--trend", "Print the trend journal (substrate/audits/_trend.jsonl)", false)
     .option("--rules-path <path>", "Override the RULES.yaml location")
-    .option("--strict", "Treat unknown RULES.yaml fields as errors", false)
+    .option(
+      "--strict",
+      "Fail the audit on a registry problem: treat unknown RULES.yaml fields as errors, and exit non-zero if any rule's detector errored.",
+      false,
+    )
     .option("--no-report", "Skip writing report files (stdout only)")
     .option("--json", "Emit machine-readable JSON")
     .option("--quiet", "Suppress informational output", false)
@@ -161,6 +169,7 @@ function buildProgram(): Command {
       await runAuditExecute({
         ruleId: options.rule,
         diff: options.diff,
+        baseRef: options.baseRef,
         rulesPath: options.rulesPath,
         strict: options.strict,
         noReport: options.report === false,
@@ -250,7 +259,7 @@ function buildProgram(): Command {
     .description("Diagnose substrate installation, config sanity, and manifest drift.")
     .option(
       "--check <names>",
-      "Comma-separated v2 check ids to run in isolation (rules-doc-coverage, workflow-coverage, memory-frontmatter, stale-proposals, escalation-debt, ripgrep-lookaround). Omit to run the full suite.",
+      "Comma-separated v2 check ids to run in isolation (rules-doc-coverage, workflow-coverage, memory-frontmatter, stale-proposals, escalation-debt, ripgrep-lookaround, rules-health). Omit to run the full suite.",
     )
     .option(
       "--stale-proposals-days <n>",
@@ -1129,6 +1138,7 @@ interface AuditCliOptions {
   type?: string;
   rule?: string;
   diff?: boolean;
+  baseRef?: string;
   trend?: boolean;
   rulesPath?: string;
   strict?: boolean;

@@ -4,6 +4,98 @@ All notable changes to the substrate CLI are documented in this file.
 Adheres roughly to [Keep a Changelog](https://keepachangelog.com).
 
 
+## [3.0.0-beta.5] — 2026-07-10 — audit visibility & the gate primitive
+
+The theme of this release is a single failure signature the audit runtime had
+in many places: **a component fails, and the failure is rendered as an absence
+rather than an error.** A rule that could not run reported zero findings; a
+detector whose output overflowed the buffer parsed truncated input as clean; a
+`shell` rule this runtime cannot execute was indistinguishable from an
+intentional manual-review item; a corrupt registry reported `totalRules: 0` and
+exited 0; `doctor`'s own escalation-debt check read the wrong report key and had
+never executed. This release makes those failures loud, without changing which
+rules execute. (Glob-path expansion — the change that alters _which_ rules run —
+is deliberately held for the next release.)
+
+### Added
+
+- **`errors[]` in the report + per-rule `error`.** A detector that throws is no
+  longer laundered into `skipped: true, findings: []`. The report carries an
+  `errors[]` array and each rule a machine-readable `error`, so a caller can ask
+  "did every rule actually execute?" without walking `rules[]`. An audit with a
+  non-empty `errors[]` has _not_ run clean, whatever `totalFindings` says.
+- **`firedRules` and `rulesetHash` in the report.** `firedRules` is the honest
+  count of rules that ran a detector to completion — `executedRules` counts
+  rules _loaded_, not _fired_ (a registry can load 172 and fire 32).
+  `rulesetHash` is a short content hash of the effective ruleset, so a trend
+  consumer can attribute a jump in findings to a ruleset edit vs a regression.
+- **`substrate audit --base-ref <ref>`.** Scopes to the files the branch
+  introduced (`git diff --name-only <ref>...HEAD`) — the server-side counterpart
+  to `--diff`, which is inert after a CI checkout (the tree is clean, so it
+  audits nothing and exits 0). A bad ref fails loud, never a silent whole-repo
+  scan. _Advisory for now:_ `pathFilter` still overrides `detector.paths`, so a
+  findings gate over `--base-ref` is unsound until the intersection lands next
+  release.
+- **`substrate audit --strict` exits non-zero when any rule errored.** Default
+  mode stays exit 0 for backward compatibility; the exit code is an opt-in gate
+  that needs no JSON parsing.
+- **`doctor --check rules-health`.** Four independently-firing checks: a `shell`
+  type this runtime cannot execute, a `script` detector whose file is missing
+  (error), a non-glob ripgrep path that does not exist, and the loader's own
+  unknown-key / unexecutable-type warnings.
+- **Rule `metadata.*` is preserved through `loadRules`** into the review context
+  — the AI-review arm now receives each rule's intent, review instruction, and
+  signal-quality notes instead of 108 indistinguishable id+severity pairs. The
+  runtime never dispatches on `metadata` (it is documentation); a
+  `metadata.polarity: presence` on a non-`script` detector warns, since it is
+  inert there and would emit a finding per compliant match.
+
+### Fixed
+
+- **`doctor`'s `escalation-debt` check had never executed.** It iterated
+  `report.results`, but the sidecar shape is `report.rules`, so its loop body
+  never ran and it reported "no findings stuck at critical" unconditionally — a
+  dead check inside the diagnostics tool. Its test encoded the same wrong key.
+  Both fixed; a planted stuck-critical finding now warns, and every `doctor`
+  check is proven by test to fire on a planted defect.
+- **A corrupt repo-local `RULES.yaml` now fails closed.** The extends merge
+  downgraded a per-layer load error to a warning and continued, so a primary
+  registry with a YAML parse error or a bad severity yielded a `totalRules: 0`,
+  exit-0 report. The audit now re-loads the repo-local file and refuses to run
+  if it does not parse/validate (an _extends_ layer failing stays a warning —
+  graceful degradation).
+- **`rg` `maxBuffer` overflow is now a detector error, not silent truncation.**
+  A spawn-level error leaves `status = null`, which slipped past the `status >= 2`
+  guard, so a rule whose output exceeded 32 MB parsed truncated stdout and
+  undercounted silently. Any spawn error now surfaces in `errors[]`.
+- **`SUBSTRATE_VERSION` no longer drifts.** It was a hand-maintained literal
+  stuck at `3.0.0-beta.1` for three releases, mis-stamping every report, trend
+  entry, telemetry event, and init manifest. It is now resolved from the
+  package's own `package.json` at load, with a test pinning parity.
+- **Load warnings are no longer dropped in the primary audit path.**
+  `discoverRulesAcrossExtends` generated per-file load warnings and discarded
+  them; the shell / unknown-key warnings only surfaced via `--rules-path`. They
+  now reach the audit command, and are written to stderr even in `--json` mode.
+
+### Changed
+
+- **The report distinguishes non-executable rule kinds.** `shell` (a type this
+  runtime cannot run), explicit `manual`, and no-detector rules used to all
+  render as `detectorType: "manual"`. They now carry distinct `detectorType` and
+  notes, so a silently-inert `shell` rule is not mistaken for an intentional
+  review item.
+- **`shell` types and unknown `detector` keys warn on every load**, not only
+  under `--strict`; `--strict` promotes them to a hard error. `metadata` and
+  `expected` are sanctioned so the annotation surface does not flood the channel.
+- The console summary reports `loaded / fired / errored` counts and leads with an
+  errored-rules section.
+
+### Notes
+
+- All changes are additive to the report schema (`schemaVersion` stays `1`); a
+  reader that ignores unknown fields is unaffected. The `--strict` exit-code
+  change is opt-in.
+
 ## [3.0.0-beta.4] — 2026-06-17
 
 ### Fixed

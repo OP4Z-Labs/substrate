@@ -8,11 +8,11 @@
 
 export { loadRules, locateRulesFile, RulesLoadError } from "./rules.js";
 export type { LoadRulesOptions, LoadRulesResult } from "./rules.js";
-export { runAudit } from "./runner.js";
+export { runAudit, hashRuleset } from "./runner.js";
 export type { RunAuditOptions } from "./runner.js";
 export { writeAuditReport, renderMarkdownReport } from "./report.js";
 export type { WriteReportOptions, WriteReportResult } from "./report.js";
-export { listDiffPaths } from "./diff-paths.js";
+export { listDiffPaths, listChangedPathsSince } from "./diff-paths.js";
 export { readTrend } from "./trend.js";
 export type { TrendEntry, TrendSummary } from "./trend.js";
 export {
@@ -35,6 +35,7 @@ export type {
   RipgrepDetector,
   RuleDefinition,
   RuleResult,
+  RuleRunError,
   RulesYamlDocument,
   ScriptDetector,
   Severity,

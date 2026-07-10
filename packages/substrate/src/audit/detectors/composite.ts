@@ -34,11 +34,14 @@ export function runCompositeDetector(
     if (sub) present.push(sub);
     else missing.push(ref);
   }
-  if (missing.length > 0 && present.length === 0) {
-    return {
-      findings: [],
-      note: `composite rule could not resolve any referenced rules (missing: ${missing.join(", ")})`,
-    };
+  if (present.length === 0) {
+    // A composite that resolves NONE of its referenced rules evaluated
+    // nothing — it must not report as a clean, fired rule. Throw so the runner
+    // records it in errors[] (a broken composite is a detector error, not a
+    // silent pass), consistent with the "no silent failures" contract.
+    throw new Error(
+      `composite rule could not resolve any referenced rules (missing: ${missing.join(", ") || "none declared"})`,
+    );
   }
   const flags = present.map((r) => r.findings.length > 0);
   let triggered = false;

@@ -14,6 +14,12 @@ export interface TrendEntry {
   scope: string;
   substrateVersion: string;
   executedRules: number;
+  /** Rules that actually fired a detector. Absent on entries written before U8. */
+  firedRules?: number;
+  /** Effective-ruleset content hash. Absent on entries written before U8. */
+  rulesetHash?: string;
+  /** Count of rules whose detector threw. Absent on entries written before U3. */
+  errorCount?: number;
   totalFindings: number;
   findingsBySeverity: Record<Severity, number>;
   durationMs: number;

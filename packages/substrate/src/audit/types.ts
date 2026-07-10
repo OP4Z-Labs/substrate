@@ -75,6 +75,17 @@ export interface CompositeDetector {
 
 export type Detector = RipgrepDetector | ScriptDetector | CompositeDetector;
 
+/**
+ * How a rule's detector is reported. Beyond the three executable detector
+ * types, a rule may be reported as:
+ *   - `manual` — no detector block, or an explicit `type: manual`; a human
+ *     review item, intentional.
+ *   - `shell`  — an explicit `type: shell`, which THIS runtime cannot execute.
+ *     Reported distinctly so a silently-inert rule is not mistaken for an
+ *     intentional manual one (RC8). The loader also warns (U5).
+ */
+export type ReportedDetectorType = Detector["type"] | "manual" | "shell";
+
 export interface EscalationStep {
   /** Age threshold in days at which this escalation applies. */
   age_days: number;
@@ -101,6 +112,14 @@ export interface RuleDefinition {
   /** The detector definition. Undefined when severity-only (manual review). */
   detector?: Detector;
   /**
+   * Set when the rule declared a detector `type` that produces no executable
+   * detector: `manual` (intentional human review) or `shell` (a type this
+   * runtime cannot run — a latent break). Distinguishes those from a rule with
+   * no `detector` block at all, so the report can tell deliberate review from
+   * silent inertness (RC8).
+   */
+  declaredManualType?: "manual" | "shell";
+  /**
    * Tags for filtering. The CLI's `--tag foo` flag matches against this list.
    */
   tags?: string[];
@@ -111,6 +130,16 @@ export interface RuleDefinition {
    * Steps are applied in order; the highest-age step that applies wins.
    */
   escalate_after?: EscalationStep[];
+  /**
+   * Documentation the runtime carries but never dispatches on: `intent`,
+   * `review` (the reviewer's instruction), `polarity`, `rollupBy`, and the
+   * signal-quality axes (`confidence`, `precision`, `references`, `known_fp`).
+   * Preserved through `loadRules` into the review context so the AI-review arm
+   * receives each rule's intent instead of 108 indistinguishable id+severity
+   * pairs (RC7/D12). The runner does NOT branch on it — polarity is realized by
+   * a script detector, not by this flag (D7).
+   */
+  metadata?: Record<string, unknown>;
 }
 
 export interface RulesYamlMeta {
@@ -160,7 +189,7 @@ export interface RuleResult {
   ruleId: string;
   ruleTitle: string;
   severity: Severity;
-  detectorType: Detector["type"] | "manual";
+  detectorType: ReportedDetectorType;
   /** Findings emitted by this rule (may be empty). */
   findings: Finding[];
   /** Wall-clock duration in ms. */
@@ -169,6 +198,15 @@ export interface RuleResult {
   skipped: boolean;
   /** Skip reason or runtime error message. */
   note?: string;
+  /**
+   * Set when the detector threw. A rule that could not run is NOT the same as
+   * a rule that ran clean — laundering the first into `skipped: true,
+   * findings: []` is how a broken registry reports zero findings. Callers that
+   * gate on the report (CI, pre-commit) must treat a non-empty `error` as a
+   * failure, not a pass. The same message is aggregated into
+   * {@link AuditReport.errors}.
+   */
+  error?: string;
 }
 
 export interface AuditReport {
@@ -186,14 +224,47 @@ export interface AuditReport {
   scope: string;
   /** Total rule count discovered. */
   totalRules: number;
-  /** Rules that were executed (after `--rule` / `--diff` filtering). */
+  /**
+   * Rules that passed the `--rule` / `--diff` filter and were handed to the
+   * runner. NOT the count that actually executed a detector — a manual rule or
+   * an errored rule is counted here but did not fire. See {@link firedRules}.
+   */
   executedRules: number;
+  /**
+   * Rules that actually ran a detector to completion — neither manual/no-detector
+   * nor errored. This is the honest "how much of the registry is live" number;
+   * `executedRules` counts rules loaded, not fired (R3 of the detector-integrity
+   * plan: a registry can load 172 rules and fire 32).
+   */
+  firedRules: number;
+  /**
+   * Short content hash of the effective ruleset (all loaded rules, before
+   * `--rule`/`--diff` filtering). Lets a trend consumer detect that the
+   * RULES.yaml changed between two runs, so a jump in findings is attributed
+   * to a ruleset edit rather than read as a real regression.
+   */
+  rulesetHash: string;
   /** Total findings across all rules. */
   totalFindings: number;
   /** Findings broken down by severity. */
   findingsBySeverity: Record<Severity, number>;
   /** Per-rule results. */
   rules: RuleResult[];
+  /**
+   * Rules whose detector threw at runtime. Mirrors the `error` field on the
+   * corresponding {@link RuleResult}, hoisted so a gate can answer "did every
+   * rule actually execute?" without walking `rules[]`. An audit with a
+   * non-empty `errors` array has NOT run clean, whatever `totalFindings` says.
+   */
+  errors: RuleRunError[];
   /** Total wall-clock duration in ms. */
   durationMs: number;
+}
+
+/** A rule whose detector threw — surfaced at the report top level. */
+export interface RuleRunError {
+  ruleId: string;
+  severity: Severity;
+  detectorType: ReportedDetectorType;
+  message: string;
 }

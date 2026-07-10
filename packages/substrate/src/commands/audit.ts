@@ -3,6 +3,8 @@ import { basename, join } from "node:path";
 import kleur from "kleur";
 import {
   applyEscalations,
+  hashRuleset,
+  listChangedPathsSince,
   listDiffPaths,
   loadRules,
   locateRulesFile,
@@ -324,6 +326,13 @@ export interface AuditExecuteOptions {
   ruleId?: string;
   /** Run only rules whose detectors touch files in the staged diff. */
   diff?: boolean;
+  /**
+   * Scope to the files the branch introduced vs a base ref
+   * (`git diff --name-only <baseRef>...HEAD`). The server-side counterpart to
+   * `--diff`, which is inert after a CI checkout. Mutually exclusive with
+   * `--diff`; `--diff` wins if both are set.
+   */
+  baseRef?: string;
   /** Strict load: unknown fields become errors. */
   strict?: boolean;
   /** Emit machine-readable JSON instead of human prose. */
@@ -386,7 +395,18 @@ export async function runAuditExecute(
       loaded = loadRules(located, { strict: options.strict });
     } catch (err) {
       if (err instanceof RulesLoadError) {
-        throw new Error(`Substrate: ${err.message}`);
+        // Fail closed. In --json mode emit the same error envelope as the
+        // discovery path (rules-load-failed), so a JSON consumer of
+        // --rules-path gets a parseable error instead of empty stdout.
+        const message = `Substrate: the RULES.yaml at ${located} failed to load (${err.message}).`;
+        if (options.json) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: { code: "rules-load-failed", message } }, null, 2) + "\n",
+          );
+          process.exitCode = 1;
+          throw new JsonAlreadyEmittedError(message);
+        }
+        throw new Error(message);
       }
       throw err;
     }
@@ -413,6 +433,36 @@ export async function runAuditExecute(
     const repoLocal = locateRulesFile(repoRoot);
     if (repoLocal) {
       rulesFile = repoLocal;
+      // OP-2086: fail closed on a corrupt repo-local registry. discoverRules-
+      // AcrossExtends downgrades a load error to a warning and continues, so a
+      // repo-local RULES.yaml with a YAML parse error or a bad severity yields
+      // a totalRules: 0, exit-0 report — a broken registry reporting all-clean.
+      // Re-load it directly; a load error on the PRIMARY registry is fatal.
+      // (An extends layer failing stays a warning — graceful degradation.)
+      //
+      // This re-load is ALSO where --strict takes effect on the discovery path:
+      // discoverRulesAcrossExtends loads non-strict and downgrades the resulting
+      // error to a warning, so without this, `audit --strict` never made an
+      // unknown field fatal outside of --rules-path.
+      try {
+        loadRules(repoLocal, { strict: options.strict });
+      } catch (err) {
+        if (err instanceof RulesLoadError) {
+          const message =
+            `Substrate: the repo-local RULES.yaml failed to load (${err.message}). ` +
+            "Refusing to audit with a broken registry — a corrupt registry would " +
+            "otherwise report zero findings and exit 0.";
+          if (options.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: { code: "rules-load-failed", message } }, null, 2) + "\n",
+            );
+            process.exitCode = 1;
+            throw new JsonAlreadyEmittedError(message);
+          }
+          throw new Error(message);
+        }
+        throw err;
+      }
     } else if (allRules.length > 0) {
       // No repo-local RULES.yaml, but extends sources contribute rules.
       // Use the first contributing source as a marker. The actual
@@ -449,7 +499,41 @@ export async function runAuditExecute(
     scope = options.ruleId;
   } else {
     rules = allRules;
-    scope = options.diff ? "diff" : "all";
+    scope = options.diff ? "diff" : options.baseRef ? `base:${options.baseRef}` : "all";
+  }
+  if (!options.diff && options.baseRef) {
+    // U14: scope to what the branch introduced vs the base ref. Same fail-loud
+    // contract as --diff — a bad ref or a git error refuses to silently audit
+    // the whole repo. NOTE: on this release pathFilter still OVERRIDES
+    // detector.paths (OP-2084), so a findings gate over --base-ref is unsound
+    // until the intersection lands; keep it advisory (the consumer-side gate
+    // re-applies the intersection in the interim).
+    const changed = listChangedPathsSince(repoRoot, options.baseRef);
+    if (changed.kind === "git-error") {
+      const message =
+        `Substrate: --base-ref could not resolve the changed-file set (${changed.detail}). ` +
+        "Refusing to silently audit the entire repository. Check that the ref exists and the " +
+        "history is present (CI often needs fetch-depth: 0).";
+      if (options.json) {
+        process.stdout.write(
+          JSON.stringify({ ok: false, error: { code: "base-ref-unresolved", message } }, null, 2) + "\n",
+        );
+        process.exitCode = 1;
+        throw new JsonAlreadyEmittedError(message);
+      }
+      throw new Error(message);
+    }
+    if (changed.kind === "no-git") {
+      scope = "all";
+      loadWarnings.push(
+        "--base-ref was requested outside a git repository; auditing all files instead of a diff.",
+      );
+    } else if (changed.files.length > 0) {
+      pathFilter = changed.files;
+    } else {
+      // The branch introduced no scannable files vs the base ref.
+      rules = [];
+    }
   }
   if (options.diff) {
     const diff = listDiffPaths(repoRoot);
@@ -493,6 +577,9 @@ export async function runAuditExecute(
     scope,
     pathFilter,
     totalRules: allRules.length,
+    // Hash the FULL effective ruleset (pre-filter), so the trend hash is stable
+    // whether a run is full-scope or `--rule`/`--diff`-scoped.
+    rulesetHash: hashRuleset(allRules),
   });
 
   // Apply `escalate_after` (Primitive 7). Reads historical sidecars to
@@ -504,9 +591,11 @@ export async function runAuditExecute(
   applyEscalations(report, { rules: allRules, repoRoot });
 
   // Surface load warnings as informational lines (one shot, before reports).
-  // Includes per-source RULES load warnings + extends-merge collision
-  // records ("repo-local overrides org-shared").
-  if (!options.quiet && !options.json && loadWarnings.length > 0) {
+  // Includes per-source RULES load warnings, extends-merge collision records
+  // ("repo-local overrides org-shared"), and U5's unexecutable-type warnings.
+  // Written to stderr, so they are shown even in --json mode (where they would
+  // otherwise vanish exactly where CI needs them) without corrupting stdout.
+  if (!options.quiet && loadWarnings.length > 0) {
     for (const w of loadWarnings) {
       process.stderr.write(kleur.yellow(`  warn: ${w}\n`));
     }
@@ -515,6 +604,15 @@ export async function runAuditExecute(
   let reportPaths;
   if (!options.noReport) {
     reportPaths = writeAuditReport(report, { repoRoot, scope });
+  }
+
+  // Under --strict, a rule that could not run is a failure, not a warning:
+  // exit non-zero so a caller can gate on the exit code without parsing JSON.
+  // Default mode stays exit 0 for backward compatibility — the differential
+  // gate reads report.errors[] directly (D4). This never throws, so the report
+  // (JSON or human) is always emitted first.
+  if (options.strict && report.errors.length > 0) {
+    process.exitCode = 1;
   }
 
   if (options.json) {
@@ -535,9 +633,20 @@ function renderConsoleSummary(
   console.log(kleur.bold(`Substrate audit — ${report.scope}`));
   console.log(
     kleur.dim(
-      `  ${report.executedRules}/${report.totalRules} rules · ${report.totalFindings} findings · ${report.durationMs}ms`,
+      `  ${report.totalRules} loaded · ${report.firedRules} fired · ${report.errors.length} errored · ${report.totalFindings} findings · ${report.durationMs}ms`,
     ),
   );
+  // Errored rules are surfaced loudly, before findings — a rule that could not
+  // run is a hole in coverage, and its zero findings mean nothing.
+  if (report.errors.length > 0) {
+    console.log(kleur.red(`  ✗ ${report.errors.length} rule(s) errored and did not run:`));
+    for (const e of report.errors.slice(0, 10)) {
+      console.log(`    ${severityColor(e.severity)("●")} ${e.ruleId.padEnd(18)} ${kleur.dim(e.message)}`);
+    }
+    if (report.errors.length > 10) {
+      console.log(kleur.dim(`    ... and ${report.errors.length - 10} more`));
+    }
+  }
   if (report.totalFindings > 0) {
     const sevs: Severity[] = ["critical", "high", "medium", "low"];
     const parts = sevs
