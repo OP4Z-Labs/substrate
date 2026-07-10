@@ -896,8 +896,8 @@ function checkRipgrepLookaround(root: string): Check[] {
  *   - load-warnings    : the loader's own U4/U5/polarity warnings, surfaced
  *                        here so a run of `doctor` shows them without an audit
  *
- * A no-op glob (`apps/backend/*​/tests` matching nothing) is NOT checked here —
- * that resolution happens in the runtime and surfaces via the audit's errors[].
+ * A no-op glob (a `paths` entry with a star, matching nothing) is NOT checked
+ * here — that resolution happens in the runtime and surfaces via errors[].
  */
 function checkRulesHealth(root: string): Check[] {
   const rulesPath = locateRulesFile(root);
