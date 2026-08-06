@@ -4,6 +4,38 @@ All notable changes to the substrate CLI are documented in this file.
 Adheres roughly to [Keep a Changelog](https://keepachangelog.com).
 
 
+## [Unreleased]
+
+### Fixed
+
+- **`substrate review --proposals` could not accept or reject anything.**
+  `moveProposal` built its destination as `` `${date}-${proposal.id}.md` ``, but
+  proposal ids are conventionally `<workflowId>/<slug>` — the form the docs
+  prescribe and every real emitter produces. The `/` made the destination a
+  per-workflow *subdirectory* that `ensureQueueLayout` never creates, so both
+  accept (`review-command.ts:130`) and reject (`:150`) threw `ENOENT` on every
+  conventionally-named proposal. Only `deferProposal`, which writes in place and
+  never builds a path from the id, still worked — so the queue could only grow.
+  Ids are now flattened for filename use by the new exported
+  `proposalIdToFilenamePart`; the id itself still round-trips unchanged inside
+  the JSON.
+
+  > **Adopter note:** if your `pending/` queue has been growing without ever
+  > shrinking, this is why. One consumer reached **284 pending proposals** across
+  > 136 files with its last completed walk 7 days earlier. Nothing is lost —
+  > re-run the walk after upgrading.
+
+  Flattening also removes any path-traversal reach an id had: an id of
+  `../../../etc/pwned` previously addressed a path outside the queue entirely.
+
+- **The queue tests could not have caught the above.** `sampleProposal()` built
+  ids as bare words (`"aaa"`, `"only"`) — a shape no emitter produces — so the
+  suite only ever proved the module agreed with its own fixture. The fixture now
+  uses the conventional `<workflowId>/<slug>` form, which alone turns two
+  pre-existing `moveProposal` tests red against the old code, plus a regression
+  test for the slash id, a traversal test, and unit coverage for the new helper.
+
+
 ## [3.0.0-beta.6] — 2026-07-10 — detector path resolution
 
 Where beta.5 made audit failures *visible*, beta.6 makes the runtime *resolve
