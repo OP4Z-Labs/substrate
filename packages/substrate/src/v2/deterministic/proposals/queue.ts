@@ -5,8 +5,8 @@
  *
  *   substrate/proposals/
  *     pending/<date>-<workflow>-<sha-prefix>.md
- *     applied/<date>-<id>.md
- *     rejected/<date>-<id>.md
+ *     applied/<date>-<id>.md      — <id> filename-sanitised; see
+ *     rejected/<date>-<id>.md       proposalIdToFilenamePart
  *
  * Each pending file groups one workflow run's proposals under a top
  * heading; each proposal becomes a `## <kind> proposal` subsection
@@ -261,7 +261,7 @@ export function moveProposal(options: MoveProposalOptions): MoveProposalResult {
   const layout = ensureQueueLayout(options.cwd);
   const destDir = options.toStatus === "applied" ? layout.appliedDir : layout.rejectedDir;
   const date = formatDate(options.now ?? new Date());
-  const destFilename = `${date}-${options.proposal.id}.md`;
+  const destFilename = `${date}-${proposalIdToFilenamePart(options.proposal.id)}.md`;
   const destPath = join(destDir, destFilename);
 
   const updatedProposal: Proposal = {
@@ -329,6 +329,25 @@ function formatDate(d: Date): string {
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   const dd = String(d.getUTCDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Make a proposal id safe to embed in a filename.
+ *
+ * Proposal ids are conventionally `<workflowId>/<slug>` — that is the form
+ * the docs prescribe and the form real emitters produce. Interpolating one
+ * straight into a path made the destination a *subdirectory* that nothing
+ * creates, so `moveProposal` threw `ENOENT` for every conventionally-named
+ * proposal: accept and reject were both unreachable, and only `deferProposal`
+ * (which never builds a path from the id) worked. A queue in that state can
+ * only grow.
+ *
+ * Collapsing every run of non-portable characters to `-` also removes any
+ * path-traversal reach an id might otherwise have had.
+ */
+export function proposalIdToFilenamePart(id: string): string {
+  const safe = id.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "");
+  return safe.length > 0 ? safe : "proposal";
 }
 
 /**

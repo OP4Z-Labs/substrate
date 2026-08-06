@@ -13,6 +13,7 @@ import {
   listPending,
   moveProposal,
   parsePendingFile,
+  proposalIdToFilenamePart,
   queueStats,
   renderPendingFile,
   resolveQueueLayout,
@@ -33,9 +34,15 @@ afterEach(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 
-function sampleProposal(id: string, overrides: Partial<Proposal> = {}): Proposal {
+/**
+ * Ids here are `<workflowId>/<slug>` — the conventional form real emitters
+ * produce. They used to be bare words (`"aaa"`), which is why every test in
+ * this file passed while `moveProposal` threw ENOENT on every real proposal:
+ * the fixture exercised a shape production never emits. Keep the slash.
+ */
+function sampleProposal(slug: string, overrides: Partial<Proposal> = {}): Proposal {
   return {
-    id,
+    id: `tackle-task/${slug}`,
     workflowId: "tackle-task",
     kind: "add-to-workflow-step",
     confidence: "high",
@@ -94,8 +101,8 @@ describe("writePendingFile + parsePendingFile", () => {
     const parsed = parsePendingFile(r.path);
     expect(parsed.proposals).toHaveLength(2);
     expect(parsed.proposals.map((p) => p.id)).toEqual([
-      "aaa111bbb222",
-      "ccc333ddd444",
+      "tackle-task/aaa111bbb222",
+      "tackle-task/ccc333ddd444",
     ]);
     expect(parsed.workflowId).toBe("tackle-task");
     expect(parsed.shaPrefix).toBe("deadbeef");
@@ -167,7 +174,7 @@ describe("moveProposal", () => {
     expect(moveResult.pendingFileRemoved).toBe(false);
     expect(moveResult.remaining).toBe(1);
     const parsed = parsePendingFile(r.path);
-    expect(parsed.proposals.map((p) => p.id)).toEqual(["bbb"]);
+    expect(parsed.proposals.map((p) => p.id)).toEqual(["tackle-task/bbb"]);
     const applied = listByStatus({ cwd: tmpRoot, status: "applied" });
     expect(applied).toHaveLength(1);
     expect(applied[0].proposals[0].status).toBe("applied");
@@ -197,6 +204,84 @@ describe("moveProposal", () => {
     const raw = readFileSync(rejected[0].path, "utf8");
     expect(raw).toContain("- **Reason:** duplicate");
   });
+
+  // Regression: the destination filename interpolated the raw proposal id, so a
+  // conventional `<workflowId>/<slug>` id addressed a subdirectory that nothing
+  // creates and every move threw ENOENT. Accept and reject were both unreachable
+  // in production while the whole suite stayed green, because the fixture used
+  // bare-word ids. A consumer's queue reached 284 pending proposals this way —
+  // only `deferProposal`, which never builds a path from the id, still worked.
+  it("moves a proposal whose id contains a slash (the conventional form)", () => {
+    const proposal = sampleProposal("copy-artifacts-into-worktree");
+    expect(proposal.id).toContain("/");
+    const r = writePendingFile({
+      workflowId: "tackle-task",
+      shaPrefix: "abc12345",
+      proposals: [proposal],
+      cwd: tmpRoot,
+      now: NOW,
+    });
+    const result = moveProposal({
+      cwd: tmpRoot,
+      fromPath: r.path,
+      proposal,
+      toStatus: "applied",
+      now: NOW,
+    });
+    expect(existsSync(result.destPath)).toBe(true);
+    // Flattened into the applied dir itself, not a per-workflow subdirectory.
+    expect(join(tmpRoot, "substrate", "proposals", "applied")).toBe(
+      result.destPath.slice(0, result.destPath.lastIndexOf("/")),
+    );
+    // The id itself round-trips unflattened — only the filename is sanitised.
+    const applied = listByStatus({ cwd: tmpRoot, status: "applied" });
+    expect(applied[0].proposals[0].id).toBe("tackle-task/copy-artifacts-into-worktree");
+  });
+
+  it("cannot be made to write outside the queue by a traversal-shaped id", () => {
+    const proposal = sampleProposal("x", { id: "../../../etc/pwned" } as Partial<Proposal>);
+    const r = writePendingFile({
+      workflowId: "tackle-task",
+      shaPrefix: "abc12345",
+      proposals: [proposal],
+      cwd: tmpRoot,
+      now: NOW,
+    });
+    const result = moveProposal({
+      cwd: tmpRoot,
+      fromPath: r.path,
+      proposal,
+      toStatus: "rejected",
+      now: NOW,
+    });
+    expect(result.destPath).toContain(join("substrate", "proposals", "rejected"));
+    expect(result.destPath).not.toContain("..");
+    expect(existsSync(result.destPath)).toBe(true);
+  });
+});
+
+describe("proposalIdToFilenamePart", () => {
+  it("flattens the conventional workflow/slug id", () => {
+    expect(proposalIdToFilenamePart("task-tackle/copy-artifacts")).toBe(
+      "task-tackle-copy-artifacts",
+    );
+  });
+
+  it("strips traversal and collapses runs of unsafe characters", () => {
+    expect(proposalIdToFilenamePart("../../etc/passwd")).toBe("etc-passwd");
+    expect(proposalIdToFilenamePart("a//b\\\\c")).toBe("a-b-c");
+  });
+
+  it("never returns an empty filename part", () => {
+    expect(proposalIdToFilenamePart("///")).toBe("proposal");
+    expect(proposalIdToFilenamePart("")).toBe("proposal");
+  });
+
+  it("leaves an already-safe id untouched", () => {
+    expect(proposalIdToFilenamePart("spine-selfcheck-must-fail")).toBe(
+      "spine-selfcheck-must-fail",
+    );
+  });
 });
 
 describe("deferProposal", () => {
@@ -209,7 +294,7 @@ describe("deferProposal", () => {
       cwd: tmpRoot,
       now: NOW,
     });
-    const ok = deferProposal({ pendingPath: r.path, proposalId: "only" });
+    const ok = deferProposal({ pendingPath: r.path, proposalId: "tackle-task/only" });
     expect(ok).toBe(true);
     const parsed = parsePendingFile(r.path);
     expect(parsed.proposals[0].status).toBe("deferred");
