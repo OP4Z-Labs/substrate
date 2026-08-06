@@ -4,7 +4,12 @@ All notable changes to the substrate CLI are documented in this file.
 Adheres roughly to [Keep a Changelog](https://keepachangelog.com).
 
 
-## [Unreleased]
+## [3.0.0-beta.7] — 2026-08-06 — the proposal walk can finish
+
+beta.6 fixed which files a rule scans. beta.7 fixes something more basic: the
+proposal walker could not **complete**. Accept and reject both threw on every
+conventionally-named proposal, so a queue could only ever grow — and the tests
+could not see it, because their fixture used an id shape no emitter produces.
 
 ### Fixed
 
